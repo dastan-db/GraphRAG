@@ -1,3 +1,4 @@
 # GraphRAG
 
 GraphRAG project.
+# GraphRAG
