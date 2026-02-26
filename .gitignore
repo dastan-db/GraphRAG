@@ -1,0 +1,46 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build / dist
+dist/
+build/
+*.egg-info/
+*.egg
+
+# Node (if used)
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Logs and databases
+*.log
+*.sqlite
+*.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Secrets and keys
+*.pem
+secrets/
