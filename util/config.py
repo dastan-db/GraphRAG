@@ -14,6 +14,8 @@ if 'config' not in locals():
 config['catalog'] = 'main'
 config['schema'] = 'graphrag_bible'
 config['llm_endpoint'] = 'databricks-meta-llama-3-3-70b-instruct'
+config['small_llm_endpoint'] = 'databricks-meta-llama-3-1-8b-instruct'
+config['embedding_endpoint'] = 'databricks-gte-large-en'
 
 # COMMAND ----------
 

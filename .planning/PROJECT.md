@@ -4,14 +4,15 @@
 
 ## Vision
 
-GraphRAG: build a retrieval-augmented system that uses a knowledge graph (entities + relationships) to improve RAG quality and reasoning over documents.
+GraphRAG: build a retrieval-augmented system that uses a knowledge graph to deliver **auditable, traceable, reproducible** AI reasoning over documents. The core thesis is that structured retrieval (graph traversal with provenance) solves the enterprise governance problem — every answer can be audited, every claim traced to source data, every result reproduced deterministically.
 
 ## Scope (current milestone)
 
-- Purpose: Enable structured, graph-based context for LLM queries.
-- Stack: To be defined during phases (Python/Databricks ecosystem preferred; see existing .cursor/skills).
+- Purpose: Demonstrate that graph-structured retrieval produces auditable, grounded AI reasoning — and prove it with governance-focused evaluation metrics.
+- Demo corpus: Five books of the King James Bible (Genesis, Exodus, Ruth, Matthew, Acts) — chosen for lineage density and verifiable ground truth.
+- Stack: Python/Databricks ecosystem — Unity Catalog, Delta Lake, Foundation Model API, LangGraph, MLflow.
 - Constraints: Keep plans atomic, context-sized; use .planning/ as single source of truth.
 
 ## Out of scope (this milestone)
 
-- Full product UI, multi-tenant auth, and production ops are out of scope until later milestones.
+- Full product UI, multi-tenant auth, automated policy enforcement rules, and production ops are out of scope until later milestones.

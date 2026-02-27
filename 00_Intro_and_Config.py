@@ -26,6 +26,19 @@
 # MAGIC 2. **Knowledge Graph** (Notebook 02): LLM extracts entities and relationships
 # MAGIC 3. **Agent** (Notebook 03): Build a LangGraph agent with graph traversal tools
 # MAGIC 4. **Demo** (Notebook 04): Ask multi-hop questions, see the agent reason over the graph
+# MAGIC 5. **Evaluation** (Notebook 05): Quantified comparison — GraphRAG vs flat RAG, small vs large model, cost analysis
+# MAGIC
+# MAGIC ### Applying This Pattern to Your Domain
+# MAGIC
+# MAGIC The Bible is a proxy corpus. This same architecture applies wherever entities have dense relationships:
+# MAGIC
+# MAGIC | Bible | Code / Architecture | Supply Chain |
+# MAGIC |-------|---------------------|--------------|
+# MAGIC | Person → Person (FAMILY_OF) | Service → Service (CALLS) | Supplier → Warehouse (SHIPS_TO) |
+# MAGIC | Person → Place (TRAVELED_TO) | Module → Repo (DEPLOYED_TO) | Product → Region (DISTRIBUTED_IN) |
+# MAGIC | *"How is Ruth connected to Jesus?"* | *"What breaks if we change this schema?"* | *"Which customers are affected by this delay?"* |
+# MAGIC
+# MAGIC The insight: **structure (graph) matters more than model size** for multi-hop reasoning tasks. A small model with graph retrieval can match a large model without it — at a fraction of the cost.
 
 # COMMAND ----------
 

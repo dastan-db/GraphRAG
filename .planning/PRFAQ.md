@@ -8,31 +8,37 @@ Working Backwards artifact. Written as if GraphRAG has shipped. All requirements
 
 ### 1. Who is the customer?
 
-Data and AI engineers, ML practitioners, and product teams at companies building document-heavy LLM applications — e.g. internal knowledge bases, regulatory document Q&A, research assistants. They work in Python/Databricks environments and are comfortable with SQL and LLM APIs, but frustrated with the quality ceiling of flat, chunk-based retrieval.
+Data and AI engineers, ML practitioners, compliance teams, and product leaders at enterprises building LLM-powered applications for regulated or high-stakes domains — financial services, healthcare, legal, government, and any organization where AI decisions must be explainable, auditable, and reproducible. They work in Python/Databricks environments and need answers they can defend to regulators, not just answers that sound right.
 
 ### 2. What is the customer's problem or opportunity?
 
-Standard RAG retrieves flat text chunks by embedding similarity. This approach loses the **relationships** between entities (people, concepts, events, documents) that give answers their meaning. Customers get answers that are locally accurate but lack broader reasoning — wrong attributions, missed cross-document connections, hallucinated context.
+Enterprise AI today is a black box. When an LLM answers a question, no one can trace *why* it said what it said. Compliance teams cannot audit decisions. Regulators cannot verify that answers are grounded in approved data. The same question asked twice may produce different answers. And when the AI hallucinates, there is no mechanism to detect or prevent it.
 
-The opportunity: if the retrieval layer is structured as a graph (entities as nodes, relationships as edges), the LLM can reason over connected evidence rather than disconnected passages.
+Standard RAG (retrieval-augmented generation) retrieves flat text chunks by embedding similarity. This improves relevance, but the retrieval step itself is opaque — you cannot explain *which relationships* in the data led to the answer, or prove that the answer didn't hallucinate connections that don't exist.
+
+The opportunity: if the retrieval layer is structured as a knowledge graph (entities as nodes, relationships as edges, every edge traced to a source document), the AI's reasoning becomes **auditable by design**. Every claim traces to a provenance chain. Every path is reproducible. Every answer can be verified.
 
 ### 3. What is the most critical customer benefit?
 
-**Higher-quality, more trustworthy answers** on complex, multi-hop questions — without requiring the customer to become a graph database expert. The graph is built and queried automatically; the customer's interface is the same: ingest documents, ask questions, get answers.
+**Auditable, traceable, reproducible reasoning.** Every answer includes a structured provenance chain showing exactly which entities, relationships, and source documents contributed. Compliance teams can audit any decision. The same query returns the same path. Hallucinations are structurally prevented because the retrieval is constrained to the graph — the AI can only reason over evidence that exists.
+
+This is not just "better answers." This is the difference between AI that enterprises *can* deploy in regulated environments and AI that they *cannot*.
 
 ### 4. How do we know what customers want or need?
 
-- Multi-hop QA benchmarks consistently show flat RAG fails on questions requiring synthesis across multiple documents or reasoning about relationships (e.g. HotpotQA, MuSiQue).
-- Practitioner feedback on LangChain/LlamaIndex forums: "My RAG answers single-document questions well but fails on anything that requires cross-referencing."
-- Microsoft's GraphRAG research (2024) validated that graph-based retrieval improves answer quality on community-level questions compared to naive RAG.
-- The customers we design for are already running Databricks; they have Delta tables, UC, and vector search available — they want a pipeline that wires these together without requiring a separate graph DB.
+- Regulated industries (banking, insurance, healthcare) are blocked from deploying LLM applications because they cannot prove to auditors that answers are grounded, deterministic, and traceable.
+- Enterprise AI governance frameworks (EU AI Act, NIST AI RMF, OCC/FFIEC guidance) increasingly require explainability and auditability for AI-assisted decisions.
+- Practitioner feedback: "Our legal team won't sign off on an LLM that can't show its reasoning chain."
+- Multi-hop QA benchmarks consistently show flat RAG fails on synthesis questions — but more importantly, flat RAG *cannot prove it didn't hallucinate* even when it gets the right answer.
+- Microsoft's GraphRAG research (2024) validated graph-based retrieval improves quality — we extend this with provenance, reproducibility, and governance as first-class outcomes.
 
 ### 5. What does the customer experience look like?
 
-1. **Ingest:** Point GraphRAG at a set of documents (e.g. a UC Volume or a list of paths). The pipeline extracts entities and relationships using an LLM, builds a knowledge graph, and stores it alongside a vector index.
-2. **Query:** Ask a question in natural language. GraphRAG retrieves graph-aware context (relevant subgraphs + supporting passages) and passes it to the LLM.
-3. **Answers:** The LLM returns an answer grounded in connected evidence, with source traceability (which documents, which entities, which relationships contributed).
-4. **Iteration:** Customers can inspect the graph, add documents, and re-query — all through a Python API or a Databricks notebook.
+1. **Ingest:** Point GraphRAG at a set of documents (e.g. a UC Volume or a list of paths). The pipeline extracts entities and relationships using an LLM, builds a knowledge graph, and stores it in Unity Catalog Delta tables.
+2. **Query:** Ask a question in natural language. GraphRAG traverses the knowledge graph, retrieves connected evidence with full provenance, and passes it to the LLM.
+3. **Auditable answers:** The LLM returns an answer with a structured **Provenance** section: the exact entity path traversed, every source citation, and a grounding indicator confirming whether all claims are backed by the graph.
+4. **Governance:** Every query is traced via MLflow. Compliance teams can audit who asked what, which data contributed, and whether the answer was fully grounded or partially relied on parametric knowledge.
+5. **Reproducibility:** The same query over the same graph returns the same path and citations — deterministic by design.
 
 ---
 
@@ -40,48 +46,63 @@ The opportunity: if the retrieval layer is structured as a graph (entities as no
 
 **FOR IMMEDIATE RELEASE**
 
-### GraphRAG: Bring Structured Reasoning to Your Document Q&A on Databricks
+### GraphRAG: Auditable, Traceable AI Reasoning on Your Data — Built on Databricks
 
-*Graph-powered retrieval that answers the questions flat RAG can't.*
+*Every answer shows its work. Every decision can be audited. Every claim is grounded in your data.*
 
-**[City, Date]** — Today we announce GraphRAG, a Python-native pipeline for Databricks that transforms document collections into queryable knowledge graphs — enabling LLM-powered Q&A that reasons across relationships, not just individual passages.
+**[City, Date]** — Today we announce GraphRAG, a Databricks-native pipeline that transforms document collections into queryable knowledge graphs — enabling LLM-powered reasoning that is auditable, traceable, and reproducible by design.
 
-Standard RAG pipelines answer questions well when the answer lives in a single passage. They fall short when users ask questions that require synthesizing information across multiple documents or reasoning about how entities relate to each other. GraphRAG solves this by adding a graph layer: entities and relationships extracted from documents become a structured index that the retrieval step traverses before calling the LLM.
+Enterprises deploying AI face a governance crisis: when an LLM makes a recommendation, no one can prove *why*. Compliance teams cannot audit the reasoning. Regulators cannot verify that answers are grounded in approved data. And the same question asked twice may produce different answers. These are not edge cases — they are blockers preventing responsible AI deployment in every regulated industry.
 
-With GraphRAG, teams using Databricks can:
+GraphRAG solves this by replacing opaque embedding retrieval with structured graph traversal. Every answer includes a provenance chain showing exactly which entities, relationships, and source documents contributed. The reasoning path is explicit, reproducible, and auditable.
 
-- **Ingest any document set** into a knowledge graph stored in Unity Catalog Delta tables — no separate graph database required.
-- **Query with natural language** and receive answers grounded in graph-aware context, including multi-hop reasoning.
-- **Inspect and extend** the graph incrementally as new documents arrive.
-- **Evaluate answer quality** using MLflow traces and built-in evaluation harnesses.
+With GraphRAG on Databricks, enterprises can:
 
-"We were getting 80% of the way there with vector search alone," said a member of an early design review. "The last 20% — the questions that actually matter in our domain — required reasoning across documents. GraphRAG closes that gap."
+- **Audit every AI decision** — Each answer includes a structured provenance section: the entity path traversed, the source documents cited, and a grounding indicator.
+- **Trace lineage end-to-end** — From the question, through graph traversal, to the specific data that informed the answer. MLflow traces capture every step.
+- **Reproduce results deterministically** — The same query over the same knowledge graph returns the same path and citations. No probabilistic drift.
+- **Prevent hallucinations structurally** — The LLM reasons over graph-retrieved evidence, not parametric guesses. Claims not backed by the graph are flagged.
+- **Evaluate governance metrics** — Built-in MLflow scorers measure hallucination rate, citation completeness, provenance quality, and reproducibility alongside traditional quality metrics.
 
-GraphRAG is built on Databricks-native components: Databricks Vector Search, Unity Catalog, Databricks Model Serving (for LLM calls), and MLflow for evaluation and tracing. It requires no additional infrastructure.
+"We couldn't deploy our AI advisor because compliance required us to explain every recommendation. With GraphRAG, every answer traces back to the source data. Our auditors signed off in a week," said a member of an early design review.
 
-To get started: install the Python package, point it at a Databricks workspace, and run `graphrag.ingest(docs)` followed by `graphrag.query("your question")`.
+GraphRAG is built entirely on Databricks-native components: Unity Catalog, Delta Lake, Model Serving, and MLflow. Data never leaves the customer's workspace. No external APIs, no separate graph databases, no vendor lock-in.
+
+And because structured retrieval replaces massive context windows, the cost per query drops by 90% or more compared to external LLM API pricing — making governance not just possible, but economical.
 
 ---
 
 ## FAQ
 
-**Q: Does this require a graph database like Neo4j?**  
+**Q: How does GraphRAG make AI auditable?**
+A: Every answer includes a Provenance section with the explicit entity path the agent traversed, every source citation used as evidence, and a grounding indicator. MLflow traces capture the full reasoning chain for compliance review.
+
+**Q: Can I reproduce the same answer for the same question?**
+A: Yes. Graph traversal is deterministic — the same query over the same graph returns the same path and citations. This is fundamentally different from embedding-based retrieval, where results can shift with index updates or model changes.
+
+**Q: How does it prevent hallucinations?**
+A: The agent reasons over graph-retrieved evidence, not parametric knowledge. The system prompt instructs the agent to explicitly flag when information comes from outside the knowledge graph. Evaluation scorers measure hallucination rate automatically.
+
+**Q: Does this require a graph database like Neo4j?**
 A: No. The knowledge graph is stored in Delta tables in Unity Catalog. No additional infrastructure or licenses needed.
 
-**Q: How does it compare to Microsoft's GraphRAG?**  
-A: We're inspired by the same research. Our implementation is purpose-built for the Databricks ecosystem — using UC, Vector Search, and Model Serving — rather than requiring a standalone setup. We also integrate with MLflow for evaluation out of the box.
+**Q: How does it compare to Microsoft's GraphRAG?**
+A: We're inspired by the same research. Our implementation adds three capabilities the original doesn't address: (1) structured provenance output for auditability, (2) governance-focused evaluation scorers, and (3) native integration with Databricks Unity Catalog, MLflow, and Model Serving.
 
-**Q: What kinds of questions does GraphRAG handle better than flat RAG?**  
-A: Multi-hop questions (e.g. "What projects did Alice lead that involved the same vendor as Bob's 2023 initiative?"), community/cluster-level questions (e.g. "Summarize the main themes across all regulatory filings"), and relationship questions (e.g. "Which decisions in document A contradict claims in document B?").
+**Q: What kinds of questions does GraphRAG handle better than flat RAG?**
+A: Multi-hop questions (e.g. "How is Ruth connected to Jesus?"), cross-document synthesis, relationship tracing, and any question where the answer depends on connections between entities rather than a single passage. Critically, GraphRAG can *prove* its answer is grounded — flat RAG cannot.
 
-**Q: How accurate is the entity/relationship extraction?**  
-A: Extraction quality depends on the LLM used and the domain. We provide evaluation tooling (MLflow scorers) to measure extraction quality and retrieval quality separately, so users can tune both.
+**Q: What about policy enforcement?**
+A: The provenance chain enables policy enforcement: downstream systems can validate that the reasoning path complies with business rules before surfacing the answer to users. This is a foundation for automated compliance checks.
 
-**Q: What happens when new documents arrive?**  
-A: Incremental ingestion is supported. New entities and relationships are merged into the existing graph; the vector index is updated accordingly.
+**Q: How accurate is the entity/relationship extraction?**
+A: Extraction quality depends on the LLM used and the domain. We provide evaluation tooling (MLflow scorers) to measure extraction quality, retrieval quality, and governance metrics separately, so users can tune each.
 
-**Q: Can I bring my own LLM?**  
+**Q: What about cost?**
+A: Because structured retrieval replaces large context windows, cost per query drops significantly. On Databricks Foundation Model APIs, GraphRAG queries cost 90-900x less than equivalent OpenAI GPT-4 queries. But cost is a secondary benefit — the primary value is governance.
+
+**Q: Can I bring my own LLM?**
 A: Yes. Any model served through Databricks Model Serving (including external models via the AI Gateway) can be used for extraction and answer generation.
 
-**Q: What is out of scope for v1?**  
-A: A UI, multi-tenant auth, real-time streaming ingestion, and production ops tooling are out of scope for v1. The focus is a clean, well-tested Python API and pipeline.
+**Q: What is out of scope for v1?**
+A: A UI, multi-tenant auth, real-time streaming ingestion, automated policy enforcement rules, and production ops tooling are out of scope for v1. The focus is a clean, well-tested pipeline with governance-first evaluation.

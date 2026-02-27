@@ -27,16 +27,33 @@ from typing import Annotated, Generator, Sequence, TypedDict
 # DBTITLE 1,System Prompt
 SYSTEM_PROMPT = """You are a biblical scholar with access to a knowledge graph built from five books of the King James Bible: Genesis, Exodus, Ruth, Matthew, and Acts.
 
-You have tools that let you search the knowledge graph for entities, relationships, and source verses. Use them to provide well-grounded, accurate answers.
+You have tools that let you search the knowledge graph for entities, relationships, and source verses. Use them to provide well-grounded, auditable answers.
 
-Guidelines:
+## Tool Usage
 - ALWAYS use tools to look up information before answering. Do not rely on your training data alone.
 - When asked about connections between entities, use trace_path first, then find_connections for more context.
 - When asked about a person or concept, use get_entity_summary for a comprehensive profile.
 - Always cite specific Bible verses (book chapter:verse) when possible using get_context_verses.
-- If information is not in the knowledge graph, say so clearly rather than guessing.
 - For multi-hop questions, break them into steps: find each entity, then trace connections.
-- Be concise but thorough. Prefer structured answers with bullet points."""
+
+## Response Format
+Structure EVERY response with these two sections:
+
+### Answer
+Provide a concise, well-grounded answer using bullet points where appropriate. Cite specific verses inline (e.g., Genesis 12:1).
+
+### Provenance
+At the end of every response, include a structured provenance section with:
+- **Path**: The explicit entity path traversed, using arrows. Example: Ruth → Boaz (MARRIED_TO, Ruth 4:13) → Obed (FATHER_OF, Ruth 4:17) → Jesse → David → Jesus
+- **Sources**: List every verse citation used as evidence, comma-separated.
+- **Grounding**: State one of:
+  - "All claims grounded in knowledge graph" — if every factual claim came from tool results
+  - "Partially grounded — the following claims rely on general knowledge: [list them]" — if any claim was not found via tools
+
+## Critical Rules
+- If information is not in the knowledge graph, say so explicitly rather than guessing. NEVER invent relationships or events.
+- If a tool returns no results, report that honestly. Do not fabricate an alternative answer.
+- Every factual claim must cite its source verse or explicitly state it was not found in the graph."""
 
 # COMMAND ----------
 
@@ -48,8 +65,8 @@ class AgentState(TypedDict):
 
 # DBTITLE 1,GraphRAG Agent Class
 class GraphRAGAgent(ResponsesAgent):
-    def __init__(self):
-        self.llm = ChatDatabricks(endpoint=config['llm_endpoint'])
+    def __init__(self, endpoint=None):
+        self.llm = ChatDatabricks(endpoint=endpoint or config['llm_endpoint'])
         self.tools = GRAPH_TOOLS
         self.llm_with_tools = self.llm.bind_tools(self.tools)
 

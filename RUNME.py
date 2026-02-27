@@ -68,6 +68,12 @@ job_json = {
             "job_cluster_key": "graphrag_cluster",
             "depends_on": [{"task_key": "03_Build_Agent"}],
         },
+        {
+            "task_key": "05_Evaluation",
+            "notebook_task": {"notebook_path": f"{notebook_dir}/05_Evaluation"},
+            "job_cluster_key": "graphrag_cluster",
+            "depends_on": [{"task_key": "03_Build_Agent"}],
+        },
     ],
     "job_clusters": [
         {

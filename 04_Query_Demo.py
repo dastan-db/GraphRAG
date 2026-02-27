@@ -1,8 +1,10 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # 04 — Query Demo: Ask the Bible Knowledge Graph
+# MAGIC # 04 — Query Demo: Auditable AI Reasoning on the Bible Knowledge Graph
 # MAGIC
-# MAGIC This notebook showcases the GraphRAG agent answering multi-hop questions about the Bible by traversing the knowledge graph. Watch the agent use its tools — `find_entity`, `find_connections`, `trace_path`, `get_context_verses`, and `get_entity_summary` — to build grounded answers.
+# MAGIC This notebook demonstrates GraphRAG answering multi-hop questions with **full auditability**: every answer includes a structured **Provenance** section showing the exact entity path traversed, the source verses cited, and whether all claims are grounded in the knowledge graph.
+# MAGIC
+# MAGIC Watch the agent use its tools — `find_entity`, `find_connections`, `trace_path`, `get_context_verses`, and `get_entity_summary` — then produce answers that an auditor can verify claim by claim.
 
 # COMMAND ----------
 
@@ -100,11 +102,13 @@ display(
 # MAGIC ---
 # MAGIC ## Demo Queries
 # MAGIC
-# MAGIC ### Query 1: Multi-hop Lineage
+# MAGIC ### Query 1: Multi-hop Lineage (The Flagship Audit Test)
 # MAGIC *"How is Ruth connected to Jesus?"*
 # MAGIC
 # MAGIC This requires tracing: Ruth → Boaz → Obed → Jesse → David → ... → Jesus.
 # MAGIC The agent should use `trace_path` and `find_connections` to build the chain.
+# MAGIC
+# MAGIC **What to look for:** The **Provenance** section at the end of the response. This is what an enterprise auditor sees — the explicit path, every citation, and the grounding indicator. This is the difference between "the AI said so" and "here's the proof."
 
 # COMMAND ----------
 
@@ -208,17 +212,18 @@ if active_run:
 # MAGIC
 # MAGIC ## Summary
 # MAGIC
-# MAGIC This demo showed how GraphRAG answers questions that **flat RAG cannot**:
+# MAGIC This demo showed how GraphRAG delivers what enterprise AI requires: **auditable, traceable, reproducible reasoning.**
 # MAGIC
-# MAGIC | Question Type | Flat RAG | GraphRAG |
-# MAGIC |--------------|----------|----------|
-# MAGIC | Multi-hop lineage (Ruth → Jesus) | Misses intermediate connections | Traces the full path via graph traversal |
-# MAGIC | Cross-book overlap | Returns chunks from one book only | Queries across all books structurally |
-# MAGIC | Event chains | May miss ordering or connections | Follows relationship chains explicitly |
-# MAGIC | Cross-testament references | Retrieves similar text, not structural links | Links entities across testaments via the graph |
-# MAGIC | Comparative analysis | Generic comparisons from training data | Grounded comparison from actual graph relationships |
+# MAGIC | Governance Property | Flat RAG | GraphRAG |
+# MAGIC |---|---|---|
+# MAGIC | **Provenance chain** | No structured path — retrieval is opaque | Explicit entity path with relationship types and source citations |
+# MAGIC | **Auditability** | Cannot trace why the answer was given | Every claim links to a verse; the full reasoning chain is in MLflow traces |
+# MAGIC | **Reproducibility** | Embedding similarity can drift | Deterministic graph traversal returns the same path every time |
+# MAGIC | **Hallucination detection** | Cannot distinguish grounded from invented claims | Grounding indicator flags when claims come from outside the graph |
+# MAGIC | **Multi-hop reasoning** | Misses intermediate connections | Traces the full path through the knowledge graph |
+# MAGIC | **Cross-document synthesis** | Returns chunks from one source only | Traverses relationships across all five books structurally |
 # MAGIC
-# MAGIC All answers are **grounded** in the knowledge graph and **traceable** to specific Bible verses.
+# MAGIC Every answer is **grounded** in the knowledge graph, **traceable** to specific Bible verses, and **reproducible** on demand.
 # MAGIC
 # MAGIC ---
 # MAGIC &copy; 2026 Databricks, Inc. All rights reserved.
