@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 class Neo4jConfig(BaseModel):
     uri: str = Field(default="bolt://localhost:7687")
     username: str = Field(default="neo4j")
-    password: str = Field(default="")
+    password: str = Field(default="graphrag")
     database: str = Field(default="neo4j")
 
 
