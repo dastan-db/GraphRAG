@@ -2,10 +2,12 @@
 
 ## Milestone: v1
 
-| Phase | Name                     | Status   | Notes                    |
-|-------|--------------------------|----------|--------------------------|
-| 01    | Project setup and core  | planned  | Bootstrap repo and pipeline |
+| Phase | Name                            | Status    | Notes                                        |
+|-------|---------------------------------|-----------|----------------------------------------------|
+| 01    | Solution Accelerator (full loop)| complete  | Bible KG + agent + demo, Databricks-native   |
 
 ## Next
 
-After phase 01: discuss → plan → execute → verify, then add phases as needed.
+- Evaluate agent quality with MLflow scorers
+- Add Vector Search for hybrid retrieval
+- Extend to additional Bible books or other document corpora
