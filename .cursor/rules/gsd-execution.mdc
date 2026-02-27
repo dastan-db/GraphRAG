@@ -82,3 +82,47 @@ Every decomposition in the planning hierarchy — PRFAQ → requirements → pha
 - Root: `.planning/PRFAQ.md` (end in mind), `PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md`, `config.json`
 - Phase: `.planning/phases/XX-slug/CONTEXT.md`, `RESEARCH.md`, `XX-01-PLAN.md`, `XX-01-SUMMARY.md`, `VERIFICATION.md`
 - Quick: `.planning/quick/NNN-desc/PLAN.md`, `SUMMARY.md`
+
+---
+
+## Drucker Discipline (Learning Loops)
+
+### Hard Gates (These are REQUIREMENTS, not suggestions)
+
+**Before Phase N+1 planning can begin:**
+1. Phase N's `RETROSPECTIVE.md` MUST exist in `.planning/phases/[phase-N-folder]/`
+2. Phase N+1's `CONTRIBUTION-GATE.md` MUST be completed and approved (all 5 questions = YES)
+3. Phase N+1 planning MUST include a section: "Adjustments from Phase N Retrospective: [list specific changes being applied]"
+
+If any of these are missing, STOP and create them before proceeding.
+
+**After each phase completes (before the commit):**
+1. Quality & Learning Specialist runs verification + evaluation
+2. VERIFICATION.md is written
+3. EVAL-REPORT.md is written
+4. Main agent writes RETROSPECTIVE.md using the specialist's observations + own judgment
+5. Main agent updates relevant decision files in `.planning/decisions/` with validation evidence
+6. All Drucker artifacts are included in the phase completion commit
+
+**For major decisions during any phase:**
+1. Create a new decision file: `.planning/decisions/D-NNN-short-slug.md`
+2. Use the template from `.planning/templates/DECISION-TEMPLATE.md`
+3. Classify reversibility (one-way door / two-way door)
+4. Include platform leverage check
+5. Update `.planning/decisions/README.md` index
+
+### Mid-Phase Checkpoint (for phases longer than 1 week)
+At the halfway point, the main agent answers:
+1. Are we still on track against the phase plan?
+2. Any surprises or unplanned work?
+3. Anything we'd do differently right now?
+
+Document answers briefly in `.planning/phases/[current-phase]/CHECKPOINT.md`. This takes 5 minutes.
+
+### Subagent Coordination
+When executing phase tasks:
+1. Read `.planning/SUBAGENT-COORDINATION.md` for wave structure and file ownership
+2. Spawn specialists in wave order (respect dependencies)
+3. Provide each specialist with: task, requirements, contribution gate, prior retrospective
+4. Quality & Learning Specialist always runs LAST
+5. Use specialist output to inform the Retrospective
