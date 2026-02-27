@@ -1,0 +1,84 @@
+---
+description: GSD-style execution — context from .planning/, XML plans, wave execution, atomic commits
+alwaysApply: true
+---
+
+# GSD execution discipline
+
+When doing **project** or **phase** work (e.g. "new project", "plan phase N", "execute phase N", "quick task"), follow this discipline so the agent delivers consistent, verifiable work without context rot.
+
+## Working Backwards (start with the end in mind)
+
+Amazon's Working Backwards mechanism: **write the PRFAQ before building**. The PRFAQ is the "end in mind" — requirements and phases must be traceable to the customer outcome it describes.
+
+- **new-project / new-milestone (changing direction):** Before writing REQUIREMENTS or ROADMAP, ensure `.planning/PRFAQ.md` exists and is current. Answer the five questions (who is the customer, what is their problem/opportunity, what is the most critical benefit, how do we know what they want, what does the experience look like), then write a future-oriented press release and FAQ. Derive REQUIREMENTS and ROADMAP from the PRFAQ.
+- **plan-phase / execute-phase:** If `.planning/PRFAQ.md` exists, read it. Ensure phase goals and tasks advance the customer outcome and benefits it describes. Flag anything that is out of scope or off-mission.
+- **Iteration:** For small iterations, only a PR update or FAQ update may be needed — not a full rewrite.
+
+## MECE Principle (Mutually Exclusive, Collectively Exhaustive)
+
+Every decomposition in the planning hierarchy — PRFAQ → requirements → phases → tasks — must be **MECE**:
+
+- **Mutually Exclusive:** No two items at the same level describe overlapping work. Each requirement, phase, and task owns a distinct concern. If two items touch the same file or feature for the same reason, merge or split them.
+- **Collectively Exhaustive:** Items at each level must fully cover the scope defined above them. Requirements must cover all PRFAQ outcomes. Phases must deliver all requirements. Tasks within a phase must deliver the full phase goal — no deliverable is left unassigned.
+
+**Apply MECE at each planning step:**
+
+- **PRFAQ:** The five questions form a MECE set — each addresses a distinct dimension (customer, problem, benefit, evidence, experience). Ensure no dimension is duplicated or omitted.
+- **REQUIREMENTS.md:** Group requirements into named, non-overlapping categories (e.g., Data Model, API, Auth, UI, Observability). Verify each requirement belongs to exactly one category and no category is missing from the scope.
+- **ROADMAP.md phases:** Each phase has a distinct, non-overlapping outcome. Together they deliver the full product. Flag any phase whose scope bleeds into another.
+- **Phase tasks (XML plans):** Each `<task>` owns a distinct concern. No two tasks in the same wave modify the same file for the same reason. Together they must fully implement the phase goal. **Before finalizing a plan, run a MECE check:** (1) scan `<files>` across all tasks for unintended overlap, (2) verify every phase deliverable is assigned to exactly one task.
+
+## Context
+
+- **Before planning or executing:** Read from `.planning/`:
+  - `PRFAQ.md` (if present — the "end in mind")
+  - `PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md`
+  - For a given phase: `phases/XX-phase-slug/CONTEXT.md` and `phases/XX-phase-slug/RESEARCH.md` (if present)
+- Keep context size in mind; do not overload the session. Prefer referencing these files over re-pasting large blocks.
+
+## Plans
+
+- **Phase plans:** Write plans as **XML tasks** in `phases/XX-phase-slug/` with filenames `XX-01-PLAN.md`, `XX-02-PLAN.md`, etc.
+- **Task format (required):**
+  ```xml
+  <task type="auto">
+    <name>Short task name</name>
+    <files>path/to/file1.ext path/to/file2.ext</files>
+    <action>
+      Clear instructions: what to implement, constraints, patterns to use.
+    </action>
+    <verify>How to verify (e.g. command or check)</verify>
+    <done>One-line success criterion</done>
+  </task>
+  ```
+- **Scope:** Keep plans small — typically 2–3 tasks per phase so each task fits in a fresh context window.
+
+## Execution (execute-phase)
+
+- **Discover:** Find all `*-PLAN.md` in the phase folder (e.g. `phases/01-setup/`).
+- **Dependencies:** Infer dependencies from file paths or explicit references. Group plans into **waves**: independent plans in the same wave, dependent plans in later waves.
+- **Run waves:** For each wave, run **independent** plans in parallel (e.g. via `mcp_task` subagents, one plan per subagent). Run waves **sequentially**.
+- **After each completed task:**
+  - Create or update the corresponding `*-SUMMARY.md` (what was done, what changed).
+  - **Commit that task only** — one atomic commit per task. Message format e.g. `feat(01-01): short description`.
+- **After all waves:** Run verifier (if configured): check codebase against phase goals; write `phases/XX-phase-slug/VERIFICATION.md`.
+
+## Verification
+
+- After execution, update `VERIFICATION.md` in the phase folder with results against phase goals.
+- **MECE audit (include in every VERIFICATION.md):**
+  - *Mutual exclusivity:* Did any two tasks duplicate work or modify the same file for the same reason? List any overlaps found.
+  - *Collective exhaustiveness:* Is every phase goal covered by at least one completed task? List any goals with no corresponding task output.
+- If the user runs verify-work (UAT): list testable deliverables, walk through yes/no or issues, optionally spawn a debug subagent for failures and produce fix plans for re-execution.
+
+## Quick mode
+
+- For ad-hoc tasks: Create `.planning/quick/NNN-short-slug/PLAN.md` using the **same XML task format** (single task).
+- Execute the task, write `SUMMARY.md` in that folder, then **one atomic commit**.
+
+## File layout reference
+
+- Root: `.planning/PRFAQ.md` (end in mind), `PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md`, `config.json`
+- Phase: `.planning/phases/XX-slug/CONTEXT.md`, `RESEARCH.md`, `XX-01-PLAN.md`, `XX-01-SUMMARY.md`, `VERIFICATION.md`
+- Quick: `.planning/quick/NNN-desc/PLAN.md`, `SUMMARY.md`
