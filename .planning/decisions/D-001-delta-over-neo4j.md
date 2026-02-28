@@ -3,6 +3,7 @@
 **Phase:** 01-Data-Prep
 **Date Decided:** [YYYY-MM-DD — backfill from memory]
 **Reversibility:** One-way door (migration cost is high mid-project)
+**Implementation Fidelity:** Level 2 (validated, functional — proven through Phases 01-03)
 
 ## Decision
 Use Delta tables as graph backend for v1. Defer Neo4j/Memgraph to v2.

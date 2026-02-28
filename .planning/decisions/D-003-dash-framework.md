@@ -3,6 +3,7 @@
 **Phase:** 03-Interactive-Demo
 **Date Decided:** [YYYY-MM-DD — backfill]
 **Reversibility:** Two-way door (UI layer is decoupled from backend)
+**Implementation Fidelity:** Level 2 (validated — deployed and working)
 
 ## Decision
 Use Dash (Plotly) + dash_bootstrap_components for the interactive web app.

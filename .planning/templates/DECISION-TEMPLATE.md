@@ -3,6 +3,9 @@
 **Phase:** [XX-Phase-Name]
 **Date Decided:** [YYYY-MM-DD]
 **Reversibility:** [One-way door / Two-way door]
+**Implementation Fidelity:** [Level 1 / Level 2 / Level 3]
+
+⚠️ **Red flag check:** If reversibility is "One-way door" AND fidelity is "Level 1" — this is high-stakes architecture on throwaway code. Either promote the code first or reconsider the decision.
 
 ## Decision
 [One sentence: what we chose]

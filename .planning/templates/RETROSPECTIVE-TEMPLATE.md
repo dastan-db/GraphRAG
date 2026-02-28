@@ -24,6 +24,15 @@
 | Unplanned work | 0 | [count] | |
 | Bugs in verification | <5 | [count] | |
 
+## Fidelity Status
+
+| Component | Start Level | End Level | Promoted? | Notes |
+|-----------|------------|-----------|-----------|-------|
+| [component] | [1/2/3] | [1/2/3] | [yes/no] | [why or why not] |
+
+Spike notebooks still in `notebooks/spikes/` from this phase:
+- [list any — these must be promoted to src/ or deleted within 2 phases]
+
 ## Key Insights for Phase N+1
 [What did this phase teach us that changes how we approach the next one?]
 

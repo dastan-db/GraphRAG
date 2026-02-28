@@ -25,6 +25,12 @@
    - [ ] YES — Key adjustments applied: [list]
    - [ ] N/A — First phase.
 
+6. **Target fidelity:** What fidelity level are we building to?
+   - [ ] **Level 1 (Prove It):** Spike notebooks, proving approach works. No production commitment.
+   - [ ] **Level 2 (Shape It):** Extracting to src/ modules, clean interfaces, tested. Ship-ready for SA.
+   - [ ] **Level 3 (Harden It):** Production hardened, error handling, observability, security.
+   - Components at each level: [list which components target which level]
+
 ## Decision
 **Approved:** [YES / NO]
 **If NO:** [What must change before re-review]

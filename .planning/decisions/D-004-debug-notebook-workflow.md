@@ -3,6 +3,7 @@
 **Phase:** Cross-cutting (all phases with pipeline notebooks)
 **Date Decided:** 2026-02-27
 **Reversibility:** Two-way door (can stop producing debug notebooks anytime; production notebooks are unaffected)
+**Implementation Fidelity:** Level 2 (validated — pattern proven with 02_Interactive_Debug.py)
 
 ## Decision
 When building or modifying Databricks pipeline notebooks (`XX_*.py`), always produce a companion `XX_Interactive_Debug.py` with inlined configuration and diagnostic cells. The user runs the debug notebook interactively on a cluster to fix runtime errors, then the agent incorporates fixes back into the production notebook.

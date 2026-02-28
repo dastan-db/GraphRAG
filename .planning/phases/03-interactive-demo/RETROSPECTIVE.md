@@ -30,6 +30,14 @@
 | Planned tasks | [N] | [M completed] | [Scope creep?] |
 | Unplanned work | 0 | [K items] | [What surprised us?] |
 
+## Fidelity Status
+
+| Component | Current Level | Ready for Promotion? | Notes |
+|-----------|--------------|---------------------|-------|
+| Dash app (UI) | Level 2 | No (stable) | Working, deployed, maintained |
+| Mock mode | Level 2 | No (stable) | Permanent fallback pattern |
+| Agent integration | Not started | N/A | Phase 04 — start at Level 1 |
+
 ## Key Insights for Phase 04
 
 **Insight 1:** UI and backend deploy independently. Phase 04 should connect the live agent to the existing mock interface — not rebuild the UI.
@@ -41,6 +49,7 @@
 - Connect live agent endpoint to existing Dash app (don't rebuild UI)
 - Keep mock mode as fallback for demos and testing
 - Budget time for endpoint integration testing that was deferred from Phase 03
+- Start agent work in spike notebooks (Level 1) before extracting to src/
 
 ## Recommendations for Future Phases
 - Use the mock-first pattern for any phase with external dependencies

@@ -3,6 +3,7 @@
 **Phase:** 01-Data-Prep
 **Date Decided:** [YYYY-MM-DD — backfill]
 **Reversibility:** Two-way door (corpus can be swapped without architecture changes)
+**Implementation Fidelity:** Level 2 (validated — extraction and reasoning patterns work)
 
 ## Decision
 Use King James Bible (Genesis, Exodus, Ruth, Matthew, Acts) as demo corpus.
