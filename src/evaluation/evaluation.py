@@ -301,20 +301,34 @@ def provenance_chain(outputs):
 
 # COMMAND ----------
 
-# DBTITLE 1,Scorer Lists
+# DBTITLE 1,Guideline Definitions
+_HALLUCINATION_GUIDELINES = (
+    "The response must NOT contain factual claims about biblical events, people, "
+    "or relationships that are not supported by the five books in the knowledge graph "
+    "(Genesis, Exodus, Ruth, Matthew, Acts). Every factual assertion must be traceable "
+    "to a specific verse or graph relationship. Flag any invented relationships, "
+    "fabricated events, or claims about books not in the corpus. "
+    "A response that explicitly states 'this information is not in the knowledge graph' "
+    "when it lacks data is GOOD. A response that invents an answer is BAD."
+)
+
+_GROUNDED_REASONING_GUIDELINES = (
+    "The response must be grounded in specific biblical entities, events, or "
+    "relationships rather than providing generic or vague information. It should "
+    "reference concrete names, places, and narrative details."
+)
+
+_MULTI_HOP_REASONING_GUIDELINES = (
+    "For questions that ask about connections, lineages, or cross-book relationships, "
+    "the response must show explicit step-by-step reasoning through intermediate "
+    "entities or events, not just state the final conclusion."
+)
+
+# COMMAND ----------
+
+# DBTITLE 1,Scorer Lists (default judge)
 GOVERNANCE_SCORERS = [
-    Guidelines(
-        name="hallucination_check",
-        guidelines=(
-            "The response must NOT contain factual claims about biblical events, people, "
-            "or relationships that are not supported by the five books in the knowledge graph "
-            "(Genesis, Exodus, Ruth, Matthew, Acts). Every factual assertion must be traceable "
-            "to a specific verse or graph relationship. Flag any invented relationships, "
-            "fabricated events, or claims about books not in the corpus. "
-            "A response that explicitly states 'this information is not in the knowledge graph' "
-            "when it lacks data is GOOD. A response that invents an answer is BAD."
-        ),
-    ),
+    Guidelines(name="hallucination_check", guidelines=_HALLUCINATION_GUIDELINES),
     citation_completeness,
     provenance_chain,
 ]
@@ -322,26 +336,40 @@ GOVERNANCE_SCORERS = [
 QUALITY_SCORERS = [
     Correctness(),
     RelevanceToQuery(),
-    Guidelines(
-        name="grounded_reasoning",
-        guidelines=(
-            "The response must be grounded in specific biblical entities, events, or "
-            "relationships rather than providing generic or vague information. It should "
-            "reference concrete names, places, and narrative details."
-        ),
-    ),
-    Guidelines(
-        name="multi_hop_reasoning",
-        guidelines=(
-            "For questions that ask about connections, lineages, or cross-book relationships, "
-            "the response must show explicit step-by-step reasoning through intermediate "
-            "entities or events, not just state the final conclusion."
-        ),
-    ),
+    Guidelines(name="grounded_reasoning", guidelines=_GROUNDED_REASONING_GUIDELINES),
+    Guidelines(name="multi_hop_reasoning", guidelines=_MULTI_HOP_REASONING_GUIDELINES),
     verse_citation,
 ]
 
 EVAL_SCORERS = GOVERNANCE_SCORERS + QUALITY_SCORERS
+
+# COMMAND ----------
+
+# DBTITLE 1,Parameterized Scorer Builder
+def build_scorers(judge_model=None):
+    """Build scorer lists, optionally using a custom judge endpoint.
+
+    Args:
+        judge_model: e.g. "databricks:/my-gpt4o-endpoint" or None for MLflow default.
+
+    Returns:
+        Combined list of governance + quality scorers.
+    """
+    judge_kwargs = {"model": judge_model} if judge_model else {}
+
+    governance = [
+        Guidelines(name="hallucination_check", guidelines=_HALLUCINATION_GUIDELINES, **judge_kwargs),
+        citation_completeness,
+        provenance_chain,
+    ]
+    quality = [
+        Correctness(**judge_kwargs),
+        RelevanceToQuery(**judge_kwargs),
+        Guidelines(name="grounded_reasoning", guidelines=_GROUNDED_REASONING_GUIDELINES, **judge_kwargs),
+        Guidelines(name="multi_hop_reasoning", guidelines=_MULTI_HOP_REASONING_GUIDELINES, **judge_kwargs),
+        verse_citation,
+    ]
+    return governance + quality
 
 # COMMAND ----------
 

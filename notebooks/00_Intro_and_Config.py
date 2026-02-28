@@ -26,7 +26,7 @@
 # MAGIC 2. **Knowledge Graph** (Notebook 02): LLM extracts entities and relationships
 # MAGIC 3. **Agent** (Notebook 03): Build a LangGraph agent with graph traversal tools
 # MAGIC 4. **Demo** (Notebook 04): Ask multi-hop questions, see the agent reason over the graph
-# MAGIC 5. **Evaluation** (Notebook 05): Quantified comparison — GraphRAG vs flat RAG, small vs large model, cost analysis
+# MAGIC 5. **Evaluation** (Notebook 05): Governance evaluation (hallucination, provenance, reproducibility), quality comparison (GraphRAG vs flat RAG, small vs large model), and cost analysis
 # MAGIC
 # MAGIC ### Applying This Pattern to Your Domain
 # MAGIC

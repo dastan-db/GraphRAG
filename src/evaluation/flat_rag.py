@@ -19,7 +19,12 @@ def build_chapter_chunks():
     rows = spark.sql(f"""
         SELECT book, chapter,
                CONCAT(book, ' Chapter ', chapter) as chunk_id,
-               CONCAT_WS(' ', COLLECT_LIST(text ORDER BY verse_number)) as text
+               CONCAT_WS(' ',
+                 TRANSFORM(
+                   ARRAY_SORT(COLLECT_LIST(STRUCT(verse_number, text))),
+                   x -> x.text
+                 )
+               ) as text
         FROM {config['verses_table']}
         GROUP BY book, chapter
         ORDER BY book, chapter

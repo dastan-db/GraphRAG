@@ -100,6 +100,22 @@ When the user reports that the debug notebook runs cleanly and fixes are ready:
 
 - Production notebooks live in `notebooks/`. Debug/spike notebooks live in `notebooks/spikes/`.
 
+## Interactive Verification Gate
+
+Before committing any notebook or `src/` module that runs on Databricks:
+
+1. **SQL validation:** Every SQL string (in `spark.sql()`, `ai_query()`, or raw SQL) must be tested against the target runtime. Common traps:
+   - `COLLECT_LIST(expr ORDER BY ...)` is NOT valid Spark SQL — use `ARRAY_SORT(COLLECT_LIST(STRUCT(...)))` pattern
+   - `ai_query()` `responseFormat` struct syntax varies by runtime version
+   - String escaping in f-string SQL (single quotes inside CONCAT)
+
+2. **API contract check:** When using `mlflow.genai.evaluate()`, `mlflow.search_traces()`, or any SDK function, verify the call signature against the skill reference (`.cursor/skills/databricks-mlflow-evaluation/references/CRITICAL-interfaces.md` and `GOTCHAS.md`). Common traps:
+   - `evaluate()` creates its own run — do not nest inside `start_run()`
+   - `evaluate()` creates its own traces — do not add `@mlflow.trace` to predict functions
+   - `search_traces()` uses `experiment_ids` + `filter_string`, not `run_id`
+
+3. **Spike-first for external calls:** Any notebook cell that calls an external service (LLM endpoint, embedding endpoint, Model Serving) must first be validated in a spike notebook with a single-item test before running on the full dataset.
+
 ## Verification
 
 - After execution, update `VERIFICATION.md` in the phase folder with results against phase goals.

@@ -16,6 +16,8 @@ config['schema'] = 'graphrag_bible'
 config['llm_endpoint'] = 'databricks-meta-llama-3-3-70b-instruct'
 config['small_llm_endpoint'] = 'databricks-meta-llama-3-1-8b-instruct'
 config['embedding_endpoint'] = 'databricks-gte-large-en'
+config['external_llm_endpoint'] = 'databricks-gpt-5-2'
+config['judge_endpoint'] = 'databricks-claude-sonnet-4-6'
 
 # COMMAND ----------
 

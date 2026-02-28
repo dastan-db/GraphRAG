@@ -88,6 +88,8 @@ print(f"Wrote {df.count()} verses to {config['verses_table']}")
 
 # MAGIC %md
 # MAGIC ## Step 3: Verify and Explore
+# MAGIC
+# MAGIC Chapter text previews below use ordered verse aggregation (`ARRAY_SORT + COLLECT_LIST`) to preserve narrative order.
 
 # COMMAND ----------
 
@@ -120,7 +122,12 @@ display(
     .groupBy("book", "chapter")
     .agg(
         F.count("*").alias("verse_count"),
-        F.concat_ws(" ", F.collect_list("text")).alias("chapter_text_preview"),
+        F.concat_ws(" ",
+            F.transform(
+                F.array_sort(F.collect_list(F.struct("verse_number", "text"))),
+                lambda x: x["text"]
+            )
+        ).alias("chapter_text_preview"),
     )
     .withColumn("chapter_text_preview", F.substring("chapter_text_preview", 1, 300))
     .orderBy("book", "chapter")

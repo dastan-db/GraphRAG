@@ -4,7 +4,7 @@
 # MAGIC
 # MAGIC This notebook answers the question enterprises actually care about: **can your AI show its work, cite its sources, and produce the same answer every time?**
 # MAGIC
-# MAGIC We evaluate four configurations on 20 ground-truth questions, measuring **governance metrics first** (hallucination rate, citation completeness, provenance quality, reproducibility), then quality (correctness, relevance), then cost.
+# MAGIC We evaluate five configurations on 20 ground-truth questions, measuring **governance metrics first** (hallucination rate, citation completeness, provenance quality, reproducibility), then quality (correctness, relevance), then cost.
 # MAGIC
 # MAGIC | Config | Retrieval | LLM | What It Proves |
 # MAGIC |--------|-----------|-----|----------------|
@@ -12,9 +12,11 @@
 # MAGIC | **GraphRAG + 8B** | Graph traversal tools | Llama 3.1 8B | Governance holds even with smaller models |
 # MAGIC | **Flat RAG + 70B** | Embedding similarity | Llama 3.3 70B | Best case for flat retrieval (no provenance) |
 # MAGIC | **Direct LLM + 70B** | None (parametric only) | Llama 3.3 70B | Ungrounded baseline — no auditability |
+# MAGIC | **Direct External** | None (parametric only) | GPT-5.2 (External) | Frontier model baseline — best quality without structure |
 # MAGIC
 # MAGIC **Governance scorers:** Hallucination Check, Citation Completeness, Provenance Chain.
 # MAGIC **Quality scorers:** Correctness, RelevanceToQuery, Grounded Reasoning, Multi-hop Reasoning, Verse Citation.
+# MAGIC **Judge model:** Claude Sonnet 4.6 via `config['judge_endpoint']` (overrides MLflow default).
 
 # COMMAND ----------
 
@@ -84,7 +86,7 @@ flat_rag.build_index()
 # MAGIC ---
 # MAGIC ## 3. Define Predict Functions
 # MAGIC
-# MAGIC Each function follows the `mlflow.genai.evaluate()` contract: receives `**unpacked inputs` kwargs, returns a dict with `"response"`.
+# MAGIC Each function follows the `mlflow.genai.evaluate()` contract: receives `**unpacked inputs` kwargs, returns a dict with `"response"`. No `@mlflow.trace` decorators — `evaluate()` creates traces automatically for each row.
 
 # COMMAND ----------
 
@@ -94,7 +96,6 @@ from mlflow.types.responses import ResponsesAgentRequest
 
 agent_70b = AGENT  # already built via %run ../src/agent/agent
 
-@mlflow.trace
 def predict_graphrag_70b(question):
     request = ResponsesAgentRequest(input=[{"role": "user", "content": question}])
     result = agent_70b.predict(request)
@@ -106,7 +107,6 @@ def predict_graphrag_70b(question):
 # DBTITLE 1,GraphRAG + 8B (Small Model + Structure)
 agent_8b = GraphRAGAgent(endpoint=config['small_llm_endpoint'])
 
-@mlflow.trace
 def predict_graphrag_8b(question):
     request = ResponsesAgentRequest(input=[{"role": "user", "content": question}])
     result = agent_8b.predict(request)
@@ -116,7 +116,6 @@ def predict_graphrag_8b(question):
 # COMMAND ----------
 
 # DBTITLE 1,Flat RAG + 70B (Embedding Retrieval Baseline)
-@mlflow.trace
 def predict_flat_rag_70b(question):
     response = flat_rag.query(question)
     return {"response": response}
@@ -124,7 +123,6 @@ def predict_flat_rag_70b(question):
 # COMMAND ----------
 
 # DBTITLE 1,Direct LLM + 70B (No Retrieval)
-@mlflow.trace
 def predict_direct_llm(question):
     import mlflow.deployments
     client = mlflow.deployments.get_deploy_client("databricks")
@@ -150,24 +148,55 @@ def predict_direct_llm(question):
 
 # COMMAND ----------
 
+# DBTITLE 1,Direct External (Frontier Model — No Retrieval)
+def predict_direct_external(question):
+    import mlflow.deployments
+    client = mlflow.deployments.get_deploy_client("databricks")
+    response = client.predict(
+        endpoint=config['external_llm_endpoint'],
+        inputs={
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a biblical scholar. Answer based on your knowledge of "
+                        "Genesis, Exodus, Ruth, Matthew, and Acts from the King James Bible. "
+                        "Cite specific verses when possible."
+                    ),
+                },
+                {"role": "user", "content": question},
+            ],
+            "temperature": 0.1,
+            "max_tokens": 2048,
+        },
+    )
+    return {"response": response.choices[0]["message"]["content"]}
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC ---
 # MAGIC ## 4. Run Evaluations
 # MAGIC
-# MAGIC Each configuration gets a named MLflow run. All scorers (governance + quality) run together.
+# MAGIC `mlflow.genai.evaluate()` manages its own runs and traces. No `start_run()` wrapper needed — the framework handles the run lifecycle.
 
 # COMMAND ----------
 
-# DBTITLE 1,Run All Four Evaluations
+# DBTITLE 1,Run All Five Evaluations
 import mlflow
 
 mlflow.set_experiment(f"/Shared/graphrag_bible_evaluation")
+
+judge_model = f"databricks:/{config['judge_endpoint']}"
+scorers = build_scorers(judge_model=judge_model)
+print(f"Judge model: {judge_model}")
 
 CONFIGS = {
     "graphrag_70b": predict_graphrag_70b,
     "graphrag_8b": predict_graphrag_8b,
     "flat_rag_70b": predict_flat_rag_70b,
     "direct_llm_70b": predict_direct_llm,
+    "direct_external": predict_direct_external,
 }
 
 eval_results = {}
@@ -175,12 +204,11 @@ for name, predict_fn in CONFIGS.items():
     print(f"\n{'='*60}")
     print(f"  Evaluating: {name}")
     print(f"{'='*60}")
-    with mlflow.start_run(run_name=name):
-        eval_results[name] = mlflow.genai.evaluate(
-            data=EVAL_DATASET,
-            predict_fn=predict_fn,
-            scorers=EVAL_SCORERS,
-        )
+    eval_results[name] = mlflow.genai.evaluate(
+        data=EVAL_DATASET,
+        predict_fn=predict_fn,
+        scorers=scorers,
+    )
     print(f"  Done — run_id: {eval_results[name].run_id}")
 
 # COMMAND ----------
@@ -286,6 +314,8 @@ print(f"\nReproducibility rate: {repro_rate:.0%} ({consistent}/{len(repro_rows)}
 # MAGIC ## 8. Cost Analysis
 # MAGIC
 # MAGIC Cost is a secondary benefit — but a meaningful one. Structured retrieval replaces massive context windows, making governance economical.
+# MAGIC
+# MAGIC *Note: Token counts below are character-based estimates (~4 chars/token), not actual token counts from trace metadata. Sufficient for relative cost comparison across configurations.*
 
 # COMMAND ----------
 
@@ -294,6 +324,8 @@ PRICING = {
     "databricks-meta-llama-3-3-70b-instruct": {"input": 1.00, "output": 1.00},
     "databricks-meta-llama-3-1-8b-instruct": {"input": 0.075, "output": 0.30},
     "databricks-gte-large-en": {"input": 0.013, "output": 0.0},
+    "databricks-gpt-5-2": {"input": 2.50, "output": 10.00},
+    "databricks-claude-sonnet-4-6": {"input": 3.00, "output": 15.00},
     "gpt-4o (OpenAI)": {"input": 2.50, "output": 10.00},
     "gpt-4-turbo (OpenAI)": {"input": 10.00, "output": 30.00},
 }
@@ -308,15 +340,14 @@ display(
 # COMMAND ----------
 
 # DBTITLE 1,Extract Token Counts from Traces
-from mlflow.entities import SpanType
-
 def estimate_tokens_from_text(text):
     """Rough estimate: ~4 characters per token."""
     return max(1, len(str(text)) // 4)
 
 def extract_cost_data(run_id, config_name):
     """Extract token usage and estimate cost for an evaluation run."""
-    traces_df = mlflow.search_traces(run_id=run_id, max_results=100)
+    experiment = mlflow.get_experiment_by_name("/Shared/graphrag_bible_evaluation")
+    traces_df = mlflow.search_traces(experiment_ids=[experiment.experiment_id], max_results=100)
     total_input_tokens = 0
     total_output_tokens = 0
     total_embedding_tokens = 0
@@ -355,6 +386,7 @@ LLM_ENDPOINT_MAP = {
     "graphrag_8b": "databricks-meta-llama-3-1-8b-instruct",
     "flat_rag_70b": "databricks-meta-llama-3-3-70b-instruct",
     "direct_llm_70b": "databricks-meta-llama-3-3-70b-instruct",
+    "direct_external": config['external_llm_endpoint'],
 }
 
 cost_rows = []
@@ -425,6 +457,7 @@ graphrag_70b_r = eval_results.get("graphrag_70b")
 graphrag_8b_r = eval_results.get("graphrag_8b")
 flat_rag_r = eval_results.get("flat_rag_70b")
 direct_llm_r = eval_results.get("direct_llm_70b")
+direct_ext_r = eval_results.get("direct_external")
 
 print("=" * 70)
 print("  KEY FINDINGS: Governance, Auditability, and Quality")
@@ -433,6 +466,7 @@ print("=" * 70)
 hall_70b = get_metric_mean(graphrag_70b_r, "hallucination_check")
 hall_flat = get_metric_mean(flat_rag_r, "hallucination_check")
 hall_direct = get_metric_mean(direct_llm_r, "hallucination_check")
+hall_ext = get_metric_mean(direct_ext_r, "hallucination_check")
 
 cite_70b = get_metric_mean(graphrag_70b_r, "citation_completeness")
 cite_flat = get_metric_mean(flat_rag_r, "citation_completeness")
@@ -443,6 +477,7 @@ prov_flat = get_metric_mean(flat_rag_r, "provenance_chain")
 c_70b = get_metric_mean(graphrag_70b_r, "Correctness")
 c_8b = get_metric_mean(graphrag_8b_r, "Correctness")
 c_flat = get_metric_mean(flat_rag_r, "Correctness")
+c_ext = get_metric_mean(direct_ext_r, "Correctness")
 
 print(f"""
 1. AUDITABILITY: GRAPH RETRIEVAL ENABLES PROVENANCE
@@ -454,6 +489,7 @@ print(f"""
    GraphRAG hallucination check:    {hall_70b:.1%}
    Flat RAG hallucination check:    {hall_flat:.1%}
    Direct LLM hallucination check:  {hall_direct:.1%}
+   Direct External hallucination:   {hall_ext:.1%}
    Structured retrieval constrains the LLM to grounded evidence.
 
 3. CITATION COMPLETENESS
@@ -466,10 +502,12 @@ print(f"""
    Deterministic graph traversal beats probabilistic embedding retrieval.
 
 5. QUALITY (CORRECTNESS)
-   GraphRAG + 70B: {c_70b:.1%}
-   GraphRAG + 8B:  {c_8b:.1%}
-   Flat RAG + 70B: {c_flat:.1%}
-   Structure compensates for model size — governance doesn't sacrifice quality.
+   GraphRAG + 70B:    {c_70b:.1%}
+   GraphRAG + 8B:     {c_8b:.1%}
+   Flat RAG + 70B:    {c_flat:.1%}
+   Direct External:   {c_ext:.1%}
+   Structure compensates for model size — even a frontier model without
+   graph retrieval cannot match GraphRAG's governance properties.
 
 6. COST (SECONDARY BENEFIT)
 """)
@@ -497,14 +535,16 @@ THE THESIS:
 # MAGIC
 # MAGIC ## Summary
 # MAGIC
-# MAGIC | Metric | What It Proves | GraphRAG | Flat RAG | Direct LLM |
-# MAGIC |---|---|---|---|---|
-# MAGIC | **Hallucination Check** | Can compliance teams trust the output? | *Measured above* | *Measured above* | *Measured above* |
-# MAGIC | **Citation Completeness** | Are all claims backed by source data? | *Measured above* | *Measured above* | *Measured above* |
-# MAGIC | **Provenance Chain** | Can you audit the reasoning path? | *Measured above* | *Measured above* | *Measured above* |
-# MAGIC | **Reproducibility** | Same query = same answer? | *Measured above* | N/A | N/A |
-# MAGIC | **Correctness** | Is the answer factually right? | *Measured above* | *Measured above* | *Measured above* |
-# MAGIC | **Cost/Query** | Is governance economical? | *Measured above* | *Measured above* | *Measured above* |
+# MAGIC *Values populated at runtime from evaluation results above.*
+# MAGIC
+# MAGIC | Metric | What It Proves | GraphRAG | Flat RAG | Direct LLM | Direct External |
+# MAGIC |---|---|---|---|---|---|
+# MAGIC | **Hallucination Check** | Can compliance teams trust the output? | *Measured above* | *Measured above* | *Measured above* | *Measured above* |
+# MAGIC | **Citation Completeness** | Are all claims backed by source data? | *Measured above* | *Measured above* | *Measured above* | *Measured above* |
+# MAGIC | **Provenance Chain** | Can you audit the reasoning path? | *Measured above* | *Measured above* | *Measured above* | *Measured above* |
+# MAGIC | **Reproducibility** | Same query = same answer? | *Measured above* | N/A | N/A | N/A |
+# MAGIC | **Correctness** | Is the answer factually right? | *Measured above* | *Measured above* | *Measured above* | *Measured above* |
+# MAGIC | **Cost/Query** | Is governance economical? | *Measured above* | *Measured above* | *Measured above* | *Measured above* |
 # MAGIC
 # MAGIC All claims backed by MLflow evaluation runs. Check the **Experiments** tab for full traces and per-question results.
 # MAGIC

@@ -104,9 +104,19 @@ if not spark.catalog.tableExists(config['chapters_table']):
         spark.table(config['verses_table'])
         .groupBy("book", "chapter", "testament")
         .agg(
-            F.concat_ws(" ", F.collect_list(
-                F.concat(F.lit("["), F.col("verse_number"), F.lit("] "), F.col("text"))
-            )).alias("chapter_text"),
+            F.concat_ws(" ",
+                F.transform(
+                    F.array_sort(
+                        F.collect_list(
+                            F.struct(
+                                F.col("verse_number"),
+                                F.concat(F.lit("["), F.col("verse_number"), F.lit("] "), F.col("text")).alias("formatted")
+                            )
+                        )
+                    ),
+                    lambda x: x["formatted"]
+                )
+            ).alias("chapter_text"),
             F.count("*").alias("verse_count"),
         )
         .orderBy("testament", "book", "chapter")
