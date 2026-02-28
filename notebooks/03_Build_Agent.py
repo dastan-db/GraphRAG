@@ -121,7 +121,7 @@ ENDPOINT_NAME = "graphrag-bible-agent"
 
 deployment = agents.deploy(
     f"{config['catalog']}.{config['schema']}.graphrag_agent",
-    version=model_info.registered_model_version,
+    model_info.registered_model_version,
     endpoint_name=ENDPOINT_NAME,
     tags={"source": "graphrag_solacc"},
 )

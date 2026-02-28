@@ -2,9 +2,12 @@
 
 ## Position
 
-- **Milestone:** v1
-- **Current phase:** 03 (complete — Interactive Demo Web App: 5-page Dash app deployed via DABs)
-- **Next step:** Run pipeline job to populate data, deploy agent to Model Serving, switch demo from mock to live mode.
+- **Milestone:** v1 (complete)
+- **Current phase:** All v1 phases complete (01: Solution Accelerator, 02: Governance Reframe, 03: Interactive Demo Web App)
+- **Pipeline status:** Tasks 00-04 passed. Task 05 (Evaluation) failed — needs investigation (likely MLflow evaluate API issue). Core pipeline and agent deployment are operational.
+- **Agent endpoint:** `graphrag-bible-agent` — READY and serving on Model Serving.
+- **Demo app:** Live mode active (`USE_MOCK_BACKEND=false`). Deployed at graphrag-demo-v2-dev-*.aws.databricksapps.com.
+- **Next step:** Investigate and fix Task 05 (Evaluation) failure, then plan v2 Phase 04 (Code Domain Ingestion).
 
 ## Decisions
 
