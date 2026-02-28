@@ -8,9 +8,9 @@ command:
 
 env:
   - name: DATABRICKS_WAREHOUSE_ID
-    value: "399215661843ad19"
+    valueFrom: sql-warehouse
   - name: GRAPHRAG_ENDPOINT_NAME
-    value: "graphrag-bible-agent"
+    valueFrom: serving-endpoint
   - name: DATABRICKS_CATALOG
     value: "serverless_8e8gyh_catalog"
   - name: DATABRICKS_SCHEMA

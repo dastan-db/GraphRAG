@@ -4,7 +4,7 @@
 # MAGIC
 # MAGIC This notebook answers the question enterprises actually care about: **can your AI show its work, cite its sources, and produce the same answer every time?**
 # MAGIC
-# MAGIC We evaluate five configurations on 20 ground-truth questions, measuring **governance metrics first** (hallucination rate, citation completeness, provenance quality, reproducibility), then quality (correctness, relevance), then cost.
+# MAGIC We evaluate five configurations on 20 ground-truth questions, measuring **governance metrics first** (hallucination check, citation completeness, provenance chain), then quality (correctness, relevance), then cost. A standalone **reproducibility test** checks citation and path consistency across repeated runs.
 # MAGIC
 # MAGIC | Config | Retrieval | LLM | What It Proves |
 # MAGIC |--------|-----------|-----|----------------|
@@ -86,7 +86,7 @@ flat_rag.build_index()
 # MAGIC ---
 # MAGIC ## 3. Define Predict Functions
 # MAGIC
-# MAGIC Each function follows the `mlflow.genai.evaluate()` contract: receives `**unpacked inputs` kwargs, returns a dict with `"response"`. No `@mlflow.trace` decorators — `evaluate()` creates traces automatically for each row.
+# MAGIC Each function follows the `mlflow.genai.evaluate()` contract: receives `**unpacked inputs` kwargs, returns a dict with `"response"`. These wrapper functions have no `@mlflow.trace` decorators — `evaluate()` creates traces automatically for each row. Inner methods (e.g. `FlatRAGPipeline.query` and `.retrieve`) do carry `@mlflow.trace` decorators, which appear as child spans.
 
 # COMMAND ----------
 
@@ -293,7 +293,7 @@ plt.show()
 # MAGIC ---
 # MAGIC ## 7. Reproducibility Test
 # MAGIC
-# MAGIC Run 5 representative queries 3 times each through GraphRAG. Measure whether the entity paths and citations are consistent across runs. Deterministic retrieval is a core governance requirement.
+# MAGIC Run 5 representative queries 3 times each through GraphRAG and measure whether the entity paths and verse citations are consistent across runs. This tests GraphRAG's consistency only; other configurations are not included in this test.
 
 # COMMAND ----------
 
@@ -347,7 +347,11 @@ def estimate_tokens_from_text(text):
 def extract_cost_data(run_id, config_name):
     """Extract token usage and estimate cost for an evaluation run."""
     experiment = mlflow.get_experiment_by_name("/Shared/graphrag_bible_evaluation")
-    traces_df = mlflow.search_traces(experiment_ids=[experiment.experiment_id], max_results=100)
+    traces_df = mlflow.search_traces(
+        experiment_ids=[experiment.experiment_id],
+        filter_string=f"trace.run_id = '{run_id}'",
+        max_results=100,
+    )
     total_input_tokens = 0
     total_output_tokens = 0
     total_embedding_tokens = 0
@@ -497,9 +501,9 @@ print(f"""
    Flat RAG citation completeness:  {cite_flat:.1%}
    Graph traversal produces more cited, verifiable claims.
 
-4. REPRODUCIBILITY
-   Rate: {repro_rate:.0%} of queries return consistent paths across {NUM_RUNS} runs.
-   Deterministic graph traversal beats probabilistic embedding retrieval.
+4. REPRODUCIBILITY (GraphRAG only)
+   Rate: {repro_rate:.0%} of queries return consistent paths and citations across {NUM_RUNS} runs.
+   Other configurations were not tested for reproducibility.
 
 5. QUALITY (CORRECTNESS)
    GraphRAG + 70B:    {c_70b:.1%}
@@ -515,9 +519,14 @@ print(f"""
 if len(cost_rows) >= 2:
     cheapest = min(cost_rows, key=lambda r: r["Cost/Query ($)"])
     most_expensive = max(cost_rows, key=lambda r: r["Cost/Query ($)"])
-    ratio = most_expensive["Cost/Query ($)"] / max(cheapest["Cost/Query ($)"], 1e-9)
     print(f"   Cheapest: {cheapest['Configuration']} at ${cheapest['Cost/Query ($)']:.6f}/query")
-    print(f"   Against OpenAI GPT-4, savings are 100x-900x.")
+    savings_values = [
+        float(r["Savings"].replace("x", ""))
+        for r in openai_rows
+        if r["Savings"] not in ("infx", "0x")
+    ]
+    if savings_values:
+        print(f"   Against OpenAI pricing, savings range from {min(savings_values):.0f}x to {max(savings_values):.0f}x.")
     print(f"   But cost is secondary — the primary value is auditability and governance.")
 
 print(f"""
@@ -535,16 +544,14 @@ THE THESIS:
 # MAGIC
 # MAGIC ## Summary
 # MAGIC
-# MAGIC *Values populated at runtime from evaluation results above.*
-# MAGIC
-# MAGIC | Metric | What It Proves | GraphRAG | Flat RAG | Direct LLM | Direct External |
-# MAGIC |---|---|---|---|---|---|
-# MAGIC | **Hallucination Check** | Can compliance teams trust the output? | *Measured above* | *Measured above* | *Measured above* | *Measured above* |
-# MAGIC | **Citation Completeness** | Are all claims backed by source data? | *Measured above* | *Measured above* | *Measured above* | *Measured above* |
-# MAGIC | **Provenance Chain** | Can you audit the reasoning path? | *Measured above* | *Measured above* | *Measured above* | *Measured above* |
-# MAGIC | **Reproducibility** | Same query = same answer? | *Measured above* | N/A | N/A | N/A |
-# MAGIC | **Correctness** | Is the answer factually right? | *Measured above* | *Measured above* | *Measured above* | *Measured above* |
-# MAGIC | **Cost/Query** | Is governance economical? | *Measured above* | *Measured above* | *Measured above* | *Measured above* |
+# MAGIC | Metric | What It Proves | Where to Look |
+# MAGIC |---|---|---|
+# MAGIC | **Hallucination Check** | Can compliance teams trust the output? | Section 5 — Governance Scorecard |
+# MAGIC | **Citation Completeness** | Are all claims backed by source data? | Section 5 — Governance Scorecard |
+# MAGIC | **Provenance Chain** | Can you audit the reasoning path? | Section 5 — Governance Scorecard |
+# MAGIC | **Reproducibility** | Same query = same answer? (GraphRAG only) | Section 7 — Reproducibility Test |
+# MAGIC | **Correctness** | Is the answer factually right? | Section 6 — Quality Scorecard |
+# MAGIC | **Cost/Query** | Is governance economical? | Section 8 — Cost Analysis |
 # MAGIC
 # MAGIC All claims backed by MLflow evaluation runs. Check the **Experiments** tab for full traces and per-question results.
 # MAGIC

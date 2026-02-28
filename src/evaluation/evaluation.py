@@ -386,8 +386,8 @@ REPRO_QUESTIONS = [
 
 
 def extract_citations(text):
-    """Extract sorted set of verse citations from a response."""
-    pattern = r'(Genesis|Exodus|Ruth|Matthew|Acts)\s+\d+:\d+'
+    """Extract sorted set of verse citations (e.g. 'Genesis 1:1') from a response."""
+    pattern = r'(?:Genesis|Exodus|Ruth|Matthew|Acts)\s+\d+:\d+'
     return sorted(set(_re.findall(pattern, text)))
 
 
