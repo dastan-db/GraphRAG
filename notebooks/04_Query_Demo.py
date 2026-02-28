@@ -15,15 +15,15 @@
 # COMMAND ----------
 
 # DBTITLE 1,Load Configuration, Tools, and Agent
-# MAGIC %run ./util/config
+# MAGIC %run ../src/config
 
 # COMMAND ----------
 
-# MAGIC %run ./util/tools
+# MAGIC %run ../src/agent/tools
 
 # COMMAND ----------
 
-# MAGIC %run ./util/agent
+# MAGIC %run ../src/agent/agent
 
 # COMMAND ----------
 

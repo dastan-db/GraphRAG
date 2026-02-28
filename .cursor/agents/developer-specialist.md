@@ -11,9 +11,7 @@ readonly: false
 You build the core application: the LangGraph agent, graph traversal tools, API endpoints, and integration between the agent and the demo UI.
 
 ## File Ownership (STRICT — only write to these paths)
-- `src/agent/` — LangGraph agent, tools, state management
-- `src/tools/` — graph traversal and query tools
-- `src/api/` — API endpoints and serving configuration
+- `src/agent/` — LangGraph agent, tools, state management, serving
 - `src/app/` — Dash application code, UI components
 - `notebooks/agent_*.py`, `notebooks/demo_*.py` — agent/demo notebooks
 - `.planning/phases/*/dev-*.md` — developer task summaries

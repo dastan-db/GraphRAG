@@ -64,6 +64,42 @@ Every decomposition in the planning hierarchy — PRFAQ → requirements → pha
   - **Commit that task only** — one atomic commit per task. Message format e.g. `feat(01-01): short description`.
 - **After all waves:** Run verifier (if configured): check codebase against phase goals; write `phases/XX-phase-slug/VERIFICATION.md`.
 
+## Interactive Debug Notebooks (Databricks)
+
+When generating or modifying Databricks notebooks that run in a job or pipeline (the numbered notebooks in `notebooks/`), follow this debug-first workflow. Notebooks executed headlessly in jobs are hard to debug — schema mismatches, `ai_query()` response structure surprises, and Spark SQL edge cases surface only at runtime.
+
+### When to generate a debug notebook
+
+- Whenever you create or substantially modify a numbered pipeline notebook in `notebooks/` (`00_*.py` through `05_*.py` or higher).
+- Whenever a job run fails and the user asks you to investigate or fix the failing notebook.
+- Do **not** generate debug notebooks for source modules (`src/`), web app files (`src/app/`), or config-only notebooks that have no runtime logic.
+
+### Debug notebook conventions
+
+1. **Naming:** `XX_Interactive_Debug.py` where `XX` matches the production notebook number (e.g., `02_Interactive_Debug.py` for `02_Build_Knowledge_Graph.py`). Debug notebooks live in `notebooks/spikes/`.
+2. **Self-contained:** Inline all configuration — copy the `config` dict values directly instead of using `%run ../src/config`. The notebook must run with zero `%run` dependencies so the user can execute it on any cluster without syncing the full repo.
+3. **Header cell:** First markdown cell must say: `# XX — <Title> (Interactive Debug)` followed by: *"Self-contained notebook for interactive debugging. Run cell by cell. Once everything works, update the production notebook in `notebooks/` with the fixes."*
+4. **Diagnostic cells:** After each substantive operation, add a cell titled `DEBUG: <what it inspects>`. Include:
+   - `printSchema()` for any DataFrame produced by `ai_query()` or complex struct operations.
+   - `display(df.limit(2))` to show sample data at intermediate steps.
+   - `try/except` probes when the field access path is uncertain (e.g., `extracted.result` vs `extracted.result.result`).
+5. **Mirror structure:** Keep the same logical steps and section headers as the production notebook so diffs are easy to follow.
+6. **No shared-state side effects:** Debug notebooks may write to the same tables as production notebooks (they share config), but clearly comment which cells are destructive writes vs read-only inspection.
+
+### Incorporate-back flow
+
+When the user reports that the debug notebook runs cleanly and fixes are ready:
+
+1. **Read** the debug notebook from `notebooks/spikes/XX_Interactive_Debug.py`.
+2. **Diff** against the production notebook in `notebooks/XX_<Name>.py` — identify substantive logic changes vs diagnostic scaffolding.
+3. **Apply** only the logic fixes to the production notebook, preserving its clean structure: `%run` for shared config, no debug/diagnostic cells.
+4. **Verify** the production notebook's logic matches the working debug notebook.
+5. **Do not delete** the debug notebook — it remains in the repo as a runnable reference. Update it if the production notebook changes significantly.
+
+### File layout addition
+
+- Production notebooks live in `notebooks/`. Debug/spike notebooks live in `notebooks/spikes/`.
+
 ## Verification
 
 - After execution, update `VERIFICATION.md` in the phase folder with results against phase goals.

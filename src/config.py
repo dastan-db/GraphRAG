@@ -11,7 +11,7 @@ if 'config' not in locals():
 # COMMAND ----------
 
 # DBTITLE 1,Catalog and Schema
-config['catalog'] = 'main'
+config['catalog'] = 'serverless_8e8gyh_catalog'
 config['schema'] = 'graphrag_bible'
 config['llm_endpoint'] = 'databricks-meta-llama-3-3-70b-instruct'
 config['small_llm_endpoint'] = 'databricks-meta-llama-3-1-8b-instruct'
@@ -21,6 +21,7 @@ config['embedding_endpoint'] = 'databricks-gte-large-en'
 
 # DBTITLE 1,Table Names
 config['verses_table'] = f"{config['catalog']}.{config['schema']}.verses"
+config['chapters_table'] = f"{config['catalog']}.{config['schema']}.chapters"
 config['entities_table'] = f"{config['catalog']}.{config['schema']}.entities"
 config['relationships_table'] = f"{config['catalog']}.{config['schema']}.relationships"
 config['entity_mentions_table'] = f"{config['catalog']}.{config['schema']}.entity_mentions"
@@ -39,16 +40,16 @@ config['bible_books'] = {
 # COMMAND ----------
 
 # DBTITLE 1,Create Schema
-_ = spark.sql(f"CREATE CATALOG IF NOT EXISTS {config['catalog']}")
+_ = spark.sql(f"USE CATALOG {config['catalog']}")
 _ = spark.sql(f"CREATE SCHEMA IF NOT EXISTS {config['catalog']}.{config['schema']}")
-_ = spark.catalog.setCurrentDatabase(f"{config['catalog']}.{config['schema']}")
+_ = spark.sql(f"USE SCHEMA {config['schema']}")
 
 # COMMAND ----------
 
 # DBTITLE 1,Teardown Helper
 def teardown():
     """Drop all tables and schema. Use only for full reset."""
-    for t in ['entity_mentions', 'relationships', 'entities', 'verses']:
+    for t in ['entity_mentions', 'relationships', 'entities', 'chapters', 'verses']:
         _ = spark.sql(f"DROP TABLE IF EXISTS {config['catalog']}.{config['schema']}.{t}")
     _ = spark.sql(f"DROP SCHEMA IF EXISTS {config['catalog']}.{config['schema']} CASCADE")
 

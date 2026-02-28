@@ -13,7 +13,7 @@
 # COMMAND ----------
 
 # DBTITLE 1,Load Configuration
-# MAGIC %run ./util/config
+# MAGIC %run ../src/config
 
 # COMMAND ----------
 

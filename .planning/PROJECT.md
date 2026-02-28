@@ -13,6 +13,11 @@ GraphRAG: build a retrieval-augmented system that uses a knowledge graph to deli
 - Stack: Python/Databricks ecosystem — Unity Catalog, Delta Lake, Foundation Model API, LangGraph, MLflow.
 - Constraints: Keep plans atomic, context-sized; use .planning/ as single source of truth.
 
+## Development Workflow
+
+- **Debug-first notebooks:** Each numbered pipeline notebook in `notebooks/` that runs in a Databricks job has a companion spike notebook in `notebooks/spikes/`. Debug notebooks are self-contained (inlined config, no `%run` dependencies) with diagnostic cells for schema inspection and sample data. The user runs the debug notebook interactively on a cluster to fix errors, then the agent incorporates fixes back into the production notebook. See `.cursor/rules/gsd-execution.mdc` § "Interactive Debug Notebooks" for the full protocol.
+- **Production notebooks** stay clean: shared config via `%run ../src/config`, no debug/diagnostic cells, suitable for headless job execution.
+
 ## Out of scope (this milestone)
 
 - Full product UI, multi-tenant auth, automated policy enforcement rules, and production ops are out of scope until later milestones.

@@ -1,0 +1,32 @@
+bundle:
+  name: graphrag-solution-accelerator
+
+include:
+  - deploy/*.yml
+
+variables:
+  catalog:
+    default: "serverless_8e8gyh_catalog"
+  schema:
+    default: "graphrag_bible"
+  warehouse_id:
+    lookup:
+      warehouse: "Serverless Starter Warehouse"
+
+targets:
+  dev:
+    default: true
+    mode: development
+    workspace:
+      profile: DEFAULT
+    variables:
+      catalog: "serverless_8e8gyh_catalog"
+      schema: "graphrag_bible"
+
+  prod:
+    mode: production
+    workspace:
+      profile: DEFAULT
+    variables:
+      catalog: "serverless_8e8gyh_catalog"
+      schema: "graphrag_bible"

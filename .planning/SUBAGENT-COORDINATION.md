@@ -48,8 +48,8 @@ None pre-existing — this implementation creates the first 4 agents.
 | Agent | Domain | Writes To | Reads From |
 |-------|--------|-----------|------------|
 | Data Specialist | Data engineering, schema, Delta ops | `src/data/`, `data/`, `notebooks/data_*` | `.planning/`, config |
-| Extraction Specialist | LLM extraction, dedup, knowledge graph | `src/extraction/`, `src/prompts/`, `notebooks/extraction_*` | `src/data/` (read-only), `.planning/` |
-| Developer Specialist | Agent, tools, API, UI | `src/agent/`, `src/tools/`, `src/api/`, `src/app/`, `notebooks/agent_*` | `src/data/`, `src/extraction/` (read-only), `.planning/` |
+| Extraction Specialist | LLM extraction, dedup, knowledge graph | `src/extraction/`, `notebooks/extraction_*` | `src/data/` (read-only), `.planning/` |
+| Developer Specialist | Agent, tools, API, UI | `src/agent/`, `src/app/`, `notebooks/agent_*`, `notebooks/demo_*` | `src/data/`, `src/extraction/` (read-only), `.planning/` |
 | Quality & Learning | Verification, evaluation, metrics | `src/evaluation/`, `tests/`, `VERIFICATION.md`, `EVAL-REPORT.md` | Everything (read-only) |
 
 ## File Ownership Rules

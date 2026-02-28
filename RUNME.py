@@ -7,7 +7,7 @@
 # MAGIC **Steps:**
 # MAGIC 1. Attach this notebook to any cluster (DBR 15.4+ recommended) and hit **Run All**.
 # MAGIC 2. A multi-step job will be created. Follow the printed link to run it.
-# MAGIC 3. Or run the notebooks interactively in order: `00` → `01` → `02` → `03` → `04`.
+# MAGIC 3. Or run the notebooks in `notebooks/` interactively in order: `00` → `01` → `02` → `03` → `04`.
 
 # COMMAND ----------
 
@@ -41,36 +41,36 @@ job_json = {
     "tasks": [
         {
             "task_key": "00_Intro_and_Config",
-            "notebook_task": {"notebook_path": f"{notebook_dir}/00_Intro_and_Config"},
+            "notebook_task": {"notebook_path": f"{notebook_dir}/notebooks/00_Intro_and_Config"},
             "job_cluster_key": "graphrag_cluster",
         },
         {
             "task_key": "01_Data_Prep",
-            "notebook_task": {"notebook_path": f"{notebook_dir}/01_Data_Prep"},
+            "notebook_task": {"notebook_path": f"{notebook_dir}/notebooks/01_Data_Prep"},
             "job_cluster_key": "graphrag_cluster",
             "depends_on": [{"task_key": "00_Intro_and_Config"}],
         },
         {
             "task_key": "02_Build_Knowledge_Graph",
-            "notebook_task": {"notebook_path": f"{notebook_dir}/02_Build_Knowledge_Graph"},
+            "notebook_task": {"notebook_path": f"{notebook_dir}/notebooks/02_Build_Knowledge_Graph"},
             "job_cluster_key": "graphrag_cluster",
             "depends_on": [{"task_key": "01_Data_Prep"}],
         },
         {
             "task_key": "03_Build_Agent",
-            "notebook_task": {"notebook_path": f"{notebook_dir}/03_Build_Agent"},
+            "notebook_task": {"notebook_path": f"{notebook_dir}/notebooks/03_Build_Agent"},
             "job_cluster_key": "graphrag_cluster",
             "depends_on": [{"task_key": "02_Build_Knowledge_Graph"}],
         },
         {
             "task_key": "04_Query_Demo",
-            "notebook_task": {"notebook_path": f"{notebook_dir}/04_Query_Demo"},
+            "notebook_task": {"notebook_path": f"{notebook_dir}/notebooks/04_Query_Demo"},
             "job_cluster_key": "graphrag_cluster",
             "depends_on": [{"task_key": "03_Build_Agent"}],
         },
         {
             "task_key": "05_Evaluation",
-            "notebook_task": {"notebook_path": f"{notebook_dir}/05_Evaluation"},
+            "notebook_task": {"notebook_path": f"{notebook_dir}/notebooks/05_Evaluation"},
             "job_cluster_key": "graphrag_cluster",
             "depends_on": [{"task_key": "03_Build_Agent"}],
         },

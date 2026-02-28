@@ -1,0 +1,6 @@
+resources:
+  apps:
+    graphrag_webapp:
+      name: graphrag-demo-v2-${bundle.target}
+      description: "GraphRAG Interactive Demo — Auditable AI powered by Knowledge Graphs on Databricks"
+      source_code_path: ../src/app

@@ -27,39 +27,76 @@ Two disciplines, one accelerator:
 ## File Structure
 
 ```
-.cursor/
-├── rules/
-│   └── gsd-execution.mdc               [GSD + Drucker discipline]
-├── mcp.json                             [MCP server config — shared by all agents]
-├── skills/                              [33 project skills — available to all agents]
-└── agents/
-    ├── data-specialist.md
-    ├── extraction-specialist.md
-    ├── developer-specialist.md
-    └── quality-learning-specialist.md
-
-.planning/
-├── SYSTEM.md                          ← you are here
-├── PRFAQ.md                           [project vision — don't modify]
-├── PROJECT.md                         [scope — don't modify]
-├── REQUIREMENTS.md                    [deliverables]
-├── ROADMAP.md                         [milestones]
-├── STATE.md                           [current status]
-├── SUBAGENT-COORDINATION.md           [wave structure + file ownership + ecosystem inventory]
-├── decisions/
-│   ├── README.md                      [decision index]
-│   ├── D-001-delta-over-neo4j.md
-│   ├── D-002-bible-corpus.md
-│   └── D-003-dash-framework.md
-├── templates/
-│   ├── DECISION-TEMPLATE.md
-│   ├── RETROSPECTIVE-TEMPLATE.md
-│   └── CONTRIBUTION-GATE-TEMPLATE.md
-└── phases/
-    ├── 01-setup/
-    ├── 03-interactive-demo/
-    │   └── RETROSPECTIVE.md           [Phase 03 — backfilled]
-    └── ...
+GraphRAG/                                # PROJECT ROOT
+├── README.md                            [project overview]
+├── RUNME.py                             [one-command demo — Databricks convention]
+├── pyproject.toml                       [Python project config + dependencies]
+├── databricks.yml                       [DABs deployment manifest]
+├── .gitignore
+│
+├── src/                                 # ALL PRODUCT SOURCE CODE
+│   ├── config.py                        [shared config — catalog, schema, endpoints]
+│   ├── data/                            [data engineering — loading, schema, Delta ops]
+│   ├── extraction/                      [LLM extraction — prompts, pipeline, dedup]
+│   ├── agent/                           [LangGraph agent — tools, state, serving]
+│   ├── evaluation/                      [governance scorers, MLflow evaluation, baselines]
+│   └── app/                             [Dash web application — pages, backend, assets]
+│
+├── notebooks/                           # DATABRICKS NOTEBOOKS
+│   ├── 00_Intro_and_Config.py           [pipeline walkthrough notebooks]
+│   ├── 01_Data_Prep.py
+│   ├── 02_Build_Knowledge_Graph.py
+│   ├── 03_Build_Agent.py
+│   ├── 04_Query_Demo.py
+│   ├── 05_Evaluation.py
+│   └── spikes/                          [Level 1 proving ground — temporary explorations]
+│
+├── tests/                               # ALL TESTS
+│   ├── test_demo_app.py
+│   ├── unit/
+│   └── integration/
+│
+├── deploy/                              # DEPLOYMENT SCRIPTS + CONFIG
+│   ├── pipeline_job.yml                 [DABs pipeline job definition]
+│   └── webapp.yml                       [DABs web app definition]
+│
+├── docs/                                # DOCUMENTATION (non-planning)
+├── data/                                # RAW/REFERENCE DATA (small, committed)
+│
+├── .cursor/                             # CURSOR TOOLING
+│   ├── rules/
+│   │   └── gsd-execution.mdc           [GSD + Drucker discipline]
+│   ├── mcp.json                         [MCP server config — shared by all agents]
+│   ├── skills/                          [33 project skills — available to all agents]
+│   └── agents/
+│       ├── data-specialist.md
+│       ├── extraction-specialist.md
+│       ├── developer-specialist.md
+│       └── quality-learning-specialist.md
+│
+└── .planning/                           # GSD + DRUCKER DISCIPLINE
+    ├── SYSTEM.md                        ← you are here
+    ├── PRFAQ.md                         [project vision — don't modify]
+    ├── PROJECT.md                       [scope — don't modify]
+    ├── REQUIREMENTS.md                  [deliverables]
+    ├── ROADMAP.md                       [milestones]
+    ├── STATE.md                         [current status]
+    ├── SUBAGENT-COORDINATION.md         [wave structure + file ownership]
+    ├── decisions/
+    │   ├── README.md                    [decision index]
+    │   ├── D-001-delta-over-neo4j.md
+    │   ├── D-002-bible-corpus.md
+    │   ├── D-003-dash-framework.md
+    │   └── D-004-debug-notebook-workflow.md
+    ├── templates/
+    │   ├── DECISION-TEMPLATE.md
+    │   ├── RETROSPECTIVE-TEMPLATE.md
+    │   └── CONTRIBUTION-GATE-TEMPLATE.md
+    └── phases/
+        ├── 01-setup/
+        ├── 03-interactive-demo/
+        │   └── RETROSPECTIVE.md         [Phase 03 — backfilled]
+        └── ...
 ```
 
 ## 4 Specialists

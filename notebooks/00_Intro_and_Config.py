@@ -43,14 +43,14 @@
 # COMMAND ----------
 
 # DBTITLE 1,Load Configuration
-# MAGIC %run ./util/config
+# MAGIC %run ../src/config
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ## Configuration Values
 # MAGIC
-# MAGIC The following settings control the accelerator. Modify `util/config.py` to change catalog, schema, or LLM endpoint.
+# MAGIC The following settings control the accelerator. Modify `src/config.py` to change catalog, schema, or LLM endpoint.
 
 # COMMAND ----------
 

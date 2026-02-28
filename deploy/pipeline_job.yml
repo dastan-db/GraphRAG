@@ -1,0 +1,47 @@
+resources:
+  jobs:
+    graphrag_pipeline:
+      name: "[${bundle.target}] GraphRAG — Bible Knowledge Graph Pipeline"
+      tags:
+        usage: "solacc"
+        domain: "graphrag"
+      timeout_seconds: 28800
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: "00_Intro_and_Config"
+          notebook_task:
+            notebook_path: ../notebooks/00_Intro_and_Config.py
+
+        - task_key: "01_Data_Prep"
+          notebook_task:
+            notebook_path: ../notebooks/01_Data_Prep.py
+          depends_on:
+            - task_key: "00_Intro_and_Config"
+
+        - task_key: "02_Build_Knowledge_Graph"
+          notebook_task:
+            notebook_path: ../notebooks/02_Build_Knowledge_Graph.py
+          depends_on:
+            - task_key: "01_Data_Prep"
+
+        - task_key: "03_Build_Agent"
+          notebook_task:
+            notebook_path: ../notebooks/03_Build_Agent.py
+          depends_on:
+            - task_key: "02_Build_Knowledge_Graph"
+
+        - task_key: "04_Query_Demo"
+          notebook_task:
+            notebook_path: ../notebooks/04_Query_Demo.py
+          depends_on:
+            - task_key: "03_Build_Agent"
+
+        - task_key: "05_Evaluation"
+          notebook_task:
+            notebook_path: ../notebooks/05_Evaluation.py
+          depends_on:
+            - task_key: "03_Build_Agent"
+
+      permissions:
+        - level: CAN_VIEW
+          group_name: "users"

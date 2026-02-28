@@ -13,15 +13,15 @@
 # COMMAND ----------
 
 # DBTITLE 1,Load Configuration and Utilities
-# MAGIC %run ./util/config
+# MAGIC %run ../src/config
 
 # COMMAND ----------
 
-# MAGIC %run ./util/tools
+# MAGIC %run ../src/agent/tools
 
 # COMMAND ----------
 
-# MAGIC %run ./util/agent
+# MAGIC %run ../src/agent/agent
 
 # COMMAND ----------
 
@@ -87,8 +87,7 @@ resources = [
 with mlflow.start_run(run_name="graphrag_bible_agent"):
     model_info = mlflow.pyfunc.log_model(
         name="agent",
-        python_model="util/agent.py",
-        extra_code=["util/config.py", "util/tools.py"],
+        python_model="../src/agent/agent_serving.py",
         resources=resources,
         pip_requirements=[
             "mlflow>=3.0",
@@ -107,21 +106,44 @@ print(f"Model logged: {model_info.model_uri}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 3: Deploy (Optional)
+# MAGIC ## Step 3: Deploy to Model Serving
 # MAGIC
-# MAGIC Deploy the agent to a Model Serving endpoint. This takes ~15 minutes.
+# MAGIC Deploy the agent to a Model Serving endpoint and wait for it to be online (~15 min).
 
 # COMMAND ----------
 
-# DBTITLE 1,Deploy Agent
-# Uncomment to deploy:
-# from databricks import agents
-# agents.deploy(
-#     f"{config['catalog']}.{config['schema']}.graphrag_agent",
-#     version=model_info.registered_model_version,
-#     tags={"source": "graphrag_solacc"},
-# )
-# print("Deployment initiated. Check the Serving UI for status.")
+# DBTITLE 1,Deploy Agent and Wait for Endpoint
+from databricks import agents
+from databricks.sdk import WorkspaceClient
+import time
+
+ENDPOINT_NAME = "graphrag-bible-agent"
+
+deployment = agents.deploy(
+    f"{config['catalog']}.{config['schema']}.graphrag_agent",
+    version=model_info.registered_model_version,
+    endpoint_name=ENDPOINT_NAME,
+    tags={"source": "graphrag_solacc"},
+)
+print(f"Deployment initiated: {deployment.endpoint_name}")
+
+w = WorkspaceClient()
+MAX_WAIT_SECONDS = 1800  # 30 minutes
+POLL_INTERVAL = 30
+elapsed = 0
+
+while elapsed < MAX_WAIT_SECONDS:
+    ep = w.serving_endpoints.get(name=ENDPOINT_NAME)
+    ready = ep.state.ready if ep.state else None
+    config_update = ep.state.config_update if ep.state else None
+    print(f"  [{elapsed}s] ready={ready}, config_update={config_update}")
+    if str(ready) == "READY":
+        print(f"\nEndpoint '{ENDPOINT_NAME}' is READY!")
+        break
+    time.sleep(POLL_INTERVAL)
+    elapsed += POLL_INTERVAL
+else:
+    print(f"\nWARNING: Endpoint did not reach READY state within {MAX_WAIT_SECONDS}s. Check the Serving UI.")
 
 # COMMAND ----------
 

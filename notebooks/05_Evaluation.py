@@ -25,23 +25,23 @@
 # COMMAND ----------
 
 # DBTITLE 1,Load All Utilities
-# MAGIC %run ./util/config
+# MAGIC %run ../src/config
 
 # COMMAND ----------
 
-# MAGIC %run ./util/tools
+# MAGIC %run ../src/agent/tools
 
 # COMMAND ----------
 
-# MAGIC %run ./util/agent
+# MAGIC %run ../src/agent/agent
 
 # COMMAND ----------
 
-# MAGIC %run ./util/evaluation
+# MAGIC %run ../src/evaluation/evaluation
 
 # COMMAND ----------
 
-# MAGIC %run ./util/flat_rag
+# MAGIC %run ../src/evaluation/flat_rag
 
 # COMMAND ----------
 
@@ -92,7 +92,7 @@ flat_rag.build_index()
 import mlflow
 from mlflow.types.responses import ResponsesAgentRequest
 
-agent_70b = AGENT  # already built via %run ./util/agent
+agent_70b = AGENT  # already built via %run ../src/agent/agent
 
 @mlflow.trace
 def predict_graphrag_70b(question):

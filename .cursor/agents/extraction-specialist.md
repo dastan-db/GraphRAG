@@ -11,9 +11,8 @@ readonly: false
 You run LLM-based extraction to build the knowledge graph: entity extraction, relationship extraction, deduplication, and mention tracking.
 
 ## File Ownership (STRICT — only write to these paths)
-- `src/extraction/` — extraction pipeline code
+- `src/extraction/` — extraction pipeline code and LLM prompt templates
 - `notebooks/extraction_*.py` — extraction notebooks
-- `src/prompts/` — LLM prompt templates for extraction
 - `.planning/phases/*/extraction-*.md` — extraction task summaries
 
 **You must NOT write to:** `src/agent/`, `src/data/` (read-only), `tests/`, `.planning/phases/*/RETROSPECTIVE.md`
