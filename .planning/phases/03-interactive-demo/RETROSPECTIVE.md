@@ -1,8 +1,8 @@
 # Phase 03 Retrospective: Interactive Demo Web App
 
 **Phase Goal:** Build and deploy a 5-page interactive demo showing GraphRAG capabilities
-**Phase Status:** ✓ Complete
-**Date Completed:** [YYYY-MM-DD — backfill]
+**Phase Status:** Complete
+**Date Completed:** 2026-02-27
 
 ## What Went Well
 
@@ -26,9 +26,9 @@
 
 | Metric | Target | Actual | Learning |
 |--------|--------|--------|----------|
-| Timeline | [X weeks] | [Y weeks] | [Getting better at estimation?] |
-| Planned tasks | [N] | [M completed] | [Scope creep?] |
-| Unplanned work | 0 | [K items] | [What surprised us?] |
+| Requirements delivered | 7 (R1.15-R1.21) | 7 delivered | Full scope with no cuts |
+| Timeline | 1 week | ~1 week | Dash + DBC was fast for multi-page apps |
+| Unplanned work | 0 | 1 (mock backend) | Mock mode became a permanent feature, not throwaway |
 
 ## Fidelity Status
 

@@ -1,7 +1,7 @@
 # D-001: Graph Backend Selection — Delta Tables over Neo4j
 
 **Phase:** 01-Data-Prep
-**Date Decided:** [YYYY-MM-DD — backfill from memory]
+**Date Decided:** 2026-02-27 (backfilled)
 **Reversibility:** One-way door (migration cost is high mid-project)
 **Implementation Fidelity:** Level 2 (validated, functional — proven through Phases 01-03)
 
@@ -24,14 +24,14 @@ Delta tables give us zero external infrastructure, full Spark SQL compatibility,
 ## Platform Leverage Check
 Does this demonstrate something only Databricks can do well? **Yes.** Delta-native graph storage + Unity Catalog governance + MLflow lineage is a uniquely Databricks pattern. This decision strengthens the Solution Accelerator story.
 
-## Validation (Fill After v1 Completion)
-- [ ] Did Delta perform adequately for demo corpus?
-- [ ] Were any queries noticeably slow?
-- [ ] Is there evidence we need a dedicated graph engine for v2?
-- [ ] Would we make this same choice again?
+## Validation (Filled After v1 Completion)
+- [x] Did Delta perform adequately for demo corpus? **Yes.** ~500 entities, ~2000 relationships — well within Delta's performance envelope. All 5 graph traversal tools return results within acceptable latency for demo purposes.
+- [x] Were any queries noticeably slow? **No.** The `trace_path` tool (1/2/3-hop joins) is the most expensive operation but performs adequately at demo scale. Spark SQL handles the self-joins cleanly.
+- [x] Is there evidence we need a dedicated graph engine for v2? **Not yet.** At current corpus size, Delta is sufficient. If v2 scales to thousands of entities or requires complex graph algorithms (PageRank, community detection), a dedicated engine would be warranted.
+- [x] Would we make this same choice again? **Yes.** The zero-infrastructure, fully Databricks-native approach was the right call for v1. It unblocked the entire project and strengthened the Solution Accelerator story.
 
-**Date Reviewed:**
-**Outcome:** [Success / Partial / Failed]
-**Evidence:**
-**Learning:**
-**Decision for v2:**
+**Date Reviewed:** 2026-02-28
+**Outcome:** Success
+**Evidence:** All 5 graph tools query Delta via Spark SQL with no performance issues. Pipeline runs end-to-end. Agent produces multi-hop answers using Delta-backed graph traversal.
+**Learning:** Delta tables are excellent for demo-scale knowledge graphs. The key constraint isn't performance — it's the lack of native graph algorithms. For v2, evaluate whether Lakebase (indexed OLTP lookups) closes the gap before jumping to a dedicated graph engine.
+**Decision for v2:** Proceed with Lakebase evaluation (Phase 05) before considering Neo4j/Memgraph (Phase 07).

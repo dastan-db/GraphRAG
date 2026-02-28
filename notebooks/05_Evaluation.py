@@ -269,64 +269,15 @@ plt.show()
 
 # COMMAND ----------
 
-# DBTITLE 1,Run Reproducibility Test
-import re
-
-REPRO_QUESTIONS = [
-    "How is Ruth connected to Jesus? Trace the lineage step by step.",
-    "What role does Moses play across the Old and New Testament books in our knowledge graph?",
-    "How is David connected to both Ruth and Jesus?",
-    "What happened on the road to Damascus in Acts?",
-    "What is the connection between Mount Sinai and the Ten Commandments?",
-]
-
+# DBTITLE 1,Run Reproducibility Test (uses utilities from evaluation.py)
 NUM_RUNS = 3
-
-repro_results = {}
-for q in REPRO_QUESTIONS:
-    repro_results[q] = []
-    for run_idx in range(NUM_RUNS):
-        result = predict_graphrag_70b(q)
-        repro_results[q].append(result["response"])
-
-# COMMAND ----------
-
-# DBTITLE 1,Measure Reproducibility
-def extract_citations(text):
-    """Extract sorted set of verse citations from a response."""
-    pattern = r'(Genesis|Exodus|Ruth|Matthew|Acts)\s+\d+:\d+'
-    return sorted(set(re.findall(pattern, text)))
-
-def extract_path_entities(text):
-    """Extract entity names from provenance path arrows."""
-    path_match = re.search(r'(?i)\*?\*?Path\*?\*?\s*:(.+?)(?:\n|$)', text)
-    if not path_match:
-        return []
-    path_line = path_match.group(1)
-    entities = re.split(r'\s*[→\->]+\s*', path_line)
-    return [re.sub(r'\s*\(.*?\)\s*', '', e).strip() for e in entities if e.strip()]
-
-repro_rows = []
-for q in REPRO_QUESTIONS:
-    responses = repro_results[q]
-    citation_sets = [extract_citations(r) for r in responses]
-    path_sets = [extract_path_entities(r) for r in responses]
-
-    all_citations_match = all(c == citation_sets[0] for c in citation_sets)
-    all_paths_match = all(p == path_sets[0] for p in path_sets)
-
-    repro_rows.append({
-        "Question": q[:70] + "...",
-        "Citations Consistent": all_citations_match,
-        "Path Consistent": all_paths_match,
-        "Runs": NUM_RUNS,
-    })
+repro_rows, repro_rate = run_reproducibility_test(predict_graphrag_70b, REPRO_QUESTIONS, NUM_RUNS)
 
 repro_df = pd.DataFrame(repro_rows)
 display(repro_df)
 
-repro_rate = sum(1 for r in repro_rows if r["Citations Consistent"] and r["Path Consistent"]) / len(repro_rows)
-print(f"\nReproducibility rate: {repro_rate:.0%} ({sum(1 for r in repro_rows if r['Citations Consistent'] and r['Path Consistent'])}/{len(repro_rows)} queries fully consistent across {NUM_RUNS} runs)")
+consistent = sum(1 for r in repro_rows if r["Citations Consistent"] and r["Path Consistent"])
+print(f"\nReproducibility rate: {repro_rate:.0%} ({consistent}/{len(repro_rows)} queries fully consistent across {NUM_RUNS} runs)")
 
 # COMMAND ----------
 

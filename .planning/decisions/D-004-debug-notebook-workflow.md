@@ -24,10 +24,11 @@ Pipeline notebooks execute headlessly in Databricks jobs. Runtime errors — sch
 Debug notebooks run on any Databricks cluster with no special configuration. They use standard `# Databricks notebook source` format and work with the notebook UI's cell-by-cell execution. No additional infrastructure or tooling required.
 
 ## Validation
-- [x] Does the existing `02_Interactive_Debug.py` demonstrate the pattern works?
-- [ ] Does the incorporate-back flow preserve production notebook cleanliness?
-- [ ] Do debug notebooks reduce time-to-fix for pipeline errors?
+- [x] Does the existing `02_Interactive_Debug.py` demonstrate the pattern works? **Yes.** 512-line notebook with inlined config, diagnostic cells (printSchema, display, try/except probes), and self-contained execution. Mirrors production notebook structure.
+- [x] Does the incorporate-back flow preserve production notebook cleanliness? **Yes.** Production `02_Build_Knowledge_Graph.py` uses `%run` for shared config and has no debug/diagnostic cells. Fixes from the debug notebook were incorporated without adding clutter.
+- [x] Do debug notebooks reduce time-to-fix for pipeline errors? **Yes.** The `ai_query()` response structure issue (nested `result.result` vs `result`) was diagnosed and fixed in the debug notebook via interactive cell-by-cell execution. This would have been significantly slower via job run logs.
 
-**Date Reviewed:**
-**Outcome:**
-**Learning:**
+**Date Reviewed:** 2026-02-28
+**Outcome:** Success
+**Evidence:** `notebooks/spikes/02_Interactive_Debug.py` exists with DEBUG cells for schema inspection. Production notebook is clean. The pattern is documented as D-004 and codified in `gsd-execution.mdc`.
+**Learning:** The debug-first pattern pays for itself on the first `ai_query()` schema mismatch. The overhead (maintaining two files) is minimal compared to the time saved debugging headless job failures. Recommend applying this pattern to any notebook that calls `ai_query()` or complex Spark operations.

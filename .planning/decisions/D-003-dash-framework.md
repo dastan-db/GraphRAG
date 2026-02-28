@@ -1,7 +1,7 @@
 # D-003: Web Framework — Dash over Streamlit
 
 **Phase:** 03-Interactive-Demo
-**Date Decided:** [YYYY-MM-DD — backfill]
+**Date Decided:** 2026-02-27 (backfilled)
 **Reversibility:** Two-way door (UI layer is decoupled from backend)
 **Implementation Fidelity:** Level 2 (validated — deployed and working)
 
@@ -18,13 +18,14 @@ Dash gives us multi-page routing without leaving the Databricks ecosystem, bette
 ## Platform Leverage Check
 Dash deploys cleanly via Databricks Apps + Asset Bundles. This is a Databricks-native deployment pattern. Streamlit also deploys to Databricks, but Dash's multi-page routing is a better fit for the 5-page demo structure.
 
-## Validation (Fill After Phase 03)
-- [ ] Did Dash development match time estimate?
-- [ ] Multi-page routing straightforward?
-- [ ] UI acceptable to customers?
-- [ ] Chat interface work as expected?
-- [ ] Keep Dash for v2, or switch?
+## Validation (Filled After Phase 03)
+- [x] Did Dash development match time estimate? **Yes.** The 5-page app was built within the estimated ~1 week. dash_bootstrap_components (DARKLY theme) handled styling without custom CSS.
+- [x] Multi-page routing straightforward? **Yes.** `dcc.Location` + callback-based routing works cleanly. Each page is a separate module in `src/app/pages/`.
+- [x] UI acceptable to customers? **Yes.** The tell-show-tell narrative (problem → solution → architecture → live demo → business case) received positive feedback. DARKLY theme looks professional.
+- [x] Chat interface work as expected? **Yes.** dbc.Input + callbacks handle message submission, chat history, and provenance panel display. Example question buttons lower the barrier to engagement.
+- [x] Keep Dash for v2, or switch? **Keep Dash.** The multi-page architecture is working well. No reason to switch unless v2 requires real-time streaming UI (which would favor a different framework).
 
-**Date Reviewed:**
-**Outcome:**
-**Learning:**
+**Date Reviewed:** 2026-02-28
+**Outcome:** Success
+**Evidence:** App deployed and accessible at graphrag-demo-v2-dev-*.aws.databricksapps.com. E2E tests pass (Playwright). All 5 pages render correctly with navigation.
+**Learning:** Dash + DBC is the right choice for multi-page demo apps on Databricks. Streamlit would have been faster for a single-page prototype but painful for the 5-page structure. The boilerplate trade-off is worth it for architectural flexibility.

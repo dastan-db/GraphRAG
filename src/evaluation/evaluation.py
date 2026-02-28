@@ -342,3 +342,63 @@ QUALITY_SCORERS = [
 ]
 
 EVAL_SCORERS = GOVERNANCE_SCORERS + QUALITY_SCORERS
+
+# COMMAND ----------
+
+# DBTITLE 1,Reproducibility Utilities
+import re as _re
+
+REPRO_QUESTIONS = [
+    "How is Ruth connected to Jesus? Trace the lineage step by step.",
+    "What role does Moses play across the Old and New Testament books in our knowledge graph?",
+    "How is David connected to both Ruth and Jesus?",
+    "What happened on the road to Damascus in Acts?",
+    "What is the connection between Mount Sinai and the Ten Commandments?",
+]
+
+
+def extract_citations(text):
+    """Extract sorted set of verse citations from a response."""
+    pattern = r'(Genesis|Exodus|Ruth|Matthew|Acts)\s+\d+:\d+'
+    return sorted(set(_re.findall(pattern, text)))
+
+
+def extract_path_entities(text):
+    """Extract entity names from the provenance Path line."""
+    path_match = _re.search(r'(?i)\*?\*?Path\*?\*?\s*:(.+?)(?:\n|$)', text)
+    if not path_match:
+        return []
+    path_line = path_match.group(1)
+    entities = _re.split(r'\s*[→\->]+\s*', path_line)
+    return [_re.sub(r'\s*\(.*?\)\s*', '', e).strip() for e in entities if e.strip()]
+
+
+def run_reproducibility_test(predict_fn, questions=None, num_runs=3):
+    """Run each question multiple times and measure citation/path consistency.
+
+    Returns a list of dicts with per-question results and an overall rate.
+    """
+    questions = questions or REPRO_QUESTIONS
+
+    repro_results = {}
+    for q in questions:
+        repro_results[q] = [predict_fn(q)["response"] for _ in range(num_runs)]
+
+    rows = []
+    for q in questions:
+        responses = repro_results[q]
+        citation_sets = [extract_citations(r) for r in responses]
+        path_sets = [extract_path_entities(r) for r in responses]
+
+        all_citations_match = all(c == citation_sets[0] for c in citation_sets)
+        all_paths_match = all(p == path_sets[0] for p in path_sets)
+
+        rows.append({
+            "Question": q[:70] + "...",
+            "Citations Consistent": all_citations_match,
+            "Path Consistent": all_paths_match,
+            "Runs": num_runs,
+        })
+
+    rate = sum(1 for r in rows if r["Citations Consistent"] and r["Path Consistent"]) / len(rows)
+    return rows, rate
