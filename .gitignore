@@ -49,3 +49,4 @@ secrets/
 .harness/
 .execution/
 .cursor/
+.ai-dev-kit/
