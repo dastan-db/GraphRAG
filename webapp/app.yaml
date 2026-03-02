@@ -1,0 +1,19 @@
+command:
+  - "gunicorn"
+  - "app:server"
+  - "-w"
+  - "4"
+  - "-b"
+  - "0.0.0.0:8000"
+
+env:
+  - name: DATABRICKS_WAREHOUSE_ID
+    value: "399215661843ad19"
+  - name: GRAPHRAG_ENDPOINT_NAME
+    value: "graphrag-bible-agent"
+  - name: DATABRICKS_CATALOG
+    value: "serverless_8e8gyh_catalog"
+  - name: DATABRICKS_SCHEMA
+    value: "graphrag_bible"
+  - name: USE_MOCK_BACKEND
+    value: "false"
