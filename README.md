@@ -23,7 +23,6 @@ GraphRAG/
 │
 ├── src/                       ALL PRODUCT SOURCE CODE
 │   ├── config.py              Shared config (catalog, schema, endpoints)
-│   ├── data/                  Data engineering: loading, schema, Delta ops
 │   ├── extraction/            LLM extraction: prompts, pipeline, dedup
 │   ├── agent/                 LangGraph agent: tools, state, serving
 │   ├── evaluation/            Governance scorers, MLflow evaluation, baselines
@@ -40,10 +39,9 @@ GraphRAG/
 │
 ├── tests/                     ALL TESTS
 ├── deploy/                    DABs resource definitions (jobs, apps)
-├── docs/                      Documentation (non-planning)
-├── data/                      Raw/reference data (small, committed)
+├── docs/                      Blog posts and standalone documentation
 │
-├── .planning/                 GSD + Drucker discipline (phases, decisions)
+├── .execution/                SDE + Drucker discipline (phases, decisions)
 └── .cursor/                   Cursor tooling (rules, agents, skills)
 ```
 
