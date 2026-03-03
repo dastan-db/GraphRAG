@@ -325,9 +325,9 @@ class AgentState(TypedDict):
 
 
 class GraphRAGAgent(ResponsesAgent):
-    def __init__(self, endpoint=None):
+    def __init__(self, endpoint=None, tools=None):
         self.llm = ChatDatabricks(endpoint=endpoint or LLM_ENDPOINT)
-        self.tools = GRAPH_TOOLS
+        self.tools = tools or GRAPH_TOOLS
         self.llm_with_tools = self.llm.bind_tools(self.tools)
 
     def _build_graph(self):
