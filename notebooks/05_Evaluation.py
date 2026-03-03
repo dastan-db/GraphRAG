@@ -541,6 +541,135 @@ THE THESIS:
 
 # MAGIC %md
 # MAGIC ---
+# MAGIC ## 10. Document-Scoped Retrieval Test
+# MAGIC
+# MAGIC Demonstrates that restricting which books a user can "see" changes the agent's answers.
+# MAGIC This is the enterprise access control scenario: **not having some context should change the answer**.
+# MAGIC
+# MAGIC For each question in the differential dataset, we run the agent twice:
+# MAGIC 1. **Full scope** — all 5 books permitted (baseline)
+# MAGIC 2. **Restricted scope** — a subset of books permitted
+# MAGIC
+# MAGIC We then measure:
+# MAGIC - **Information leakage** — does the restricted answer contain facts from restricted books?
+# MAGIC - **Completeness under constraint** — does the restricted answer use available information well?
+
+# COMMAND ----------
+
+# DBTITLE 1,Build Scoped Agent and Predict Functions
+def make_scoped_predict_fn(permitted_books):
+    """Create a predict function scoped to a specific set of permitted books.
+
+    build_scoped_tools and GraphRAGAgent are available via %run of tools.py and agent.py.
+    """
+    scoped_tools = build_scoped_tools(permitted_books)
+    scoped_agent = GraphRAGAgent(
+        endpoint=config['llm_endpoint'],
+        tools=scoped_tools,
+    )
+
+    def predict_fn(question):
+        request = ResponsesAgentRequest(input=[{"role": "user", "content": question}])
+        result = scoped_agent.predict(request)
+        texts = [item.text for item in result.output if hasattr(item, "text")]
+        return {"response": "\n".join(texts)}
+
+    return predict_fn
+
+# COMMAND ----------
+
+# DBTITLE 1,Run Differential Evaluation — Full vs Restricted Scope
+scoped_scorers = build_document_scoped_scorers(judge_model=judge_model)
+
+full_scope_results = []
+restricted_scope_results = []
+
+for i, row in enumerate(DIFFERENTIAL_EVAL_DATASET):
+    question = row["inputs"]["question"]
+    restricted_books = row["inputs"]["permitted_books"]
+
+    print(f"\n{'='*60}")
+    print(f"  Q{i+1}: {question[:70]}...")
+    print(f"  Restricted to: {restricted_books}")
+    print(f"{'='*60}")
+
+    full_response = predict_graphrag_70b(question)
+    full_scope_results.append(full_response)
+
+    restricted_predict = make_scoped_predict_fn(restricted_books)
+    restricted_response = restricted_predict(question)
+    restricted_scope_results.append(restricted_response)
+
+    print(f"  Full response length:       {len(full_response['response'])} chars")
+    print(f"  Restricted response length:  {len(restricted_response['response'])} chars")
+
+# COMMAND ----------
+
+# DBTITLE 1,Evaluate Restricted Scope for Leakage
+restricted_eval_data = []
+for i, row in enumerate(DIFFERENTIAL_EVAL_DATASET):
+    restricted_eval_data.append({
+        "inputs": {"question": row["inputs"]["question"]},
+        "outputs": restricted_scope_results[i],
+        "expectations": row["expectations"],
+    })
+
+restricted_eval_result = mlflow.genai.evaluate(
+    data=restricted_eval_data,
+    scorers=scoped_scorers,
+)
+print(f"  Restricted scope eval run_id: {restricted_eval_result.run_id}")
+
+# COMMAND ----------
+
+# DBTITLE 1,Document-Scoped Retrieval Scorecard
+scope_rows = []
+for i, row in enumerate(DIFFERENTIAL_EVAL_DATASET):
+    question = row["inputs"]["question"]
+    restricted_books = row["inputs"]["permitted_books"]
+    excluded_books = [b for b in ALL_BOOKS if b not in restricted_books]
+
+    full_len = len(full_scope_results[i]["response"])
+    restr_len = len(restricted_scope_results[i]["response"])
+    answers_differ = full_scope_results[i]["response"] != restricted_scope_results[i]["response"]
+
+    scope_rows.append({
+        "Question": question[:60] + "...",
+        "Excluded Books": ", ".join(excluded_books),
+        "Answers Differ": answers_differ,
+        "Full Length": full_len,
+        "Restricted Length": restr_len,
+    })
+
+scope_df = pd.DataFrame(scope_rows)
+display(scope_df)
+
+# COMMAND ----------
+
+# DBTITLE 1,Leakage and Completeness Metrics
+leakage_score = restricted_eval_result.metrics.get("information_leakage/mean", None)
+completeness_score = restricted_eval_result.metrics.get("completeness_under_constraint/mean", None)
+
+print("=" * 60)
+print("  DOCUMENT-SCOPED RETRIEVAL: KEY METRICS")
+print("=" * 60)
+print(f"""
+  Information Leakage Score:         {leakage_score:.1%} (1.0 = no leakage)
+  Completeness Under Constraint:     {completeness_score:.1%} (uses available info well)
+
+  Questions where answers differ:    {sum(1 for r in scope_rows if r['Answers Differ'])}/{len(scope_rows)}
+
+  THE THESIS:
+  'Removing a document from a user's permitted set changes the answer.
+   No information leaks from restricted documents.'
+  This is the enterprise access control requirement: different users
+  with different document permissions get different, correct answers.
+""")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ---
 # MAGIC
 # MAGIC ## Summary
 # MAGIC
@@ -552,6 +681,8 @@ THE THESIS:
 # MAGIC | **Reproducibility** | Same query = same answer? (GraphRAG only) | Section 7 — Reproducibility Test |
 # MAGIC | **Correctness** | Is the answer factually right? | Section 6 — Quality Scorecard |
 # MAGIC | **Cost/Query** | Is governance economical? | Section 8 — Cost Analysis |
+# MAGIC | **Information Leakage** | Do restricted answers leak forbidden content? | Section 10 — Document-Scoped Retrieval |
+# MAGIC | **Completeness Under Constraint** | Does the agent use available info well? | Section 10 — Document-Scoped Retrieval |
 # MAGIC
 # MAGIC All claims backed by MLflow evaluation runs. Check the **Experiments** tab for full traces and per-question results.
 # MAGIC

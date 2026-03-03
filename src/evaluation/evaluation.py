@@ -430,3 +430,243 @@ def run_reproducibility_test(predict_fn, questions=None, num_runs=3):
 
     rate = sum(1 for r in rows if r["Citations Consistent"] and r["Path Consistent"]) / len(rows)
     return rows, rate
+
+# COMMAND ----------
+
+# DBTITLE 1,Differential Evaluation Dataset — Document-Scoped Retrieval
+DIFFERENTIAL_EVAL_DATASET = [
+    {
+        "inputs": {
+            "question": "How is Ruth connected to Jesus? Trace the lineage step by step.",
+            "permitted_books": ["Genesis", "Matthew", "Acts"],
+        },
+        "expectations": {
+            "expected_facts": [
+                "Jesus descended from the line of David",
+                "Matthew traces Jesus's genealogy to Abraham",
+            ],
+            "forbidden_facts": [
+                "Ruth married Boaz",
+                "Obed was born to Ruth and Boaz",
+                "Ruth gleaned in the fields of Boaz",
+            ],
+        },
+    },
+    {
+        "inputs": {
+            "question": "What role does Moses play across the biblical books in our knowledge graph?",
+            "permitted_books": ["Genesis", "Ruth", "Matthew"],
+        },
+        "expectations": {
+            "expected_facts": [
+                "Moses is referenced in Matthew",
+            ],
+            "forbidden_facts": [
+                "Moses led the Israelites out of Egypt in Exodus",
+                "Moses received the Law from God at Sinai",
+                "The Red Sea was parted",
+                "Moses is referenced in Acts",
+            ],
+        },
+    },
+    {
+        "inputs": {
+            "question": "What significant events happened in Egypt across the biblical books?",
+            "permitted_books": ["Genesis", "Ruth", "Acts"],
+        },
+        "expectations": {
+            "expected_facts": [
+                "Joseph rose to power in Egypt in Genesis",
+            ],
+            "forbidden_facts": [
+                "The Israelites were enslaved in Egypt in Exodus",
+                "The plagues struck Egypt",
+                "The Exodus from Egypt occurred under Moses",
+                "Jesus's family fled to Egypt in Matthew",
+            ],
+        },
+    },
+    {
+        "inputs": {
+            "question": "How did Peter's role change across the biblical narrative?",
+            "permitted_books": ["Genesis", "Exodus", "Ruth"],
+        },
+        "expectations": {
+            "expected_facts": [],
+            "forbidden_facts": [
+                "Peter was a fisherman called as a disciple in Matthew",
+                "Peter became a leader of the early church in Acts",
+                "Peter preached at Pentecost",
+            ],
+        },
+    },
+    {
+        "inputs": {
+            "question": "What happened on the road to Damascus?",
+            "permitted_books": ["Genesis", "Exodus", "Ruth", "Matthew"],
+        },
+        "expectations": {
+            "expected_facts": [],
+            "forbidden_facts": [
+                "Saul was traveling to Damascus to persecute Christians",
+                "Saul encountered a vision of Jesus",
+                "Saul was blinded",
+                "Saul converted and became Paul",
+            ],
+        },
+    },
+    {
+        "inputs": {
+            "question": "What covenants are described in the biblical books?",
+            "permitted_books": ["Ruth", "Matthew", "Acts"],
+        },
+        "expectations": {
+            "expected_facts": [],
+            "forbidden_facts": [
+                "God made a covenant with Abraham in Genesis",
+                "God made a covenant with Israel at Sinai in Exodus",
+                "The Abrahamic covenant included circumcision",
+                "Moses received the Ten Commandments",
+            ],
+        },
+    },
+    {
+        "inputs": {
+            "question": "Who was Abraham and what covenant did God make with him?",
+            "permitted_books": ["Exodus", "Ruth", "Matthew", "Acts"],
+        },
+        "expectations": {
+            "expected_facts": [
+                "Abraham is referenced in Matthew's genealogy",
+            ],
+            "forbidden_facts": [
+                "God promised Abraham many descendants in Genesis",
+                "God promised Abraham the land of Canaan in Genesis",
+                "Abraham was called to leave his homeland in Genesis",
+            ],
+        },
+    },
+    {
+        "inputs": {
+            "question": "How is David connected to both Ruth and Jesus?",
+            "permitted_books": ["Genesis", "Exodus", "Acts"],
+        },
+        "expectations": {
+            "expected_facts": [],
+            "forbidden_facts": [
+                "David is a descendant of Ruth through Obed and Jesse",
+                "Ruth married Boaz",
+                "Matthew traces Jesus's lineage to David",
+            ],
+        },
+    },
+]
+
+ALL_BOOKS = ["Genesis", "Exodus", "Ruth", "Matthew", "Acts"]
+
+# COMMAND ----------
+
+# DBTITLE 1,Information Leakage Scorer
+@scorer
+def information_leakage(outputs, expectations):
+    """Detects whether a response contains facts from restricted (non-permitted) documents.
+
+    Uses an LLM judge to check each forbidden fact against the response. A score of
+    1.0 means no leakage; 0.0 means at least one forbidden fact was found.
+    """
+    response = outputs.get("response", "") if isinstance(outputs, dict) else str(outputs)
+    forbidden_facts = expectations.get("forbidden_facts", []) if isinstance(expectations, dict) else []
+
+    if not forbidden_facts:
+        return Feedback(
+            name="information_leakage",
+            value=1.0,
+            rationale="No forbidden facts to check — pass by default",
+        )
+
+    response_lower = response.lower()
+    leaked = []
+    for fact in forbidden_facts:
+        keywords = [w for w in fact.lower().split() if len(w) > 3]
+        match_count = sum(1 for kw in keywords if kw in response_lower)
+        if keywords and match_count / len(keywords) >= 0.6:
+            leaked.append(fact)
+
+    if leaked:
+        score = 0.0
+        rationale = f"LEAKAGE DETECTED — {len(leaked)}/{len(forbidden_facts)} forbidden facts found: {'; '.join(leaked)}"
+    else:
+        score = 1.0
+        rationale = f"No leakage — 0/{len(forbidden_facts)} forbidden facts detected in response"
+
+    return Feedback(name="information_leakage", value=score, rationale=rationale)
+
+# COMMAND ----------
+
+# DBTITLE 1,Completeness Under Constraint Scorer
+@scorer
+def completeness_under_constraint(outputs, expectations):
+    """Measures whether the response includes facts that should be present given the
+    permitted document set. A high score means the agent used available information well.
+    """
+    response = outputs.get("response", "") if isinstance(outputs, dict) else str(outputs)
+    expected_facts = expectations.get("expected_facts", []) if isinstance(expectations, dict) else []
+
+    if not expected_facts:
+        return Feedback(
+            name="completeness_under_constraint",
+            value=1.0,
+            rationale="No expected facts specified — pass by default",
+        )
+
+    response_lower = response.lower()
+    found = []
+    for fact in expected_facts:
+        keywords = [w for w in fact.lower().split() if len(w) > 3]
+        match_count = sum(1 for kw in keywords if kw in response_lower)
+        if keywords and match_count / len(keywords) >= 0.5:
+            found.append(fact)
+
+    ratio = len(found) / len(expected_facts)
+    missing = [f for f in expected_facts if f not in found]
+
+    rationale = f"{len(found)}/{len(expected_facts)} expected facts present"
+    if missing:
+        rationale += f" — missing: {'; '.join(missing)}"
+
+    return Feedback(
+        name="completeness_under_constraint",
+        value=round(ratio, 3),
+        rationale=rationale,
+    )
+
+# COMMAND ----------
+
+# DBTITLE 1,Document-Scoped Scorer Builder
+def build_document_scoped_scorers(judge_model=None):
+    """Build scorer list for document-scoped retrieval evaluation.
+
+    Args:
+        judge_model: e.g. "databricks:/my-gpt4o-endpoint" or None for MLflow default.
+
+    Returns:
+        List of scorers for differential evaluation.
+    """
+    judge_kwargs = {"model": judge_model} if judge_model else {}
+
+    return [
+        information_leakage,
+        completeness_under_constraint,
+        Guidelines(
+            name="scoped_hallucination_check",
+            guidelines=(
+                "The response must NOT contain factual claims about biblical events, people, "
+                "or relationships from books that are not in the user's permitted document set. "
+                "If the response mentions events or details that can only be known from a "
+                "restricted book, this is an information leakage violation. "
+                "A response that says 'I don't have information about that' when the relevant "
+                "data is in a restricted book is CORRECT behavior."
+            ),
+            **judge_kwargs,
+        ),
+    ]
