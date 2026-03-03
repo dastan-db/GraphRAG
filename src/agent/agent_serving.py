@@ -3,6 +3,10 @@ Self-contained GraphRAG agent for Model Serving.
 Consolidates config, tools, and agent into a single importable module
 so MLflow can load it without notebook %run dependencies.
 """
+import json
+import logging
+import re
+
 import mlflow
 from mlflow.pyfunc import ResponsesAgent
 from mlflow.types.responses import (
@@ -21,6 +25,8 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt.tool_node import ToolNode
 from typing import Annotated, Generator, Sequence, TypedDict
 
+log = logging.getLogger(__name__)
+
 
 # ---------------------------------------------------------------------------
 # Config
@@ -28,10 +34,146 @@ from typing import Annotated, Generator, Sequence, TypedDict
 CATALOG = "serverless_8e8gyh_catalog"
 SCHEMA = "graphrag_bible"
 LLM_ENDPOINT = "databricks-meta-llama-3-3-70b-instruct"
+SMALL_LLM_ENDPOINT = "databricks-meta-llama-3-1-8b-instruct"
 
 ENTITIES_TABLE = f"{CATALOG}.{SCHEMA}.entities"
 RELATIONSHIPS_TABLE = f"{CATALOG}.{SCHEMA}.relationships"
 VERSES_TABLE = f"{CATALOG}.{SCHEMA}.verses"
+AGENT_PROMPTS_TABLE = f"{CATALOG}.{SCHEMA}.agent_prompts"
+AGENT_ID = "bible-agent"
+PROMPT_CACHE_TTL = 300  # seconds; set to 0 for instant iteration
+
+
+# ---------------------------------------------------------------------------
+# Dynamic prompt loader
+# ---------------------------------------------------------------------------
+_prompt_cache: dict = {"text": None, "ts": 0.0}
+
+
+def _get_system_prompt(agent_id: str = AGENT_ID) -> str:
+    """Load the system prompt from the agent_prompts Delta table with TTL caching.
+
+    Falls back to the hardcoded SYSTEM_PROMPT if the table is missing or unreadable.
+    """
+    import time
+    now = time.time()
+    if _prompt_cache["text"] is None or (now - _prompt_cache["ts"]) > PROMPT_CACHE_TTL:
+        try:
+            from pyspark.sql import SparkSession
+            spark = SparkSession.builder.getOrCreate()
+            row = spark.sql(
+                f"SELECT prompt_text FROM {AGENT_PROMPTS_TABLE} "
+                f"WHERE agent_id = '{agent_id}' LIMIT 1"
+            ).first()
+            _prompt_cache["text"] = row["prompt_text"] if row else SYSTEM_PROMPT
+        except Exception:
+            log.warning("Failed to load prompt from Delta; using hardcoded fallback")
+            _prompt_cache["text"] = SYSTEM_PROMPT
+        _prompt_cache["ts"] = now
+    return _prompt_cache["text"]
+
+
+# ---------------------------------------------------------------------------
+# Query entity pre-linking
+# ---------------------------------------------------------------------------
+# Same canonical-name conventions as ENTITY_PROMPT_PREFIX used during corpus build.
+QUERY_ENTITY_PROMPT = """You are an expert biblical scholar. Extract all significant entities and concepts from the following user question.
+
+For each entity, provide:
+- name: The canonical name (e.g., Abraham not Abram unless before the name change)
+- entity_type: One of: Person, Place, Event, Group, Concept (treat God/Lord as Person)
+
+Rules:
+- Use canonical biblical names consistently
+- Include divine figures (God, Lord, Holy Spirit) as Person type
+- Include non-biblical terms exactly as the user stated them (e.g., "Arabs" stays "Arabs")
+- Extract ALL nouns that could refer to entities, even if uncertain whether they appear in the Bible
+
+Return a JSON array of objects, each with "name" and "entity_type" keys. Return ONLY the JSON array, no other text.
+
+Question:
+"""
+
+
+def _slugify(name: str) -> str:
+    """Same normalisation used during corpus build (src/extraction/extraction.py)."""
+    return re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')
+
+
+def extract_query_entities(question: str) -> list[dict]:
+    """Call the small LLM to extract entity mentions from a user question."""
+    llm = ChatDatabricks(endpoint=SMALL_LLM_ENDPOINT, temperature=0.0, max_tokens=512)
+    response = llm.invoke(QUERY_ENTITY_PROMPT + question)
+    text = response.content.strip()
+
+    # Strip markdown fences if the model wraps its output
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+
+    try:
+        entities = json.loads(text)
+        if isinstance(entities, list):
+            return [e for e in entities if isinstance(e, dict) and "name" in e]
+    except json.JSONDecodeError:
+        log.warning("Failed to parse entity extraction response: %s", text)
+    return []
+
+
+def pre_lookup_entities(entity_names: list[str]) -> tuple[list[str], list[str]]:
+    """Look up extracted query entities against the graph.
+
+    Returns (found, not_found) where each is a list of display strings.
+    """
+    from pyspark.sql import SparkSession
+    spark = SparkSession.builder.getOrCreate()
+
+    found: list[str] = []
+    not_found: list[str] = []
+
+    for name in entity_names:
+        eid = _slugify(name)
+        rows = spark.sql(f"""
+            SELECT name, entity_type
+            FROM {ENTITIES_TABLE}
+            WHERE entity_id LIKE '%{eid}%'
+            LIMIT 3
+        """).collect()
+        if rows:
+            matches = ", ".join(f"{r['name']} ({r['entity_type']})" for r in rows)
+            found.append(f"{name} -> {matches}")
+        else:
+            not_found.append(name)
+
+    return found, not_found
+
+
+def build_prelookup_context(question: str) -> str:
+    """Run entity extraction + graph lookup and return a system-prompt appendix.
+
+    Returns an empty string when extraction finds nothing or fails.
+    """
+    try:
+        entities = extract_query_entities(question)
+        if not entities:
+            return ""
+        names = [e["name"] for e in entities]
+        found, not_found = pre_lookup_entities(names)
+    except Exception:
+        log.exception("Entity pre-lookup failed; proceeding without constraint")
+        return ""
+
+    found_str = "; ".join(found) if found else "(none)"
+    not_found_str = ", ".join(not_found) if not_found else "(none)"
+
+    return (
+        "\n\n---\n"
+        "PRE-LOOKUP RESULTS (DEFINITIVE — produced by an automated system, not the user):\n"
+        f"  FOUND IN GRAPH: {found_str}\n"
+        f"  NOT IN GRAPH: {not_found_str}\n"
+        "Any answer that makes claims about entities listed under \"NOT IN GRAPH\" is WRONG.\n"
+        "---"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -291,7 +433,8 @@ SYSTEM_PROMPT = """You are a biblical scholar with access to a knowledge graph b
 You have tools that let you search the knowledge graph for entities, relationships, and source verses. Use them to provide well-grounded, auditable answers.
 
 ## Tool Usage
-- ALWAYS use tools to look up information before answering. Do not rely on your training data alone.
+- ALWAYS use tools to look up information before answering. Do NOT use your training data to make factual claims. If the knowledge graph does not contain the information, say so.
+- Before answering, verify that EVERY key term from the user's question exists in the knowledge graph using find_entity. If a term (e.g., "Arabs", "Philistines") returns no results, explicitly state that this concept is not present in the graph and do not assume connections to it.
 - When asked about connections between entities, use trace_path first, then find_connections for more context.
 - When asked about a person or concept, use get_entity_summary for a comprehensive profile.
 - Always cite specific Bible verses (book chapter:verse) when possible using get_context_verses.
@@ -301,20 +444,40 @@ You have tools that let you search the knowledge graph for entities, relationshi
 Structure EVERY response with these two sections:
 
 ### Answer
-Provide a concise, well-grounded answer using bullet points where appropriate. Cite specific verses inline (e.g., Genesis 12:1).
+- For yes/no questions, lead with a definitive one-word answer ("Yes." or "No.") on its own line, then explain with bullet points.
+- Use bullet points to break down supporting facts. Each bullet should state one claim with its verse citation.
+- Be concise — do not restate the question or hedge.
 
 ### Provenance
 At the end of every response, include a structured provenance section with:
-- **Path**: The explicit entity path traversed, using arrows. Example: Ruth → Boaz (MARRIED_TO, Ruth 4:13) → Obed (FATHER_OF, Ruth 4:17) → Jesse → David → Jesus
-- **Sources**: List every verse citation used as evidence, comma-separated.
+- **Path**: Show only the relevant portion of the graph. Omit shared ancestry above the divergence point.
+  - Connected entities example: Ruth → Boaz (MARRIED_TO, Ruth 4:13) → Obed (FATHER_OF, Ruth 4:17) → Jesse → David
+  - Unconnected entities (separate lineages) example: Levi → Aaron, Judah → David
+- **Sources**: List ONLY the verses that directly support the claims in your answer. Omit tangential references.
 - **Grounding**: State one of:
   - "All claims grounded in knowledge graph" — if every factual claim came from tool results
   - "Partially grounded — the following claims rely on general knowledge: [list them]" — if any claim was not found via tools
 
+## HARD CONSTRAINT — Entity Pre-Lookup
+Before you received this message, every entity in the user's question was automatically looked up in the knowledge graph. The results appear at the END of this system prompt and are DEFINITIVE and FINAL.
+
+YOU MUST:
+- REFUSE to answer if the question's primary subject is listed under "NOT IN GRAPH"
+- NEVER use your training data to connect a graph entity to a non-graph concept
+- State clearly: "[term] is not found in the knowledge graph. I cannot answer this question based on the available data."
+
+EXAMPLE — follow this pattern exactly:
+  Question: "Who is the father of all Arabs?"
+  Pre-lookup: NOT IN GRAPH: Arabs
+  CORRECT response: "Arabs is not found in the knowledge graph. I cannot determine who the 'father of all Arabs' is from the available data."
+  WRONG response: "Abraham through Ishmael..." (this bridges to a non-graph concept using training data — NEVER do this)
+
 ## Critical Rules
 - If information is not in the knowledge graph, say so explicitly rather than guessing. NEVER invent relationships or events.
 - If a tool returns no results, report that honestly. Do not fabricate an alternative answer.
-- Every factual claim must cite its source verse or explicitly state it was not found in the graph."""
+- Every factual claim must cite its source verse or explicitly state it was not found in the graph.
+- If the user asks about a group, concept, or entity that does not appear in the graph, your answer MUST state: "[term] is not found in the knowledge graph." Do not bridge the gap using external knowledge.
+- When reporting Grounding, any claim that connects a graph entity to a non-graph concept (e.g., linking Ishmael to "Arabs" when "Arabs" is not in the graph) MUST be listed under "Partially grounded" with the specific claim identified."""
 
 
 # ---------------------------------------------------------------------------
@@ -330,7 +493,9 @@ class GraphRAGAgent(ResponsesAgent):
         self.tools = tools or GRAPH_TOOLS
         self.llm_with_tools = self.llm.bind_tools(self.tools)
 
-    def _build_graph(self):
+    def _build_graph(self, prelookup_context: str = ""):
+        system_prompt = _get_system_prompt() + prelookup_context
+
         def should_continue(state):
             last = state["messages"][-1]
             if isinstance(last, AIMessage) and last.tool_calls:
@@ -338,7 +503,7 @@ class GraphRAGAgent(ResponsesAgent):
             return "end"
 
         def call_model(state):
-            messages = [{"role": "system", "content": SYSTEM_PROMPT}] + state["messages"]
+            messages = [{"role": "system", "content": system_prompt}] + state["messages"]
             response = self.llm_with_tools.invoke(messages)
             return {"messages": [response]}
 
@@ -362,7 +527,14 @@ class GraphRAGAgent(ResponsesAgent):
         self, request: ResponsesAgentRequest
     ) -> Generator[ResponsesAgentStreamEvent, None, None]:
         messages = to_chat_completions_input([m.model_dump() for m in request.input])
-        graph = self._build_graph()
+
+        last_user = next(
+            (m for m in reversed(messages) if m.get("role") == "user"), None
+        )
+        question = last_user["content"] if last_user and last_user.get("content") else ""
+        prelookup_context = build_prelookup_context(question) if question else ""
+
+        graph = self._build_graph(prelookup_context)
         for event in graph.stream({"messages": messages}, stream_mode=["updates"]):
             if event[0] == "updates":
                 for node_data in event[1].values():

@@ -68,7 +68,41 @@ for item in result.output:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 2: Log the Agent to MLflow
+# MAGIC ## Step 2: Seed the Agent Prompts Table
+# MAGIC
+# MAGIC Store the system prompt in a Delta table so it can be updated without redeploying the serving endpoint.
+
+# COMMAND ----------
+
+# DBTITLE 1,Create and Seed agent_prompts Table
+from datetime import datetime
+
+AGENT_PROMPTS_TABLE = config['agent_prompts_table']
+
+spark.sql(f"""
+    CREATE TABLE IF NOT EXISTS {AGENT_PROMPTS_TABLE} (
+        agent_id STRING,
+        prompt_text STRING,
+        updated_at TIMESTAMP
+    ) USING DELTA
+""")
+
+spark.sql(f"""
+    MERGE INTO {AGENT_PROMPTS_TABLE} AS target
+    USING (SELECT 'bible-agent' AS agent_id) AS source
+    ON target.agent_id = source.agent_id
+    WHEN NOT MATCHED THEN
+        INSERT (agent_id, prompt_text, updated_at)
+        VALUES ('bible-agent', '{SYSTEM_PROMPT.replace("'", "''")}', current_timestamp())
+""")
+
+print(f"Agent prompts table ready: {AGENT_PROMPTS_TABLE}")
+display(spark.table(AGENT_PROMPTS_TABLE))
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Step 3: Log the Agent to MLflow
 # MAGIC
 # MAGIC Register the agent in Unity Catalog so it can be deployed to Model Serving.
 
@@ -82,6 +116,7 @@ mlflow.set_registry_uri("databricks-uc")
 
 resources = [
     DatabricksServingEndpoint(endpoint_name=config['llm_endpoint']),
+    DatabricksServingEndpoint(endpoint_name=config['small_llm_endpoint']),
 ]
 
 with mlflow.start_run(run_name="graphrag_bible_agent"):
@@ -106,7 +141,7 @@ print(f"Model logged: {model_info.model_uri}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 3: Deploy to Model Serving
+# MAGIC ## Step 4: Deploy to Model Serving
 # MAGIC
 # MAGIC Deploy the agent to a Model Serving endpoint and wait for it to be online (~15 min).
 

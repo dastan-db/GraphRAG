@@ -27,6 +27,7 @@ config['chapters_table'] = f"{config['catalog']}.{config['schema']}.chapters"
 config['entities_table'] = f"{config['catalog']}.{config['schema']}.entities"
 config['relationships_table'] = f"{config['catalog']}.{config['schema']}.relationships"
 config['entity_mentions_table'] = f"{config['catalog']}.{config['schema']}.entity_mentions"
+config['agent_prompts_table'] = f"{config['catalog']}.{config['schema']}.agent_prompts"
 
 # COMMAND ----------
 
