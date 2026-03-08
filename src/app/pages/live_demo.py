@@ -1,11 +1,11 @@
-import os
 import json
+import os
 
-import dash_bootstrap_components as dbc
 import dash
-from dash import html, dcc, Input, Output, State, callback, no_update, ALL
+import dash_bootstrap_components as dbc
+from dash import ALL, Input, Output, State, callback, dcc, html, no_update
 
-from backend.agent_client import query_agent, query_agent_mock, AgentResponse
+from backend.agent_client import AgentResponse, query_agent, query_agent_mock
 
 USE_MOCK = os.getenv("USE_MOCK_BACKEND", "false").lower() == "true"
 
@@ -17,11 +17,6 @@ EXAMPLE_QUESTIONS = [
     "What happened on the road to Damascus?",
     "Trace the Israelites' journey from Egypt.",
 ]
-
-ENTITY_COLORS = {
-    "Person": "#dc3545", "Place": "#4682B4", "Event": "#28a745",
-    "Group": "#ffc107", "Concept": "#9b59b6", "Unknown": "#888",
-}
 
 
 def demo_layout():
@@ -52,13 +47,19 @@ def demo_layout():
             # Chat column
             dbc.Col([
                 html.H5("Conversation", className="mb-3"),
-                html.Div(id="chat-history", style={
-                    "height": "400px", "overflowY": "auto", "padding": "1rem",
-                    "backgroundColor": "#1a1f2b", "borderRadius": "8px", "border": "1px solid #333",
-                }),
+                dcc.Loading(
+                    id="chat-loading",
+                    type="dot",
+                    color="#dc3545",
+                    children=html.Div(id="chat-history", style={
+                        "height": "400px", "overflowY": "auto", "padding": "1rem",
+                        "backgroundColor": "#1a1f2b", "borderRadius": "8px", "border": "1px solid #333",
+                    }),
+                ),
                 dbc.InputGroup([
                     dbc.Input(id="chat-input", placeholder="Ask about the biblical knowledge graph...",
-                              type="text", className="bg-dark text-white border-secondary"),
+                              type="text", n_submit=0,
+                              className="bg-dark text-white border-secondary"),
                     dbc.Button("Send", id="send-btn", color="danger", n_clicks=0),
                 ], className="mt-2"),
             ], md=7),
@@ -67,7 +68,8 @@ def demo_layout():
             dbc.Col([
                 html.H5("Provenance", className="mb-3"),
                 html.Div(id="provenance-panel", style={
-                    "minHeight": "400px", "padding": "1rem",
+                    "minHeight": "400px", "maxHeight": "600px", "overflowY": "auto",
+                    "padding": "1rem",
                     "backgroundColor": "#1a1f2b", "borderRadius": "8px", "border": "1px solid #333",
                 }, children=[
                     html.Div([
@@ -80,12 +82,11 @@ def demo_layout():
 
         # Hidden store for chat state
         dcc.Store(id="chat-store", data={"messages": []}),
-        dcc.Store(id="last-response-store", data=None),
 
         html.Hr(className="mt-4"),
         html.P(
             "Every answer above is auditable: the provenance section shows the exact entity path, "
-            "source citations, and grounding indicator.",
+            "source citations with expandable verse text, and grounding indicator.",
             className="text-center text-muted small",
         ),
     ])
@@ -127,10 +128,44 @@ def _render_provenance(resp_data):
         elements.append(html.Div(path_badges, className="mb-3"))
 
     sources = resp_data.get("sources", [])
+    verse_texts = resp_data.get("verse_texts", {})
     if sources:
         elements.append(html.H6("Source Citations", className="text-danger mb-2"))
         for src in sources:
-            elements.append(html.Div([html.I(className="fas fa-book me-2 text-muted"), src], className="mb-1 small"))
+            verse_text = verse_texts.get(src, "")
+            if verse_text:
+                elements.append(html.Details([
+                    html.Summary(
+                        html.Span([html.I(className="fas fa-book me-2 text-muted"), src]),
+                        className="small mb-1",
+                        style={"cursor": "pointer"},
+                    ),
+                    html.P(
+                        verse_text,
+                        className="small text-muted ms-4 mt-1 mb-2 fst-italic",
+                        style={"lineHeight": "1.5", "borderLeft": "2px solid #dc3545", "paddingLeft": "0.75rem"},
+                    ),
+                ], className="mb-1"))
+            else:
+                elements.append(html.Div([html.I(className="fas fa-book me-2 text-muted"), src], className="mb-1 small"))
+        elements.append(html.Div(className="mb-3"))
+
+    unreferenced = {ref: txt for ref, txt in verse_texts.items() if ref not in sources}
+    if unreferenced:
+        elements.append(html.H6("Additional Cited Verses", className="text-danger mb-2"))
+        for ref, txt in unreferenced.items():
+            elements.append(html.Details([
+                html.Summary(
+                    html.Span([html.I(className="fas fa-bookmark me-2 text-muted"), ref]),
+                    className="small mb-1",
+                    style={"cursor": "pointer"},
+                ),
+                html.P(
+                    txt,
+                    className="small text-muted ms-4 mt-1 mb-2 fst-italic",
+                    style={"lineHeight": "1.5", "borderLeft": "2px solid #6c757d", "paddingLeft": "0.75rem"},
+                ),
+            ], className="mb-1"))
         elements.append(html.Div(className="mb-3"))
 
     grounding = resp_data.get("grounding", "")
@@ -161,12 +196,13 @@ def register_demo_callbacks(app):
         Output("provenance-panel", "children"),
         Output("chat-input", "value"),
         Input("send-btn", "n_clicks"),
+        Input("chat-input", "n_submit"),
         Input({"type": "example-btn", "index": ALL}, "n_clicks"),
         State("chat-input", "value"),
         State("chat-store", "data"),
         prevent_initial_call=True,
     )
-    def handle_send(send_clicks, example_clicks, user_input, chat_data):
+    def handle_send(send_clicks, n_submit, example_clicks, user_input, chat_data):
         ctx = dash.callback_context
         if not ctx.triggered:
             return no_update, no_update, no_update, no_update
@@ -174,15 +210,15 @@ def register_demo_callbacks(app):
         trigger_id = ctx.triggered[0]["prop_id"]
 
         question = None
-        if "send-btn" in trigger_id:
+        if "send-btn" in trigger_id or "chat-input" in trigger_id:
             question = user_input
         elif "example-btn" in trigger_id:
             try:
-                idx_str = trigger_id.split('"index":')[1].split("}")[0].strip()
-                idx = int(idx_str)
+                parsed = json.loads(trigger_id.rsplit(".", 1)[0])
+                idx = parsed["index"]
                 if example_clicks[idx]:
                     question = EXAMPLE_QUESTIONS[idx]
-            except (IndexError, ValueError):
+            except (json.JSONDecodeError, KeyError, IndexError, TypeError):
                 return no_update, no_update, no_update, no_update
 
         if not question or not question.strip():
@@ -213,6 +249,7 @@ def register_demo_callbacks(app):
             "sources": resp.sources,
             "grounding": resp.grounding,
             "full_text": resp.full_text,
+            "verse_texts": resp.verse_texts,
         }
         prov = _render_provenance(resp_data)
 

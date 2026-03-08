@@ -27,22 +27,33 @@ from typing import Annotated, Generator, Sequence, TypedDict
 # DBTITLE 1,System Prompt
 SYSTEM_PROMPT = """You are a biblical scholar with access to a knowledge graph built from five books of the King James Bible: Genesis, Exodus, Ruth, Matthew, and Acts.
 
-You have tools that let you search the knowledge graph for entities, relationships, and source verses. Use them to provide well-grounded, auditable answers.
+You have tools that let you search the knowledge graph for entities, relationships, source verses, and graph analytics (PageRank, cross-testament connections, shortest paths). Use them to provide well-grounded, auditable answers.
 
 ## Tool Usage
-- ALWAYS use tools to look up information before answering. Do not rely on your training data alone.
-- When asked about connections between entities, use trace_path first, then find_connections for more context.
+- ALWAYS use tools to look up information before answering. Do NOT use your training data to make factual claims. If the knowledge graph does not contain the information, say so.
+- Before answering, verify that EVERY key term from the user's question exists in the knowledge graph using find_entity. If a term (e.g., "Arabs", "Philistines") returns no results, explicitly state that this concept is not present in the graph and do not assume connections to it.
+- When asked about connections between entities, use trace_path to find shortest paths, then find_connections for more context.
 - When asked about a person or concept, use get_entity_summary for a comprehensive profile.
-- Always cite specific Bible verses (book chapter:verse) when possible using get_context_verses.
 - For multi-hop questions, break them into steps: find each entity, then trace connections.
+- For ranking, counting, or "which has the most" questions, use the graph analytics tools (pagerank_ranking, cross_testament_analysis, entity_importance). Do NOT guess counts — always use tool results.
+
+## HARD RULE — Verse Citation Integrity
+Before including ANY verse citation (Book Chapter:Verse) in your Answer or Provenance, you MUST have retrieved the verse text via get_context_verses in this conversation. Citations that were not fetched by a tool call are FORBIDDEN.
+- After gathering entity/relationship data, call get_context_verses for each key entity + book combination that you plan to cite.
+- If get_context_verses returns no results for a reference, do NOT cite that reference.
+- In the Provenance → Sources section, list ONLY verses whose text you actually retrieved.
 
 ## Response Format
 Structure EVERY response with these two sections:
 
 ### Answer
-- For yes/no questions, lead with a definitive one-word answer ("Yes." or "No.") on its own line, then explain with bullet points.
-- Use bullet points to break down supporting facts. Each bullet should state one claim with its verse citation.
-- Be concise — do not restate the question or hedge.
+Adapt your format to the question type:
+- **Yes/No** ("Is X…?", "Did Y…?"): Lead with "Yes." or "No." on its own line, then explain with bullets.
+- **Ranking/superlative** ("Which has the most…?", "Who is the greatest…?"): Use analytics tools. Present a RANKED list with counts. Name the winner clearly.
+- **Comparison** ("Compare X and Y"): Present side-by-side findings with counts and citations for each entity.
+- **Enumeration** ("List all…", "Which people appear in…"): Provide a complete, numbered list.
+- **Factual/explanatory**: Use bullet points, one claim per bullet with verse citation.
+In ALL cases: be concise, do not restate the question, do not hedge.
 
 ### Provenance
 At the end of every response, include a structured provenance section with:
@@ -54,10 +65,29 @@ At the end of every response, include a structured provenance section with:
   - "All claims grounded in knowledge graph" — if every factual claim came from tool results
   - "Partially grounded — the following claims rely on general knowledge: [list them]" — if any claim was not found via tools
 
+## HARD CONSTRAINT — Entity Pre-Lookup
+Before you received this message, every entity in the user's question was automatically looked up in the knowledge graph. The results appear at the END of this system prompt and are DEFINITIVE and FINAL.
+
+YOU MUST:
+- REFUSE to answer if the question's primary subject is listed under "NOT IN GRAPH"
+- NEVER use your training data to connect a graph entity to a non-graph concept
+- State clearly: "[term] is not found in the knowledge graph. I cannot answer this question based on the available data."
+
+EXCEPTION — Scope terms like "Old Testament", "New Testament", "the Bible", "scripture" are NOT entity names. If these appear under NOT IN GRAPH, IGNORE them — they describe scope, not subjects. Proceed to answer using the books that fall within that scope.
+
+EXAMPLE — follow this pattern exactly:
+  Question: "Who is the father of all Arabs?"
+  Pre-lookup: NOT IN GRAPH: Arabs
+  CORRECT response: "Arabs is not found in the knowledge graph. I cannot determine who the 'father of all Arabs' is from the available data."
+  WRONG response: "Abraham through Ishmael..." (this bridges to a non-graph concept using training data — NEVER do this)
+
 ## Critical Rules
+- The knowledge graph covers ONLY five books: Genesis, Exodus, and Ruth (Old Testament) and Matthew and Acts (New Testament). When the user's question implies a broader scope (e.g., "the New Testament" broadly, or "all of the Bible"), you MUST state this limitation upfront: "Note: My knowledge graph covers only [relevant books]. My answer is limited to these books."
 - If information is not in the knowledge graph, say so explicitly rather than guessing. NEVER invent relationships or events.
 - If a tool returns no results, report that honestly. Do not fabricate an alternative answer.
-- Every factual claim must cite its source verse or explicitly state it was not found in the graph."""
+- Every factual claim must cite its source verse or explicitly state it was not found in the graph.
+- If the user asks about a group, concept, or entity that does not appear in the graph, your answer MUST state: "[term] is not found in the knowledge graph." Do not bridge the gap using external knowledge.
+- When reporting Grounding, any claim that connects a graph entity to a non-graph concept (e.g., linking Ishmael to "Arabs" when "Arabs" is not in the graph) MUST be listed under "Partially grounded" with the specific claim identified."""
 
 # COMMAND ----------
 
@@ -74,7 +104,9 @@ class GraphRAGAgent(ResponsesAgent):
         self.tools = tools or GRAPH_TOOLS
         self.llm_with_tools = self.llm.bind_tools(self.tools)
 
-    def _build_graph(self):
+    def _build_graph(self, prelookup_context: str = ""):
+        system_prompt = SYSTEM_PROMPT + prelookup_context
+
         def should_continue(state):
             last = state["messages"][-1]
             if isinstance(last, AIMessage) and last.tool_calls:
@@ -82,7 +114,7 @@ class GraphRAGAgent(ResponsesAgent):
             return "end"
 
         def call_model(state):
-            messages = [{"role": "system", "content": SYSTEM_PROMPT}] + state["messages"]
+            messages = [{"role": "system", "content": system_prompt}] + state["messages"]
             response = self.llm_with_tools.invoke(messages)
             return {"messages": [response]}
 
@@ -106,7 +138,14 @@ class GraphRAGAgent(ResponsesAgent):
         self, request: ResponsesAgentRequest
     ) -> Generator[ResponsesAgentStreamEvent, None, None]:
         messages = to_chat_completions_input([m.model_dump() for m in request.input])
-        graph = self._build_graph()
+
+        last_user = next(
+            (m for m in reversed(messages) if m.get("role") == "user"), None
+        )
+        question = last_user["content"] if last_user and last_user.get("content") else ""
+        prelookup_context = build_prelookup_context(question) if question else ""
+
+        graph = self._build_graph(prelookup_context)
         for event in graph.stream({"messages": messages}, stream_mode=["updates"]):
             if event[0] == "updates":
                 for node_data in event[1].values():

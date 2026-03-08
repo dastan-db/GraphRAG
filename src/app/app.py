@@ -8,6 +8,7 @@ from pages.how_it_works import how_layout
 from pages.architecture import arch_layout
 from pages.live_demo import demo_layout, register_demo_callbacks
 from pages.apply import apply_layout
+from pages.manage_corpus import manage_corpus_layout, register_corpus_callbacks
 
 app = dash.Dash(
     __name__,
@@ -34,15 +35,16 @@ CONTENT_STYLE = {
 }
 
 NAV_ITEMS = [
-    {"label": "Tell", "children": [
+    {"label": "Understand", "children": [
         {"href": "/", "icon": "fa-home", "text": "Home"},
         {"href": "/how-it-works", "icon": "fa-cogs", "text": "How It Works"},
         {"href": "/architecture", "icon": "fa-sitemap", "text": "Architecture"},
     ]},
-    {"label": "Show", "children": [
+    {"label": "Experience", "children": [
         {"href": "/live-demo", "icon": "fa-rocket", "text": "Live Demo"},
+        {"href": "/manage-corpus", "icon": "fa-database", "text": "Manage Corpus"},
     ]},
-    {"label": "Tell", "children": [
+    {"label": "Adopt", "children": [
         {"href": "/apply", "icon": "fa-briefcase", "text": "Apply to Business"},
     ]},
 ]
@@ -83,12 +85,15 @@ def render_page(pathname):
         return arch_layout()
     elif pathname == "/live-demo":
         return demo_layout()
+    elif pathname == "/manage-corpus":
+        return manage_corpus_layout()
     elif pathname == "/apply":
         return apply_layout()
     return home_layout()
 
 
 register_demo_callbacks(app)
+register_corpus_callbacks(app)
 
 server = app.server
 

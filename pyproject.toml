@@ -14,9 +14,30 @@ dependencies = [
     "databricks-agents",
     "databricks-sdk>=0.30",
     "pydantic>=2.0",
+    "databricks-mcp",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
 
 [project.optional-dependencies]
 dev = [
     "ruff>=0.5",
+    "rich>=13.0",
+    "textual>=0.75",
+    "tiktoken>=0.7",
+]
+local = [
+    "duckdb>=1.0",
+    "langchain-openai>=0.2",
+    "langchain-ollama>=0.2",
+]
+gateway = [
+    "litellm[proxy]",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: end-to-end agent tests requiring LLM credentials (deselect with '-m not integration')",
+    "baseline: raw LLM baseline tests (no graph tools) — expected to fail, proving graph engine value",
 ]

@@ -1,0 +1,7 @@
+command:
+  - "python"
+  - "server/main.py"
+
+env:
+  - name: LAKEBASE_ENDPOINT
+    value: "projects/graphrag/branches/production/endpoints/primary"

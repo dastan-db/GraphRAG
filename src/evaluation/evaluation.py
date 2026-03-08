@@ -225,6 +225,25 @@ EVAL_DATASET = [
             ],
         },
     },
+    {
+        "inputs": {"question": "Which person in the New Testament has the most relationships with persons from the Old Testament?"},
+        "expectations": {
+            "expected_facts": [
+                "Jesus has the most cross-testament relationships",
+                "The knowledge graph covers only Matthew and Acts for the New Testament",
+                "Specific relationship count is provided",
+            ],
+        },
+    },
+    {
+        "inputs": {"question": "Who is the most important person in the knowledge graph?"},
+        "expectations": {
+            "expected_facts": [
+                "PageRank or centrality score is cited",
+                "Top entities are listed with rankings",
+            ],
+        },
+    },
 ]
 
 # COMMAND ----------

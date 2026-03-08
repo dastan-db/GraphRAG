@@ -28,6 +28,9 @@ config['entities_table'] = f"{config['catalog']}.{config['schema']}.entities"
 config['relationships_table'] = f"{config['catalog']}.{config['schema']}.relationships"
 config['entity_mentions_table'] = f"{config['catalog']}.{config['schema']}.entity_mentions"
 config['agent_prompts_table'] = f"{config['catalog']}.{config['schema']}.agent_prompts"
+config['entity_analytics_table'] = f"{config['catalog']}.{config['schema']}.entity_analytics"
+config['entity_paths_table'] = f"{config['catalog']}.{config['schema']}.entity_paths"
+config['book_registry_table'] = f"{config['catalog']}.{config['schema']}.book_registry"
 
 # COMMAND ----------
 
@@ -42,6 +45,12 @@ config['bible_books'] = {
 
 # COMMAND ----------
 
+# DBTITLE 1,Complete Bible Registry (66 books)
+from bible_registry import BIBLE_BOOKS_ALL
+config['bible_books_all'] = BIBLE_BOOKS_ALL
+
+# COMMAND ----------
+
 # DBTITLE 1,Create Schema
 _ = spark.sql(f"USE CATALOG {config['catalog']}")
 _ = spark.sql(f"CREATE SCHEMA IF NOT EXISTS {config['catalog']}.{config['schema']}")
@@ -52,9 +61,65 @@ _ = spark.sql(f"USE SCHEMA {config['schema']}")
 # DBTITLE 1,Teardown Helper
 def teardown():
     """Drop all tables and schema. Use only for full reset."""
-    for t in ['entity_mentions', 'relationships', 'entities', 'chapters', 'verses']:
+    for t in ['entity_analytics', 'entity_paths', 'entity_mentions', 'relationships',
+              'entities', 'chapters', 'verses', 'book_registry']:
         _ = spark.sql(f"DROP TABLE IF EXISTS {config['catalog']}.{config['schema']}.{t}")
     _ = spark.sql(f"DROP SCHEMA IF EXISTS {config['catalog']}.{config['schema']} CASCADE")
+
+# COMMAND ----------
+
+# DBTITLE 1,Book Registry Helpers
+def init_book_registry(existing_books=None):
+    """Create and populate the book_registry table from bible_books_all.
+
+    Args:
+        existing_books: list of book names already ingested (marked 'active').
+                        Defaults to the keys in config['bible_books'].
+    """
+    if existing_books is None:
+        existing_books = list(config['bible_books'].keys())
+
+    reg_table = config['book_registry_table']
+    spark.sql(f"""
+        CREATE TABLE IF NOT EXISTS {reg_table} (
+            book_name STRING,
+            testament STRING,
+            total_chapters INT,
+            status STRING,
+            entity_count INT,
+            relationship_count INT,
+            verse_count INT,
+            added_at TIMESTAMP,
+            updated_at TIMESTAMP
+        ) USING DELTA
+    """)
+
+    from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType
+    import pyspark.sql.functions as F
+
+    schema = StructType([
+        StructField("book_name", StringType()),
+        StructField("testament", StringType()),
+        StructField("total_chapters", IntegerType()),
+        StructField("status", StringType()),
+    ])
+    rows = []
+    for name, meta in config['bible_books_all'].items():
+        status = 'active' if name in existing_books else 'available'
+        rows.append((name, meta['testament'], meta['chapters'], status))
+
+    df = (
+        spark.createDataFrame(rows, schema)
+        .withColumn("entity_count", F.lit(0))
+        .withColumn("relationship_count", F.lit(0))
+        .withColumn("verse_count", F.lit(0))
+        .withColumn("added_at", F.when(F.col("status") == "active", F.current_timestamp()))
+        .withColumn("updated_at", F.current_timestamp())
+    )
+
+    df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(reg_table)
+    active_count = df.filter("status = 'active'").count()
+    print(f"Book registry: {df.count()} books ({active_count} active) → {reg_table}")
 
 # COMMAND ----------
 

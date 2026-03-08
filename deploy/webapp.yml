@@ -4,3 +4,12 @@ resources:
       name: graphrag-demo-v2-${bundle.target}
       description: "GraphRAG Interactive Demo — Auditable AI powered by Knowledge Graphs on Databricks"
       source_code_path: ../src/app
+      resources:
+        - name: serving-endpoint
+          serving_endpoint:
+            name: graphrag-bible-agent
+            permission: CAN_QUERY
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE

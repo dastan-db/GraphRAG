@@ -1,0 +1,3022 @@
+{
+  "metadata": {
+    "name": "GraphRAG Graph-Value Evaluation Suite",
+    "version": "2.0",
+    "domain": "Biblical KJV knowledge graph (Genesis, Exodus, Ruth, Matthew, Acts)",
+    "description": "35-case core evaluation suite + 12 document-scoped access-control cases. Includes source_grounding (0-3) and scope_compliance (0-2) dimensions for enterprise governance evaluation.",
+    "total_cases": 35,
+    "total_scoped_cases": 12
+  },
+  "test_cases": [
+    {
+      "id": "mh-01",
+      "category": "multi-hop",
+      "user_question": "Trace the exact family lineage from Ruth to King David using only the knowledge graph.",
+      "required_graph_operations": "Look up Ruth's family connections, then follow PARENT_OF edges through Obed and Jesse to David.",
+      "expected_tool_calls": [
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Ruth"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Obed"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Jesse"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Boaz",
+            "p": "SPOUSE_OF",
+            "o": "Ruth"
+          },
+          {
+            "s": "Ruth",
+            "p": "PARENT_OF",
+            "o": "Obed"
+          },
+          {
+            "s": "Boaz",
+            "p": "PARENT_OF",
+            "o": "Obed"
+          },
+          {
+            "s": "Obed",
+            "p": "PARENT_OF",
+            "o": "Jesse"
+          },
+          {
+            "s": "Jesse",
+            "p": "PARENT_OF",
+            "o": "David"
+          }
+        ],
+        "paths": [
+          {
+            "path_name": "Ruth-to-David",
+            "nodes": [
+              "Ruth",
+              "Boaz",
+              "Obed",
+              "Jesse",
+              "David"
+            ],
+            "edges": [
+              "SPOUSE_OF",
+              "PARENT_OF",
+              "PARENT_OF",
+              "PARENT_OF"
+            ]
+          }
+        ]
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Calls find_connections for at least Ruth and one intermediate ancestor"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "All 5 lineage triples present (Boaz-Ruth, Ruth-Obed, Boaz-Obed, Obed-Jesse, Jesse-David)"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Answer names every intermediate person and uses relationship labels from the graph"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Includes both Ruth ch.4 and Matthew ch.1 as sources for this lineage"
+        }
+      },
+      "gold_answer": "Ruth married Boaz. Their son Obed fathered Jesse, who fathered David. The chain is Ruth -> Boaz (spouse) -> Obed -> Jesse -> David, attested in Ruth ch.4 and Matthew ch.1.",
+      "why_graph_wins": "Graph traversal chains PARENT_OF edges across 4 hops; flat RAG retrieves chapter text but cannot reliably reconstruct the full ordered chain.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG may retrieve Ruth ch.4 text but miss the Jesse-David link or reverse the direction.",
+        "common_agent_mistakes": [
+          "Omitting Boaz as Ruth's spouse",
+          "Confusing the direction of PARENT_OF edges"
+        ]
+      }
+    },
+    {
+      "id": "mh-02",
+      "category": "multi-hop",
+      "user_question": "How is Naomi connected to King David through the knowledge graph? List every person in between.",
+      "required_graph_operations": "Look up Naomi's connections to find Ruth, then chain through Boaz/Obed/Jesse to David.",
+      "expected_tool_calls": [
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Naomi"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Ruth"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Obed"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Naomi",
+            "p": "FAMILY_OF",
+            "o": "Ruth"
+          },
+          {
+            "s": "Ruth",
+            "p": "PARENT_OF",
+            "o": "Obed"
+          },
+          {
+            "s": "Obed",
+            "p": "PARENT_OF",
+            "o": "Jesse"
+          },
+          {
+            "s": "Jesse",
+            "p": "PARENT_OF",
+            "o": "David"
+          }
+        ],
+        "paths": [
+          {
+            "path_name": "Naomi-to-David",
+            "nodes": [
+              "Naomi",
+              "Ruth",
+              "Boaz",
+              "Obed",
+              "Jesse",
+              "David"
+            ],
+            "edges": [
+              "FAMILY_OF",
+              "SPOUSE_OF/PARENT_OF",
+              "PARENT_OF",
+              "PARENT_OF",
+              "PARENT_OF"
+            ]
+          }
+        ]
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Calls find_connections for Naomi and at least one downstream entity"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Naomi-Ruth link plus Ruth-to-David chain present"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Names every intermediate person with graph-sourced relationship labels"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Mentions that Naomi is connected via Ruth's marriage to Boaz, not by blood"
+        }
+      },
+      "gold_answer": "Naomi is Ruth's mother-in-law (FAMILY_OF). Ruth married Boaz and bore Obed, who fathered Jesse, who fathered David. The path is Naomi -> Ruth -> Boaz -> Obed -> Jesse -> David (5 hops).",
+      "why_graph_wins": "Requires 5-hop traversal starting from a non-obvious entry point (Naomi); flat RAG would need to stitch across multiple chapter passages.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG retrieves Ruth ch.1 (Naomi) and Ruth ch.4 (genealogy) but cannot chain them into a single path.",
+        "common_agent_mistakes": [
+          "Skipping Ruth as the link between Naomi and the David lineage",
+          "Claiming Naomi is a blood ancestor of David"
+        ]
+      }
+    },
+    {
+      "id": "mh-03",
+      "category": "multi-hop",
+      "user_question": "What is the connection between Abraham and the Israelites being enslaved in Egypt, according to the knowledge graph?",
+      "required_graph_operations": "Trace Abraham -> Isaac -> Jacob -> Joseph -> Egypt, then link to Exodus enslavement.",
+      "expected_tool_calls": [
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Abraham"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Jacob"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Joseph",
+            "book": "Genesis"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Abraham",
+            "p": "PARENT_OF",
+            "o": "Isaac"
+          },
+          {
+            "s": "Isaac",
+            "p": "PARENT_OF",
+            "o": "Jacob"
+          },
+          {
+            "s": "Jacob",
+            "p": "PARENT_OF",
+            "o": "Joseph"
+          },
+          {
+            "s": "Joseph",
+            "p": "TRAVELED_TO",
+            "o": "Egypt"
+          }
+        ],
+        "paths": [
+          {
+            "path_name": "Abraham-to-Egypt",
+            "nodes": [
+              "Abraham",
+              "Isaac",
+              "Jacob",
+              "Joseph",
+              "Egypt"
+            ],
+            "edges": [
+              "PARENT_OF",
+              "PARENT_OF",
+              "PARENT_OF",
+              "TRAVELED_TO"
+            ]
+          }
+        ]
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Calls find_connections for Abraham and at least one descendant"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Patriarchal chain (Abraham-Isaac-Jacob-Joseph) and Joseph's travel to Egypt present"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Explains the causal chain: Abraham's descendants ended up in Egypt via Joseph"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Mentions the transition from Genesis (Joseph in Egypt) to Exodus (enslavement)"
+        }
+      },
+      "gold_answer": "Abraham fathered Isaac, who fathered Jacob, who fathered Joseph. Joseph traveled to Egypt (Genesis). His family followed, and their descendants became enslaved there (Exodus). Abraham's lineage is the direct chain to the Egyptian bondage.",
+      "why_graph_wins": "Requires chaining 4 PARENT_OF edges plus a TRAVELED_TO edge across two books; flat RAG cannot traverse directed lineage edges.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG may retrieve Abraham and Egypt passages but cannot show the causal chain through Isaac, Jacob, and Joseph.",
+        "common_agent_mistakes": [
+          "Jumping directly from Abraham to Moses without the intermediate patriarchs",
+          "Omitting Joseph's role as the reason the family went to Egypt"
+        ]
+      }
+    },
+    {
+      "id": "mh-04",
+      "category": "multi-hop",
+      "user_question": "How are Ruth and Jesus connected through their ancestors in the knowledge graph? Name every person in the chain.",
+      "required_graph_operations": "Chain Ruth -> Obed -> Jesse -> David -> Solomon -> ... -> Jesus using Ruth ch.4 and Matthew ch.1 genealogy edges.",
+      "expected_tool_calls": [
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Ruth"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "David"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Jesus",
+            "book": "Matthew"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Ruth",
+            "p": "PARENT_OF",
+            "o": "Obed"
+          },
+          {
+            "s": "Obed",
+            "p": "PARENT_OF",
+            "o": "Jesse"
+          },
+          {
+            "s": "Jesse",
+            "p": "PARENT_OF",
+            "o": "David"
+          },
+          {
+            "s": "David",
+            "p": "PARENT_OF",
+            "o": "Solomon"
+          },
+          {
+            "s": "Solomon",
+            "p": "ANCESTOR_OF",
+            "o": "Jesus"
+          }
+        ],
+        "paths": [
+          {
+            "path_name": "Ruth-to-Jesus",
+            "nodes": [
+              "Ruth",
+              "Obed",
+              "Jesse",
+              "David",
+              "Solomon",
+              "...",
+              "Jesus"
+            ],
+            "edges": [
+              "PARENT_OF",
+              "PARENT_OF",
+              "PARENT_OF",
+              "PARENT_OF",
+              "ANCESTOR_OF"
+            ]
+          }
+        ]
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Calls find_connections for Ruth, David, and Jesus"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Ruth-Obed-Jesse-David chain plus David-Solomon-...-Jesus chain present"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Names intermediate ancestors from both Ruth and Matthew genealogy data"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Covers both the Ruth ch.4 lineage and the Matthew ch.1 continuation through Solomon"
+        }
+      },
+      "gold_answer": "Ruth bore Obed with Boaz. Obed fathered Jesse, Jesse fathered David. David fathered Solomon (Matthew ch.1), and through a long genealogy chain, Jesus descends from Solomon. Ruth is thus an ancestor of Jesus through David's line.",
+      "why_graph_wins": "Requires traversal across two books (Ruth and Matthew) through 5+ hops; no single text passage contains the complete chain.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG may retrieve Ruth ch.4 or Matthew ch.1 but not both, missing the cross-book link through David.",
+        "common_agent_mistakes": [
+          "Stopping at David without continuing to Jesus",
+          "Omitting Solomon as the link between David and Jesus"
+        ]
+      }
+    },
+    {
+      "id": "mh-05",
+      "category": "multi-hop",
+      "user_question": "Trace how Jacob's family ended up in Egypt according to the knowledge graph.",
+      "required_graph_operations": "Look up Jacob's children, find Joseph's journey to Egypt, then Jacob's own travel to Egypt.",
+      "expected_tool_calls": [
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Jacob"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Joseph",
+            "book": "Genesis"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Jacob",
+            "p": "PARENT_OF",
+            "o": "Joseph"
+          },
+          {
+            "s": "Joseph",
+            "p": "TRAVELED_TO",
+            "o": "Egypt"
+          },
+          {
+            "s": "Jacob",
+            "p": "TRAVELED_TO",
+            "o": "Egypt"
+          }
+        ],
+        "paths": [
+          {
+            "path_name": "Jacob-family-to-Egypt",
+            "nodes": [
+              "Jacob",
+              "Joseph",
+              "Egypt"
+            ],
+            "edges": [
+              "PARENT_OF",
+              "TRAVELED_TO"
+            ]
+          }
+        ]
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Calls find_connections for Jacob and Joseph with Genesis filter"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Jacob-Joseph parent link and both Joseph's and Jacob's TRAVELED_TO Egypt present"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Explains Joseph went first, then Jacob followed"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Mentions the Genesis chapter references"
+        }
+      },
+      "gold_answer": "Jacob fathered Joseph (Genesis ch.33). Joseph was taken to Egypt (TRAVELED_TO, Genesis). Later Jacob himself traveled to Egypt (Genesis ch.48). The family's presence in Egypt set the stage for the Exodus.",
+      "why_graph_wins": "Graph edges show both the parent link and independent TRAVELED_TO edges; flat RAG merges narrative but cannot distinguish who traveled when.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG retrieves Genesis text mentioning Egypt but cannot isolate the two separate TRAVELED_TO events for Joseph and Jacob.",
+        "common_agent_mistakes": [
+          "Conflating Joseph's involuntary journey with Jacob's voluntary migration",
+          "Missing that Jacob also has a direct TRAVELED_TO Egypt edge"
+        ]
+      }
+    },
+    {
+      "id": "mh-06",
+      "category": "multi-hop",
+      "user_question": "How did Peter's role and relationships change between Matthew and Acts according to the knowledge graph?",
+      "required_graph_operations": "Get Peter's connections filtered by Matthew, then by Acts, and compare the relationship sets.",
+      "expected_tool_calls": [
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Peter",
+            "book": "Matthew"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Peter",
+            "book": "Acts"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Jesus",
+            "p": "SPOKE_TO",
+            "o": "Peter",
+            "source_id": "Matthew"
+          },
+          {
+            "s": "Jesus",
+            "p": "COMMANDED",
+            "o": "Peter",
+            "source_id": "Matthew"
+          },
+          {
+            "s": "Peter",
+            "p": "LEADS",
+            "o": "Apostles",
+            "source_id": "Acts"
+          },
+          {
+            "s": "Peter",
+            "p": "HEALED",
+            "o": "Lame man",
+            "source_id": "Acts"
+          },
+          {
+            "s": "Peter",
+            "p": "BAPTIZED",
+            "o": "Gentiles",
+            "source_id": "Acts"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Uses book filter on find_connections for both Matthew and Acts"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Key Matthew rels (Jesus spoke/commanded Peter) and Acts rels (Peter leads, heals, baptizes) present"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Contrasts Peter as disciple (Matthew) vs leader (Acts) based on relationship types"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Mentions specific relationship types that differ between the two books"
+        }
+      },
+      "gold_answer": "In Matthew, Peter is primarily a disciple: Jesus speaks to, commands, and saves Peter. In Acts, Peter becomes a leader: he leads the Apostles, heals the lame man, baptizes Gentiles, preaches to Israel, and is imprisoned by Herod. His role shifts from follower to church leader.",
+      "why_graph_wins": "Book-filtered graph queries reveal structural role shift through different relationship types; flat RAG cannot systematically compare relationship patterns across books.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG retrieves passages mentioning Peter but cannot systematically enumerate and compare his relationship types across two books.",
+        "common_agent_mistakes": [
+          "Listing Peter's Acts connections without contrasting them to Matthew",
+          "Missing the leadership relationships (LEADS, HEALED, BAPTIZED) unique to Acts"
+        ]
+      }
+    },
+    {
+      "id": "mh-07",
+      "category": "multi-hop",
+      "user_question": "Trace the complete genealogy chain from Abraham to Jesus as recorded in Matthew chapter 1 of the knowledge graph.",
+      "required_graph_operations": "Get connections for Abraham in Matthew, then chain through PARENT_OF edges in Matthew ch.1.",
+      "expected_tool_calls": [
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Abraham"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "David"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Jesus",
+            "book": "Matthew"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Abraham",
+            "p": "PARENT_OF",
+            "o": "Isaac"
+          },
+          {
+            "s": "Isaac",
+            "p": "PARENT_OF",
+            "o": "Jacob"
+          },
+          {
+            "s": "Jacob",
+            "p": "PARENT_OF",
+            "o": "Judas"
+          },
+          {
+            "s": "Jesse",
+            "p": "PARENT_OF",
+            "o": "David"
+          },
+          {
+            "s": "David",
+            "p": "PARENT_OF",
+            "o": "Solomon"
+          },
+          {
+            "s": "Joseph",
+            "p": "PARENT_OF",
+            "o": "Jesus Christ"
+          }
+        ],
+        "paths": [
+          {
+            "path_name": "Abraham-to-Jesus-genealogy",
+            "nodes": [
+              "Abraham",
+              "Isaac",
+              "Jacob",
+              "Judas",
+              "Phares",
+              "Esrom",
+              "Aram",
+              "Aminadab",
+              "Naasson",
+              "Salmon",
+              "Booz",
+              "Obed",
+              "Jesse",
+              "David",
+              "Solomon",
+              "Roboam",
+              "...",
+              "Joseph",
+              "Jesus Christ"
+            ],
+            "edges": [
+              "PARENT_OF repeated"
+            ]
+          }
+        ]
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Calls find_connections for at least Abraham, David, and Jesus"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Key genealogy links present (Abraham-Isaac, Isaac-Jacob, Jesse-David, David-Solomon, Joseph-Jesus)"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Lists the genealogy chain in order, grounded in Matthew ch.1 PARENT_OF edges"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Covers the full chain or acknowledges it spans 42 generations per Matthew"
+        }
+      },
+      "gold_answer": "Matthew ch.1 records the genealogy: Abraham begat Isaac, Isaac begat Jacob, Jacob begat Judas, through to David, Solomon, and eventually Joseph who was husband of Mary, mother of Jesus Christ. The graph contains the full PARENT_OF chain.",
+      "why_graph_wins": "The graph stores each generational link as a directed PARENT_OF edge; reconstructing the full ordered chain requires traversing ~40 edges that flat RAG cannot sequence.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG may retrieve Matthew ch.1 text but cannot extract and order all 42 generational links as structured data.",
+        "common_agent_mistakes": [
+          "Listing only a few names instead of the full chain",
+          "Mixing up the order of generations"
+        ]
+      }
+    },
+    {
+      "id": "mh-08",
+      "category": "multi-hop",
+      "user_question": "What is the shortest connection between Moses and Jesus in the knowledge graph?",
+      "required_graph_operations": "Look up Moses's connections and Jesus's connections to find shared neighbors or paths.",
+      "expected_tool_calls": [
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Moses"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Jesus",
+            "book": "Matthew"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Jesus",
+            "book": "Acts"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Jesus",
+            "p": "CHILD_OF",
+            "o": "David",
+            "source_id": "Matthew"
+          },
+          {
+            "s": "Moses",
+            "p": "SPOKE_TO",
+            "o": "God"
+          },
+          {
+            "s": "God",
+            "p": "SPOKE_TO",
+            "o": "Jesus"
+          }
+        ],
+        "paths": [
+          {
+            "path_name": "Moses-to-Jesus",
+            "nodes": [
+              "Moses",
+              "God/Lord",
+              "Jesus"
+            ],
+            "edges": [
+              "SPOKE_TO",
+              "SPOKE_TO"
+            ]
+          }
+        ]
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Looks up connections for both Moses and Jesus to find overlapping neighbors"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Identifies at least one short path (e.g., both connected to God/Lord)"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "States the path length and names the intermediate entity"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Acknowledges Moses appears in Matthew and Acts where Jesus is also referenced"
+        }
+      },
+      "gold_answer": "Moses and Jesus are both connected to God/Lord, making a 2-hop path: Moses -- God -- Jesus. Moses also appears in Matthew (referenced by Jesus) and Acts (referenced by Stephen). The shortest structural connection is through their shared relationship with God.",
+      "why_graph_wins": "Finding shortest paths requires computing shared neighbors between two entity neighborhoods; flat RAG cannot determine structural proximity.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG retrieves passages about Moses and Jesus separately but cannot compute that God is their shortest-path bridge.",
+        "common_agent_mistakes": [
+          "Claiming a direct Moses-Jesus edge that doesn't exist",
+          "Using training knowledge about Moses being mentioned in the New Testament instead of graph evidence"
+        ]
+      }
+    },
+    {
+      "id": "dis-01",
+      "category": "disambiguation",
+      "user_question": "The knowledge graph contains entities with the name 'Mary'. List each distinct Mary entity, which book they first appear in, and their relationships.",
+      "required_graph_operations": "Search for 'Mary' entities, then get connections for each distinct Mary.",
+      "expected_tool_calls": [
+        {
+          "function": "find_entity",
+          "arguments": {
+            "name": "Mary"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Mary"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Mary Magdalene"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Mary",
+            "p": "PARENT_OF",
+            "o": "Jesus Christ",
+            "source_id": "Matthew"
+          },
+          {
+            "s": "Joseph",
+            "p": "SPOUSE_OF",
+            "o": "Mary",
+            "source_id": "Matthew"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Searches for Mary and retrieves connections for each distinct entity"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Identifies exactly 2 Mary entities: Mary (Acts ch.1) and Mary Magdalene (Matthew ch.28)"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Separates relationship sets for each Mary without conflation"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Notes the different first-mention books for each"
+        }
+      },
+      "gold_answer": "The graph has two Mary entities: (1) Mary (Person, first mentioned Acts ch.1) -- spouse of Joseph, mother of Jesus Christ; (2) Mary Magdalene (Person, first mentioned Matthew ch.28). They have distinct entity IDs and separate relationship sets.",
+      "why_graph_wins": "Graph stores each Mary as a separate node with distinct entity_id; flat RAG retrieves text mentioning 'Mary' without distinguishing which Mary is meant.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG conflates all 'Mary' mentions into one entity, mixing up mother-of-Jesus with Mary Magdalene.",
+        "common_agent_mistakes": [
+          "Conflating the two Marys into one person",
+          "Missing Mary Magdalene as a separate entity"
+        ]
+      }
+    },
+    {
+      "id": "dis-02",
+      "category": "disambiguation",
+      "user_question": "Are 'Abram' and 'Abraham' separate entities in the knowledge graph, or the same person? Show their relationships.",
+      "required_graph_operations": "Search for Abram and Abraham separately, compare entity IDs and relationship sets.",
+      "expected_tool_calls": [
+        {
+          "function": "find_entity",
+          "arguments": {
+            "name": "Abram"
+          }
+        },
+        {
+          "function": "find_entity",
+          "arguments": {
+            "name": "Abraham"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Abram"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Abraham"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Abram",
+            "p": "TRAVELED_TO",
+            "o": "Egypt"
+          },
+          {
+            "s": "Abram",
+            "p": "TRAVELED_TO",
+            "o": "Canaan"
+          },
+          {
+            "s": "Abraham",
+            "p": "PARENT_OF",
+            "o": "Isaac"
+          },
+          {
+            "s": "Abraham",
+            "p": "SPOUSE_OF",
+            "o": "Sarah"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Searches for both Abram and Abraham as separate lookups"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Identifies them as separate entities (abram vs abraham) with different first-mention contexts"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Shows distinct relationship sets for each"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Notes Abram is from Genesis ch.11 (before name change) and Abraham is listed from Acts ch.3"
+        }
+      },
+      "gold_answer": "Abram and Abraham are separate entities in the graph. Abram (entity_id: abram, first: Genesis ch.11) has TRAVELED_TO relationships (Canaan, Egypt, etc.). Abraham (entity_id: abraham, first: Acts ch.3) has PARENT_OF Isaac, SPOUSE_OF Sarah. They represent the same historical person before and after the name change, but are stored as distinct nodes.",
+      "why_graph_wins": "Graph exposes the dual-entity storage for pre/post name-change; flat RAG treats all mentions of Abram/Abraham as one person and cannot reveal this structural distinction.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG returns text mentioning both names interchangeably, with no way to show they are stored as separate graph nodes.",
+        "common_agent_mistakes": [
+          "Assuming they are the same entity without checking",
+          "Missing that the graph has two separate entity_ids"
+        ]
+      }
+    },
+    {
+      "id": "dis-03",
+      "category": "disambiguation",
+      "user_question": "Are Saul and Paul the same person in the knowledge graph? What does the graph structure show about their relationship?",
+      "required_graph_operations": "Search for Saul and Paul separately, check if there is a direct edge between them.",
+      "expected_tool_calls": [
+        {
+          "function": "find_entity",
+          "arguments": {
+            "name": "Saul"
+          }
+        },
+        {
+          "function": "find_entity",
+          "arguments": {
+            "name": "Paul"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Saul"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Paul"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Saul",
+            "p": "PARENT_OF",
+            "o": "Paul",
+            "source_id": "Acts ch.13"
+          },
+          {
+            "s": "Saul",
+            "p": "TRAVELED_TO",
+            "o": "Antioch"
+          },
+          {
+            "s": "Paul",
+            "p": "TRAVELED_TO",
+            "o": "Lystra"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Searches for both Saul and Paul and examines the edge between them"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Finds the Saul -> PARENT_OF -> Paul edge in Acts ch.13 (representing the name transition)"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Notes they are separate entity_ids (saul vs paul) with a linking edge"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Explains the PARENT_OF edge represents the identity transition, not literal parentage"
+        }
+      },
+      "gold_answer": "Saul and Paul are stored as separate entities (saul, paul) connected by a PARENT_OF edge in Acts ch.13. This edge represents Saul's transformation into Paul after conversion, not literal parentage. Saul's connections are pre-conversion (Barnabas, Antioch); Paul's are post-conversion (missionary journeys to Lystra, Derbe, etc.).",
+      "why_graph_wins": "Graph structure reveals two distinct nodes with a linking edge encoding the identity transition; flat RAG treats Saul/Paul mentions as one person with no structural signal about the transition point.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG cannot distinguish pre-conversion Saul connections from post-conversion Paul connections.",
+        "common_agent_mistakes": [
+          "Stating they are simply the same person without examining the graph structure",
+          "Ignoring the PARENT_OF edge between saul and paul entities"
+        ]
+      }
+    },
+    {
+      "id": "dis-04",
+      "category": "disambiguation",
+      "user_question": "Does 'Israel' refer to a person, a place, a group, or multiple things in the knowledge graph? List all Israel-related entities.",
+      "required_graph_operations": "Search for 'Israel' to find all matching entities and their types.",
+      "expected_tool_calls": [
+        {
+          "function": "find_entity",
+          "arguments": {
+            "name": "Israel"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Israel",
+            "p": "entity_type",
+            "o": "Place"
+          },
+          {
+            "s": "Children of Israel",
+            "p": "entity_type",
+            "o": "Group"
+          },
+          {
+            "s": "Israelites",
+            "p": "entity_type",
+            "o": "Group"
+          },
+          {
+            "s": "Elders of Israel",
+            "p": "entity_type",
+            "o": "Group"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Searches for Israel and examines all matching entities"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Identifies multiple Israel-related entities with different entity_types"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Distinguishes Place (Israel), Group (Children of Israel, Israelites, Elders of Israel), etc."
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Lists all distinct Israel-related entities found"
+        }
+      },
+      "gold_answer": "The graph contains multiple Israel-related entities: Israel (Place, appears in Acts/Exodus/Genesis/Ruth), Children of Israel (Group), Israelites (Group), Elders of Israel (Group), Elders of the children of Israel (Group), The house of Israel (Group). The name refers to a place and several distinct groups.",
+      "why_graph_wins": "Graph separates Israel into typed nodes (Place vs Group); flat RAG conflates all 'Israel' mentions regardless of whether they refer to the land, the people, or subgroups.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG retrieves all text mentioning 'Israel' without distinguishing place from people from subgroups.",
+        "common_agent_mistakes": [
+          "Reporting only one Israel entity",
+          "Missing the Group entities like Children of Israel and Israelites"
+        ]
+      }
+    },
+    {
+      "id": "con-01",
+      "category": "constraints",
+      "user_question": "Which entities have a direct relationship with Moses in Exodus but NOT in Genesis, according to the knowledge graph?",
+      "required_graph_operations": "Get Moses's connections in Exodus, then in Genesis, and compute the set difference.",
+      "expected_tool_calls": [
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Moses",
+            "book": "Exodus"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Moses",
+            "book": "Genesis"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Moses",
+            "p": "SPOKE_TO",
+            "o": "Aaron",
+            "source_id": "Exodus"
+          },
+          {
+            "s": "Moses",
+            "p": "COMMANDED",
+            "o": "Bezaleel",
+            "source_id": "Exodus"
+          },
+          {
+            "s": "Moses",
+            "p": "COMMANDED",
+            "o": "Aholiab",
+            "source_id": "Exodus"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Uses book filter on find_connections for both Exodus and Genesis"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Correctly identifies entities unique to Moses's Exodus connections (Aaron, Bezaleel, Aholiab, etc.)"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Answer clearly states the set-difference logic"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Lists at least 5 Exodus-only neighbors"
+        }
+      },
+      "gold_answer": "Moses has 216 relationships in Exodus but almost none in Genesis. Entities connected to Moses in Exodus but not Genesis include: Aaron, Bezaleel, Aholiab, Pharaoh, Children of Israel, Jethro, Hur, Amram, and many others. Moses's graph presence is overwhelmingly in Exodus.",
+      "why_graph_wins": "Book-filtered queries enable set-difference computation; flat RAG cannot systematically enumerate and subtract entity lists across books.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG cannot compute set differences between book-scoped entity neighborhoods.",
+        "common_agent_mistakes": [
+          "Listing Moses's Genesis connections instead of Exodus-only ones",
+          "Not using the book filter and returning all connections"
+        ]
+      }
+    },
+    {
+      "id": "con-02",
+      "category": "constraints",
+      "user_question": "Which entities did Moses COMMAND but never SPOKE_TO, according to the knowledge graph?",
+      "required_graph_operations": "Get all Moses's connections, filter by COMMANDED targets, subtract SPOKE_TO targets.",
+      "expected_tool_calls": [
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Moses"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Moses",
+            "p": "COMMANDED",
+            "o": "Bezaleel"
+          },
+          {
+            "s": "Moses",
+            "p": "COMMANDED",
+            "o": "Aholiab"
+          },
+          {
+            "s": "Moses",
+            "p": "COMMANDED",
+            "o": "Priests"
+          },
+          {
+            "s": "Moses",
+            "p": "COMMANDED",
+            "o": "Locusts"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Retrieves Moses's connections and filters by relationship type"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Correctly identifies COMMANDED-only targets: Aholiab, Bezaleel, Locusts, Priests"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Shows the constraint logic (COMMANDED minus SPOKE_TO)"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Lists all 4 entities in the set difference"
+        }
+      },
+      "gold_answer": "Moses COMMANDED but never SPOKE_TO: Aholiab, Bezaleel, Locusts, and Priests. Moses SPOKE_TO and COMMANDED overlapping entities like Aaron, Children of Israel, and Lord, but these four are command-only targets.",
+      "why_graph_wins": "Relationship-type filtering with set exclusion requires structured graph queries; flat RAG has no mechanism to distinguish COMMANDED from SPOKE_TO in unstructured text.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG retrieves passages about Moses commanding and speaking but cannot compute the set difference of targets.",
+        "common_agent_mistakes": [
+          "Including entities that Moses both COMMANDED and SPOKE_TO",
+          "Missing Locusts as an unusual COMMANDED target"
+        ]
+      }
+    },
+    {
+      "id": "con-03",
+      "category": "constraints",
+      "user_question": "Which people TRAVELED_TO a place in Genesis but do NOT appear anywhere in Exodus, according to the knowledge graph?",
+      "required_graph_operations": "Get TRAVELED_TO relationships in Genesis, list entities in Exodus, compute set difference.",
+      "expected_tool_calls": [
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Genesis"
+          }
+        },
+        {
+          "function": "list_entities_by_book",
+          "arguments": {
+            "book": "Genesis",
+            "entity_type": "Person"
+          }
+        },
+        {
+          "function": "list_entities_by_book",
+          "arguments": {
+            "book": "Exodus",
+            "entity_type": "Person"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Abram",
+            "p": "TRAVELED_TO",
+            "o": "Egypt",
+            "source_id": "Genesis"
+          },
+          {
+            "s": "Hagar",
+            "p": "TRAVELED_TO",
+            "o": "Shur",
+            "source_id": "Genesis"
+          },
+          {
+            "s": "Esau",
+            "p": "TRAVELED_TO",
+            "o": "Seir",
+            "source_id": "Genesis"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Retrieves TRAVELED_TO relationships in Genesis and cross-references with Exodus entity list"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Identifies Genesis travelers absent from Exodus (Hagar, Esau, Tamar, Laban, etc.)"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Correctly excludes persons who appear in both books (Jacob, Joseph, Moses)"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Lists at least 3 Genesis-only travelers"
+        }
+      },
+      "gold_answer": "People who traveled to a place in Genesis but don't appear in Exodus include: Hagar (to Shur), Esau (to Seir), Tamar (to Timnath), Laban (to Mount Gilead), Isaac (to Beersheba, Gerar), Ishmael (to Egypt), and Noah (to ark). These are Genesis-only travelers.",
+      "why_graph_wins": "Requires cross-referencing relationship-type-filtered results against a different book's entity list; flat RAG cannot perform this dual-constraint query.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG cannot enumerate Genesis travelers and then exclude those present in Exodus.",
+        "common_agent_mistakes": [
+          "Including Jacob or Joseph who appear in both books",
+          "Listing all Genesis travelers without the Exodus exclusion"
+        ]
+      }
+    },
+    {
+      "id": "con-04",
+      "category": "constraints",
+      "user_question": "Which entities are connected to BOTH Abraham AND Moses in the knowledge graph?",
+      "required_graph_operations": "Get Abraham's neighbors and Moses's neighbors, compute the intersection.",
+      "expected_tool_calls": [
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Abraham"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Moses"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Abraham",
+            "p": "SPOKE_TO",
+            "o": "God"
+          },
+          {
+            "s": "Moses",
+            "p": "SPOKE_TO",
+            "o": "God"
+          },
+          {
+            "s": "Abraham",
+            "p": "SPOKE_TO",
+            "o": "Lord"
+          },
+          {
+            "s": "Moses",
+            "p": "SPOKE_TO",
+            "o": "Lord"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Retrieves connections for both Abraham and Moses"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Identifies shared neighbors: God, Jesus, Lord"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Explains the intersection computation"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Notes these are entities with edges to both patriarchs"
+        }
+      },
+      "gold_answer": "Only three entities connect to both Abraham and Moses in the graph: God, Lord, and Jesus. God and Lord have SPOKE_TO relationships with both. Jesus connects to Abraham via Matthew's genealogy and to Moses via references in Matthew and Acts.",
+      "why_graph_wins": "Shared-neighbor computation requires enumerating two neighborhoods and intersecting; flat RAG cannot determine which entities have edges to both.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG retrieves passages about Abraham and Moses separately but cannot compute their shared neighbors.",
+        "common_agent_mistakes": [
+          "Listing entities mentioned near both names in text rather than structurally connected to both",
+          "Missing Jesus as a shared connection"
+        ]
+      }
+    },
+    {
+      "id": "con-05",
+      "category": "constraints",
+      "user_question": "Which entities are involved in OPPOSED relationships in Exodus AND also in SERVED relationships in Genesis?",
+      "required_graph_operations": "Filter relationships by type+book for both constraints, intersect the entity sets.",
+      "expected_tool_calls": [
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Pharaoh"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Egyptians"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Pharaoh",
+            "p": "OPPOSED",
+            "o": "Moses",
+            "source_id": "Exodus"
+          },
+          {
+            "s": "Pharaoh",
+            "p": "OPPOSED",
+            "o": "Hebrews",
+            "source_id": "Exodus"
+          },
+          {
+            "s": "Joseph",
+            "p": "SERVED",
+            "o": "Pharaoh",
+            "source_id": "Genesis"
+          },
+          {
+            "s": "Potiphar",
+            "p": "SERVED",
+            "o": "Pharaoh",
+            "source_id": "Genesis"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Retrieves OPPOSED relationships in Exodus and SERVED relationships in Genesis"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Identifies the intersection: Pharaoh and Egyptians"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Shows specific OPPOSED and SERVED triples for each entity"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Notes the role reversal: served in Genesis, opposed in Exodus"
+        }
+      },
+      "gold_answer": "Pharaoh and Egyptians appear in both OPPOSED (Exodus) and SERVED (Genesis) relationships. In Genesis, Joseph served Pharaoh and the Egyptians. In Exodus, Pharaoh and Egyptians opposed Moses and God. This represents a dramatic role reversal across books.",
+      "why_graph_wins": "Dual relationship-type + book constraint requires structured filtering and intersection; flat RAG cannot compute this cross-book, cross-type overlap.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG cannot filter by relationship type across books and compute the intersection.",
+        "common_agent_mistakes": [
+          "Listing all OPPOSED entities in Exodus without the Genesis SERVED constraint",
+          "Missing Egyptians and only finding Pharaoh"
+        ]
+      }
+    },
+    {
+      "id": "set-01",
+      "category": "set-ops",
+      "user_question": "Which Person entities appear in both Genesis and Matthew according to the knowledge graph?",
+      "required_graph_operations": "Use find_cross_book_entities or list entities by book for Genesis and Matthew, intersect Person types.",
+      "expected_tool_calls": [
+        {
+          "function": "find_cross_book_entities",
+          "arguments": {
+            "min_books": 2,
+            "entity_type": "Person"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Abraham",
+            "p": "appears_in",
+            "o": "Genesis"
+          },
+          {
+            "s": "Abraham",
+            "p": "appears_in",
+            "o": "Matthew"
+          },
+          {
+            "s": "Isaac",
+            "p": "appears_in",
+            "o": "Genesis"
+          },
+          {
+            "s": "Isaac",
+            "p": "appears_in",
+            "o": "Matthew"
+          },
+          {
+            "s": "Jacob",
+            "p": "appears_in",
+            "o": "Genesis"
+          },
+          {
+            "s": "Jacob",
+            "p": "appears_in",
+            "o": "Matthew"
+          },
+          {
+            "s": "Joseph",
+            "p": "appears_in",
+            "o": "Genesis"
+          },
+          {
+            "s": "Joseph",
+            "p": "appears_in",
+            "o": "Matthew"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Uses find_cross_book_entities or equivalent cross-book query"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Lists all 7 shared persons: Abraham, Angel of the Lord, God, Isaac, Jacob, Joseph, Lord"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Correctly identifies these as Person entities present in both books"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Does not include entities that appear in only one of the two books"
+        }
+      },
+      "gold_answer": "Seven Person entities appear in both Genesis and Matthew: Abraham, Angel of the Lord, God, Isaac, Jacob, Joseph, and Lord. These are primarily patriarchs from Genesis's narrative who reappear in Matthew's genealogy (ch.1) or narrative references.",
+      "why_graph_wins": "Cross-book entity intersection requires querying the graph's book metadata on relationships; flat RAG retrieves text but cannot enumerate the exact set of shared entities.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG might name a few obvious shared entities (Abraham, Moses) but cannot produce the exhaustive list.",
+        "common_agent_mistakes": [
+          "Including Moses (who appears in Exodus and Matthew, not Genesis and Matthew)",
+          "Missing Angel of the Lord or Lord as shared entities"
+        ]
+      }
+    },
+    {
+      "id": "set-02",
+      "category": "set-ops",
+      "user_question": "What places are mentioned in Acts but NOT in any Old Testament book (Genesis, Exodus, Ruth) in the knowledge graph?",
+      "required_graph_operations": "List Place entities in Acts, then in each OT book, compute the difference.",
+      "expected_tool_calls": [
+        {
+          "function": "list_entities_by_book",
+          "arguments": {
+            "book": "Acts",
+            "entity_type": "Place"
+          }
+        },
+        {
+          "function": "list_entities_by_book",
+          "arguments": {
+            "book": "Genesis",
+            "entity_type": "Place"
+          }
+        },
+        {
+          "function": "list_entities_by_book",
+          "arguments": {
+            "book": "Exodus",
+            "entity_type": "Place"
+          }
+        },
+        {
+          "function": "list_entities_by_book",
+          "arguments": {
+            "book": "Ruth",
+            "entity_type": "Place"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Damascus",
+            "p": "appears_in",
+            "o": "Acts"
+          },
+          {
+            "s": "Athens",
+            "p": "appears_in",
+            "o": "Acts"
+          },
+          {
+            "s": "Rome",
+            "p": "appears_in",
+            "o": "Acts"
+          },
+          {
+            "s": "Antioch",
+            "p": "appears_in",
+            "o": "Acts"
+          },
+          {
+            "s": "Jerusalem",
+            "p": "appears_in",
+            "o": "Acts"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Queries entities by book for Acts and all three OT books"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Computes the set difference correctly (Acts-only places)"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Lists at least 10 Acts-only places including Damascus, Athens, Rome, Antioch, Jerusalem"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Does not include places that also appear in Genesis, Exodus, or Ruth"
+        }
+      },
+      "gold_answer": "Places in Acts but no OT book include: Damascus, Jerusalem, Antioch, Athens, Rome, Caesarea, Macedonia, Thessalonica, Berea, Tarsus, Samaria, and many others. There are 29 such Acts-only places, reflecting the Mediterranean missionary geography of Acts vs. the Near Eastern setting of the OT books.",
+      "why_graph_wins": "Four-way set difference (Acts minus 3 OT books) requires structured enumeration; flat RAG cannot compute multi-set differences.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG retrieves Acts passages but cannot enumerate all unique places and subtract those present in OT books.",
+        "common_agent_mistakes": [
+          "Including Egypt which appears in both Acts and Genesis/Exodus",
+          "Listing only a few well-known places instead of the complete set"
+        ]
+      }
+    },
+    {
+      "id": "set-03",
+      "category": "set-ops",
+      "user_question": "Which entities appear in all five books of the knowledge graph (Genesis, Exodus, Ruth, Matthew, Acts)?",
+      "required_graph_operations": "Use find_cross_book_entities with min_books=5.",
+      "expected_tool_calls": [
+        {
+          "function": "find_cross_book_entities",
+          "arguments": {
+            "min_books": 5
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Lord",
+            "p": "appears_in",
+            "o": "Genesis"
+          },
+          {
+            "s": "Lord",
+            "p": "appears_in",
+            "o": "Exodus"
+          },
+          {
+            "s": "Lord",
+            "p": "appears_in",
+            "o": "Ruth"
+          },
+          {
+            "s": "Lord",
+            "p": "appears_in",
+            "o": "Matthew"
+          },
+          {
+            "s": "Lord",
+            "p": "appears_in",
+            "o": "Acts"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Uses find_cross_book_entities(min_books=5)"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Correctly identifies Lord as the only entity in all 5 books"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Does not falsely include entities that appear in only 4 books"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Notes the significance of Lord being the only universal entity"
+        }
+      },
+      "gold_answer": "Only one entity appears in all five books: Lord (Person). No other entity spans Genesis, Exodus, Ruth, Matthew, and Acts. The next tier (4 books) includes Abraham, God, Isaac, Jacob, and Joseph.",
+      "why_graph_wins": "Precise cross-book counting requires aggregating relationship metadata; flat RAG cannot determine exact book-count per entity.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG might guess God or Abraham spans all books but cannot verify the exact count.",
+        "common_agent_mistakes": [
+          "Claiming God or Abraham appear in all 5 books (they appear in 4)",
+          "Not checking whether entities have relationships in Ruth specifically"
+        ]
+      }
+    },
+    {
+      "id": "set-04",
+      "category": "set-ops",
+      "user_question": "Which entities appear in both Ruth and Matthew but NOT in Genesis, according to the knowledge graph?",
+      "required_graph_operations": "List entities by book for Ruth, Matthew, and Genesis. Compute (Ruth AND Matthew) MINUS Genesis.",
+      "expected_tool_calls": [
+        {
+          "function": "list_entities_by_book",
+          "arguments": {
+            "book": "Ruth"
+          }
+        },
+        {
+          "function": "list_entities_by_book",
+          "arguments": {
+            "book": "Matthew"
+          }
+        },
+        {
+          "function": "list_entities_by_book",
+          "arguments": {
+            "book": "Genesis"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "David",
+            "p": "appears_in",
+            "o": "Ruth"
+          },
+          {
+            "s": "David",
+            "p": "appears_in",
+            "o": "Matthew"
+          },
+          {
+            "s": "Jesse",
+            "p": "appears_in",
+            "o": "Ruth"
+          },
+          {
+            "s": "Jesse",
+            "p": "appears_in",
+            "o": "Matthew"
+          },
+          {
+            "s": "Obed",
+            "p": "appears_in",
+            "o": "Ruth"
+          },
+          {
+            "s": "Obed",
+            "p": "appears_in",
+            "o": "Matthew"
+          },
+          {
+            "s": "Salmon",
+            "p": "appears_in",
+            "o": "Ruth"
+          },
+          {
+            "s": "Salmon",
+            "p": "appears_in",
+            "o": "Matthew"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Queries all three book entity lists"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Correctly identifies 4 entities: David, Jesse, Obed, Salmon"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Excludes entities present in Genesis (Abraham, Jacob, etc.)"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Explains these are Ruth lineage figures who reappear in Matthew's genealogy"
+        }
+      },
+      "gold_answer": "Four entities appear in both Ruth and Matthew but not Genesis: David, Jesse, Obed, and Salmon. These are all part of the Ruth-to-David lineage (Ruth ch.4) that reappears in Matthew's genealogy (ch.1).",
+      "why_graph_wins": "Three-way set operation requires enumerating entity lists per book and computing intersection-minus-exclusion; flat RAG cannot perform this.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG retrieves passages from each book but cannot compute the three-way set operation.",
+        "common_agent_mistakes": [
+          "Including Lord which appears in all 5 books including Genesis",
+          "Missing Salmon as a shared entity"
+        ]
+      }
+    },
+    {
+      "id": "set-05",
+      "category": "set-ops",
+      "user_question": "Rank the top 5 entities by the number of distinct books they appear in, according to the knowledge graph.",
+      "required_graph_operations": "Use find_cross_book_entities and sort by book count.",
+      "expected_tool_calls": [
+        {
+          "function": "find_cross_book_entities",
+          "arguments": {
+            "min_books": 2
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Lord",
+            "p": "book_count",
+            "o": "5"
+          },
+          {
+            "s": "Abraham",
+            "p": "book_count",
+            "o": "4"
+          },
+          {
+            "s": "God",
+            "p": "book_count",
+            "o": "4"
+          },
+          {
+            "s": "Isaac",
+            "p": "book_count",
+            "o": "4"
+          },
+          {
+            "s": "Jacob",
+            "p": "book_count",
+            "o": "4"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Uses find_cross_book_entities to get all multi-book entities"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Correctly ranks: Lord (5), then Abraham/God/Isaac/Jacob/Joseph (4 each)"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Provides exact book counts for the top entries"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Lists which books each top entity appears in"
+        }
+      },
+      "gold_answer": "Top 5 by book count: (1) Lord -- 5 books (all). Tied at 4 books: Abraham, God, Isaac, Jacob, Joseph -- all appear in Acts, Exodus, Genesis, Matthew. Next tier at 3 books: Angel of the Lord, David, Egypt, Moses, Pharaoh.",
+      "why_graph_wins": "Ranked aggregation over graph metadata requires counting distinct book appearances per entity; flat RAG cannot aggregate this.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG cannot rank entities by book-appearance count.",
+        "common_agent_mistakes": [
+          "Claiming Moses appears in 4+ books (he appears in 3)",
+          "Not distinguishing between 4-book and 5-book entities"
+        ]
+      }
+    },
+    {
+      "id": "ctrl-01",
+      "category": "control_singlehop",
+      "user_question": "Who is Moses according to the knowledge graph?",
+      "required_graph_operations": "Single entity summary lookup.",
+      "expected_tool_calls": [
+        {
+          "function": "get_entity_summary",
+          "arguments": {
+            "entity_name": "Moses"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Moses",
+            "p": "entity_type",
+            "o": "Person"
+          },
+          {
+            "s": "Moses",
+            "p": "first_mention",
+            "o": "Acts ch.3"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Calls get_entity_summary or find_entity for Moses"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Returns Moses's type (Person), description, and first mention"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Answer is grounded in the graph's stored description"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Mentions books Moses appears in (Exodus, Matthew, Acts)"
+        }
+      },
+      "gold_answer": "Moses is a Person in the graph, described as a prophet who spoke of a future prophet God would raise up. First mentioned in Acts ch.3. He appears in Exodus (216 relationships), Matthew (4), and Acts (10). Key relationships include SPOKE_TO God, COMMANDED Aaron, OPPOSED Pharaoh.",
+      "why_graph_wins": "Single-hop query; both graph and flat RAG should answer this. Tests that the graph agent does not over-tool.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG should handle this adequately since Moses is heavily referenced in the text.",
+        "common_agent_mistakes": [
+          "Over-tooling by calling multiple unnecessary tools",
+          "Adding training knowledge beyond the graph description"
+        ]
+      }
+    },
+    {
+      "id": "ctrl-02",
+      "category": "control_singlehop",
+      "user_question": "In which book is Ruth first mentioned in the knowledge graph?",
+      "required_graph_operations": "Single entity lookup for Ruth's first_mention_book.",
+      "expected_tool_calls": [
+        {
+          "function": "find_entity",
+          "arguments": {
+            "name": "Ruth"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Ruth",
+            "p": "first_mention_book",
+            "o": "Matthew"
+          },
+          {
+            "s": "Ruth",
+            "p": "first_mention_chapter",
+            "o": "1"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Calls find_entity for Ruth"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Correctly states first mention is Matthew ch.1 (not the book of Ruth, based on entity extraction order)"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Answer is grounded in the graph metadata"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Does not assume the book of Ruth is the first mention"
+        }
+      },
+      "gold_answer": "According to the knowledge graph, Ruth is first mentioned in Matthew ch.1 (in the genealogy). This reflects the entity extraction order, not biblical chronology. Ruth appears extensively in the book of Ruth with many more relationships.",
+      "why_graph_wins": "Single property lookup; tests whether the agent trusts graph metadata over assumed knowledge.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG may correctly answer this since Ruth is prominent in the text.",
+        "common_agent_mistakes": [
+          "Assuming the book of Ruth is the first mention without checking the graph",
+          "Over-tooling with unnecessary follow-up calls"
+        ]
+      }
+    },
+    {
+      "id": "ctrl-03",
+      "category": "control_singlehop",
+      "user_question": "List all Place entities in the book of Exodus according to the knowledge graph.",
+      "required_graph_operations": "Single list_entities_by_book query.",
+      "expected_tool_calls": [
+        {
+          "function": "list_entities_by_book",
+          "arguments": {
+            "book": "Exodus",
+            "entity_type": "Place"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Egypt",
+            "p": "entity_type",
+            "o": "Place"
+          },
+          {
+            "s": "Mount Sinai",
+            "p": "entity_type",
+            "o": "Place"
+          },
+          {
+            "s": "Red Sea",
+            "p": "entity_type",
+            "o": "Place"
+          },
+          {
+            "s": "Canaan",
+            "p": "entity_type",
+            "o": "Place"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Calls list_entities_by_book with Exodus and Place filter"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Lists multiple places including Egypt, Mount Sinai, Red Sea, Canaan, Horeb, Midian"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Answer is a direct enumeration from the tool output"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Includes at least 10 of the ~37 Place entities in Exodus"
+        }
+      },
+      "gold_answer": "Exodus Place entities include: Egypt, Mount Sinai, Red Sea, Canaan, Horeb, Midian, Sinai, Goshen, Shur, Camp, Desert, Edom, Elim, Etham, Heaven, Marah, Succoth, and many more. There are approximately 37 distinct Place entities in Exodus.",
+      "why_graph_wins": "Single enumeration query; both graph and flat RAG should handle this.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG should retrieve Exodus chapters mentioning many of these places.",
+        "common_agent_mistakes": [
+          "Listing places from training knowledge rather than the graph's entity list",
+          "Missing less obvious places like Etham, Marah, Pihahiroth"
+        ]
+      }
+    },
+    {
+      "id": "ctrl-04",
+      "category": "control_singlehop",
+      "user_question": "What is Abraham's description and entity type in the knowledge graph?",
+      "required_graph_operations": "Single entity lookup.",
+      "expected_tool_calls": [
+        {
+          "function": "find_entity",
+          "arguments": {
+            "name": "Abraham"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Abraham",
+            "p": "entity_type",
+            "o": "Person"
+          },
+          {
+            "s": "Abraham",
+            "p": "description",
+            "o": "The patriarch of the Israelites..."
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Calls find_entity for Abraham"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Returns the exact description stored in the graph"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Reports entity_type as Person"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Notes first mention is Acts ch.3"
+        }
+      },
+      "gold_answer": "Abraham is a Person entity described as 'The patriarch of the Israelites, whose God is referenced by Peter.' First mentioned in Acts ch.3. He appears in Genesis, Exodus, Matthew, and Acts (4 books).",
+      "why_graph_wins": "Single property lookup; tests whether the agent reports the graph's stored description vs. training knowledge.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG should answer general questions about Abraham adequately.",
+        "common_agent_mistakes": [
+          "Providing a training-data description instead of the graph's stored description",
+          "Over-tooling"
+        ]
+      }
+    },
+    {
+      "id": "ctrl-05",
+      "category": "control_singlehop",
+      "user_question": "Find verses in Exodus that mention the bush.",
+      "required_graph_operations": "Single get_context_verses call.",
+      "expected_tool_calls": [
+        {
+          "function": "get_context_verses",
+          "arguments": {
+            "entity_name": "bush",
+            "book": "Exodus"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "bush",
+            "p": "mentioned_in",
+            "o": "Exodus 3"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Calls get_context_verses with 'bush' and 'Exodus'"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Returns Exodus ch.3 verses about the burning bush"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Answer includes actual verse text from the graph"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Cites specific verse numbers (e.g., Exodus 3:2-4)"
+        }
+      },
+      "gold_answer": "The burning bush appears in Exodus ch.3. Key verses include Exodus 3:2 ('the bush burned with fire, and the bush was not consumed') and 3:4 ('God called unto him out of the midst of the bush'). Moses encountered the bush at the mount of God (Horeb).",
+      "why_graph_wins": "Single verse retrieval; flat RAG should also retrieve these verses.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG should retrieve Exodus ch.3 which contains the burning bush narrative.",
+        "common_agent_mistakes": [
+          "Not using the book filter, retrieving bush mentions from Acts as well",
+          "Providing training knowledge about the burning bush rather than graph verses"
+        ]
+      }
+    },
+    {
+      "id": "ctrl-06",
+      "category": "control_singlehop",
+      "user_question": "What Group entities are mentioned in Acts according to the knowledge graph?",
+      "required_graph_operations": "Single list_entities_by_book query.",
+      "expected_tool_calls": [
+        {
+          "function": "list_entities_by_book",
+          "arguments": {
+            "book": "Acts",
+            "entity_type": "Group"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Apostles",
+            "p": "entity_type",
+            "o": "Group"
+          },
+          {
+            "s": "Disciples",
+            "p": "entity_type",
+            "o": "Group"
+          },
+          {
+            "s": "Pharisees",
+            "p": "entity_type",
+            "o": "Group"
+          },
+          {
+            "s": "Sadducees",
+            "p": "entity_type",
+            "o": "Group"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Calls list_entities_by_book with Acts and Group filter"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Lists multiple groups including Apostles, Disciples, Pharisees, Sadducees, Jews, Gentiles"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Answer is a direct enumeration"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Includes at least 10 of the ~29 Group entities in Acts"
+        }
+      },
+      "gold_answer": "Acts contains ~29 Group entities including: Apostles, Disciples, Pharisees, Sadducees, Jews, Gentiles, Brethren, Church, Elders, Saints, The Twelve, Grecians, Epicureans, Stoicks, Alexandrians, Cyrenians, and others.",
+      "why_graph_wins": "Single enumeration query; both graph and flat RAG should handle this.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG should retrieve Acts chapters mentioning these groups.",
+        "common_agent_mistakes": [
+          "Listing groups from training knowledge not in the graph",
+          "Missing less obvious groups like Stoicks, Epicureans, Libertines"
+        ]
+      }
+    },
+    {
+      "id": "ctrl-07",
+      "category": "control_singlehop",
+      "user_question": "List all relationships involving Boaz in the knowledge graph.",
+      "required_graph_operations": "Single find_connections query.",
+      "expected_tool_calls": [
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Boaz"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Boaz",
+            "p": "SPOUSE_OF",
+            "o": "Ruth"
+          },
+          {
+            "s": "Boaz",
+            "p": "PARENT_OF",
+            "o": "Obed"
+          },
+          {
+            "s": "Salmon",
+            "p": "PARENT_OF",
+            "o": "Boaz"
+          },
+          {
+            "s": "Boaz",
+            "p": "LOCATED_IN",
+            "o": "Bethlehem"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Calls find_connections for Boaz"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Returns relationships including SPOUSE_OF Ruth, PARENT_OF Obed, FAMILY_OF Elimelech, LOCATED_IN Bethlehem"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Answer lists relationship types and targets"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Includes both directions (Boaz as source and target)"
+        }
+      },
+      "gold_answer": "Boaz's relationships include: SPOUSE_OF Ruth, PARENT_OF Obed, FAMILY_OF Elimelech, LOCATED_IN Bethlehem/Ephratah, BLESSED Ruth, COMMANDED Ruth, SPOKE_TO Ruth/Naomi/Lord, GAVE Ruth, PROMISED Ruth. Salmon is PARENT_OF Boaz. All in the book of Ruth.",
+      "why_graph_wins": "Single entity relationship listing; both graph and flat RAG should handle this.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG should retrieve Ruth chapters mentioning Boaz.",
+        "common_agent_mistakes": [
+          "Missing that Salmon is Boaz's parent (target direction)",
+          "Not listing the PURCHASED_INHERITANCE_OF relationships"
+        ]
+      }
+    },
+    {
+      "id": "adv-01",
+      "category": "adversarial",
+      "user_question": "Describe everything Solomon did according to the knowledge graph.",
+      "required_graph_operations": "Look up Solomon entity and connections; report only what the graph contains.",
+      "expected_tool_calls": [
+        {
+          "function": "find_entity",
+          "arguments": {
+            "name": "Solomon"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Solomon"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "David",
+            "p": "PARENT_OF",
+            "o": "Solomon",
+            "source_id": "Matthew"
+          },
+          {
+            "s": "Solomon",
+            "p": "PARENT_OF",
+            "o": "Roboam",
+            "source_id": "Matthew"
+          },
+          {
+            "s": "God",
+            "p": "SPOKE_TO",
+            "o": "Solomon",
+            "source_id": "Matthew"
+          },
+          {
+            "s": "God",
+            "p": "BLESSED",
+            "o": "Solomon",
+            "source_id": "Matthew"
+          },
+          {
+            "s": "Solomon",
+            "p": "ANCESTOR_OF",
+            "o": "Jesus",
+            "source_id": "Matthew"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Looks up Solomon and retrieves connections"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Reports only the 6 relationships actually in the graph (David parent, Roboam child, God spoke/blessed, Jesus ancestor, Solomon's Porch in Acts)"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Does NOT add temple-building, wisdom, or other training-knowledge facts"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Explicitly notes the limited graph coverage of Solomon"
+        }
+      },
+      "gold_answer": "The graph records Solomon as David's son (Matthew ch.1), father of Roboam, and ancestor of Jesus. God spoke to and blessed Solomon (Matthew ch.6). Solomon's Porch appears in Acts ch.3 as a location. The graph does not contain Solomon's kingship details, temple, or wisdom traditions.",
+      "why_graph_wins": "Graph constrains the answer to only stored triples; the agent must resist hallucinating well-known Solomon facts (temple, wisdom, Queen of Sheba) that are not in the 5-book corpus.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG may retrieve Matthew ch.1/6 text mentioning Solomon and the agent may augment with training knowledge about the temple.",
+        "common_agent_mistakes": [
+          "Adding Solomon's temple, wisdom, or other details from training data",
+          "Not stating that the graph has limited Solomon coverage"
+        ]
+      }
+    },
+    {
+      "id": "adv-02",
+      "category": "adversarial",
+      "user_question": "What role does Elijah play in the knowledge graph?",
+      "required_graph_operations": "Search for Elijah; note that the KJV uses 'Elias' instead. Check both names.",
+      "expected_tool_calls": [
+        {
+          "function": "find_entity",
+          "arguments": {
+            "name": "Elijah"
+          }
+        },
+        {
+          "function": "find_entity",
+          "arguments": {
+            "name": "Elias"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Esaias",
+            "p": "PROPHESIED",
+            "o": "Jesus",
+            "source_id": "Matthew"
+          },
+          {
+            "s": "John the Baptist",
+            "p": "SPOKE_OF",
+            "o": "Esaias",
+            "source_id": "Matthew"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Searches for both Elijah and Elias"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Discovers that 'Elijah' is not in the graph but 'Elias' (KJV spelling) IS, with relationships in Matthew"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Does not hallucinate Elijah's Old Testament actions (1 Kings) which are not in the 5-book corpus"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Correctly identifies the KJV spelling difference"
+        }
+      },
+      "gold_answer": "The name 'Elijah' is not in the graph; however, 'Esaias' (KJV form of Isaiah, sometimes confused with Elias/Elijah) is present with PROPHESIED relationships in Matthew. 'Elias' (KJV Elijah) may also be present. The graph covers only 5 books and does not include 1/2 Kings where Elijah's main narrative appears.",
+      "why_graph_wins": "Tests the agent's ability to handle name variants (modern vs. KJV spelling) and resist hallucinating content from books not in the corpus.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG retrieves text mentioning 'Elias' in Matthew but may conflate with Elijah's 1 Kings narrative.",
+        "common_agent_mistakes": [
+          "Describing Elijah's contest on Mount Carmel from 1 Kings (not in corpus)",
+          "Not checking the KJV spelling variant 'Elias'"
+        ]
+      }
+    },
+    {
+      "id": "adv-03",
+      "category": "adversarial",
+      "user_question": "List all miracles Jesus performed according to the knowledge graph.",
+      "required_graph_operations": "Look up Jesus's connections in Matthew and filter for miracle-like relationships (HEALED, SAVED, etc.).",
+      "expected_tool_calls": [
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Jesus",
+            "book": "Matthew"
+          }
+        },
+        {
+          "function": "get_entity_summary",
+          "arguments": {
+            "entity_name": "Jesus"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Jesus",
+            "p": "HEALED",
+            "o": "peter_s_mother_in_law",
+            "source_id": "Matthew"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Looks up Jesus connections and identifies miracle-related relationship types"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Reports only miracle-like relationships actually in the graph (HEALED, SAVED, etc.)"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Does NOT list miracles from training data not captured as graph edges"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Notes that the graph may not capture all miracles as explicit event entities"
+        }
+      },
+      "gold_answer": "The graph captures some miracle-related actions via relationship types: Jesus HEALED (e.g., Peter's mother-in-law), SAVED (Peter). However, many miracles are described in verse text but not extracted as explicit event entities or relationships. The graph's coverage of Jesus's miracles is partial.",
+      "why_graph_wins": "The agent must distinguish between what the graph explicitly encodes as relationships vs. what exists in the verse text; flat RAG may retrieve miracle narratives but the graph agent must report graph-level evidence.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG retrieves Matthew miracle narratives in text form, which may be more complete but less structured.",
+        "common_agent_mistakes": [
+          "Listing miracles from training data not present as graph relationships",
+          "Conflating verse-text mentions with graph-encoded relationships"
+        ]
+      }
+    },
+    {
+      "id": "adv-04",
+      "category": "adversarial",
+      "user_question": "Did Abraham and Moses ever meet or interact according to the knowledge graph?",
+      "required_graph_operations": "Check for direct edges between Abraham and Moses; verify absence of connection.",
+      "expected_tool_calls": [
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Abraham"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Moses"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Checks connections for both Abraham and Moses"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Correctly reports NO direct edge between Abraham and Moses"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Does not infer interaction from co-occurrence in text"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "States they share indirect connections through God/Lord but never directly interact"
+        }
+      },
+      "gold_answer": "No. The knowledge graph contains no direct relationship between Abraham and Moses. They share indirect connections through God and Lord (both SPOKE_TO God), but there is no edge indicating they met or interacted. They lived in different eras: Abraham in Genesis, Moses in Exodus.",
+      "why_graph_wins": "GRAPH TRAP: Flat RAG may co-retrieve passages mentioning both Abraham and Moses (e.g., Acts 7 Stephen's speech) and infer interaction. The graph's absence of a direct edge is definitive structural evidence they did not interact.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG retrieves Acts 7 where Stephen mentions both Abraham and Moses in sequence, potentially leading to a false claim of interaction.",
+        "common_agent_mistakes": [
+          "Claiming they interacted based on co-occurrence in Acts 7",
+          "Not explicitly checking for a direct graph edge between them"
+        ]
+      }
+    },
+    {
+      "id": "adv-05",
+      "category": "adversarial",
+      "user_question": "Was Ruth an ancestor of Moses according to the knowledge graph?",
+      "required_graph_operations": "Check Ruth's descendant chain and Moses's ancestor chain; verify no connection.",
+      "expected_tool_calls": [
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Ruth"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Moses"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Ruth",
+            "p": "PARENT_OF",
+            "o": "Obed"
+          },
+          {
+            "s": "Obed",
+            "p": "PARENT_OF",
+            "o": "Jesse"
+          },
+          {
+            "s": "Jesse",
+            "p": "PARENT_OF",
+            "o": "David"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Checks connections for both Ruth and Moses"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Correctly reports Ruth's lineage goes to David (not Moses)"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "States there is no ancestral link between Ruth and Moses"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Notes the chronological impossibility (Ruth is post-Exodus, Moses is Exodus)"
+        }
+      },
+      "gold_answer": "No. Ruth was not an ancestor of Moses. Ruth's lineage in the graph goes: Ruth -> Obed -> Jesse -> David. Moses has no ancestral connection to Ruth. Chronologically, Moses (Exodus) predates Ruth (book of Ruth). They share no graph edges.",
+      "why_graph_wins": "GRAPH TRAP: Flat RAG might retrieve passages from Ruth and Exodus in the same context and confuse the chronology. The graph's directed PARENT_OF edges clearly show Ruth's line goes to David, not Moses.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG may retrieve text mentioning both Ruth and Moses as important biblical figures and incorrectly infer an ancestral connection.",
+        "common_agent_mistakes": [
+          "Claiming any genealogical link between Ruth and Moses",
+          "Not checking the graph's directed PARENT_OF edges to verify the lineage"
+        ]
+      }
+    },
+    {
+      "id": "adv-06",
+      "category": "adversarial",
+      "user_question": "According to the knowledge graph, did Paul write any of the five books (Genesis, Exodus, Ruth, Matthew, Acts)?",
+      "required_graph_operations": "Look up Paul's connections; check if any authorship relationships exist.",
+      "expected_tool_calls": [
+        {
+          "function": "find_entity",
+          "arguments": {
+            "name": "Paul"
+          }
+        },
+        {
+          "function": "find_connections",
+          "arguments": {
+            "entity_name": "Paul"
+          }
+        }
+      ],
+      "expected_evidence_bundle": {
+        "triples": [
+          {
+            "s": "Paul",
+            "p": "TRAVELED_TO",
+            "o": "Lystra"
+          },
+          {
+            "s": "Paul",
+            "p": "SPOKE_TO",
+            "o": "God"
+          },
+          {
+            "s": "Paul",
+            "p": "TRAVELED_TO",
+            "o": "Antioch"
+          }
+        ],
+        "paths": []
+      },
+      "scoring_rubric": {
+        "tool_use_correctness": {
+          "max": 2,
+          "criteria": "Looks up Paul entity and connections"
+        },
+        "evidence_correctness": {
+          "max": 3,
+          "criteria": "Correctly states no authorship relationships exist in the graph schema"
+        },
+        "grounded_answer": {
+          "max": 3,
+          "criteria": "Does not claim Paul wrote Acts (or any book) based on training knowledge"
+        },
+        "completeness": {
+          "max": 2,
+          "criteria": "Notes the graph contains TRAVELED_TO, SPOKE_TO, etc. but no WROTE or AUTHORED relationship type"
+        }
+      },
+      "gold_answer": "The knowledge graph does not contain authorship relationships. Paul has TRAVELED_TO, SPOKE_TO, PROMISED, and other relationship types in Acts, but no WROTE or AUTHORED edges exist in the schema. The graph cannot answer questions about book authorship.",
+      "why_graph_wins": "Tests whether the agent correctly identifies the boundaries of the graph schema rather than importing training knowledge about Pauline authorship.",
+      "failure_modes": {
+        "baseline_rag_likely_failure": "Flat RAG retrieves Acts passages about Paul and the agent may import training knowledge that Paul wrote epistles.",
+        "common_agent_mistakes": [
+          "Claiming Paul wrote any book based on training data",
+          "Not acknowledging that authorship is outside the graph schema"
+        ]
+      }
+    }
+  ],
+  "scoped_test_cases": [
+    {
+      "id": "scope-01",
+      "category": "document_scoped",
+      "user_question": "Who are Moses' key relationships according to the knowledge graph?",
+      "permitted_books": [
+        "Exodus"
+      ],
+      "expected_facts": [
+        "Moses SPOKE_TO God",
+        "Moses COMMANDED Aaron",
+        "Moses OPPOSED Pharaoh",
+        "Moses led Children of Israel"
+      ],
+      "forbidden_facts": [
+        "Moses referenced by Jesus in Matthew",
+        "Moses referenced by Stephen in Acts",
+        "Moses appeared in Acts ch.3"
+      ],
+      "gold_answer": "From Exodus only: Moses spoke to God, commanded Aaron, opposed Pharaoh, and led the Children of Israel out of Egypt. (Matthew and Acts references are outside permitted scope.)",
+      "why_graph_wins": "Scoped graph tools enforce Exodus-only SQL filter. Raw LLM will freely cite Matthew/Acts references from training data."
+    },
+    {
+      "id": "scope-02",
+      "category": "document_scoped",
+      "user_question": "Trace Ruth's family lineage in the knowledge graph.",
+      "permitted_books": [
+        "Ruth"
+      ],
+      "expected_facts": [
+        "Ruth SPOUSE_OF Boaz",
+        "Ruth PARENT_OF Obed",
+        "Boaz PARENT_OF Obed",
+        "Obed PARENT_OF Jesse",
+        "Jesse PARENT_OF David"
+      ],
+      "forbidden_facts": [
+        "Ruth appears in Matthew ch.1 genealogy",
+        "David PARENT_OF Solomon in Matthew",
+        "Jesus descends from Ruth via Matthew"
+      ],
+      "gold_answer": "From Ruth only: Ruth married Boaz, bore Obed, who fathered Jesse, who fathered David. (Matthew's continuation to Jesus is outside scope.)",
+      "why_graph_wins": "Scoped tools restrict to Ruth book. Raw LLM will extend the lineage through Matthew's genealogy to Jesus."
+    },
+    {
+      "id": "scope-03",
+      "category": "document_scoped",
+      "user_question": "What do we know about Abraham in the knowledge graph?",
+      "permitted_books": [
+        "Genesis"
+      ],
+      "expected_facts": [
+        "Abram TRAVELED_TO Egypt",
+        "Abram TRAVELED_TO Canaan",
+        "Abraham PARENT_OF Isaac (if in Genesis)",
+        "Abraham SPOKE_TO God"
+      ],
+      "forbidden_facts": [
+        "Abraham referenced in Matthew ch.1",
+        "Abraham referenced in Acts ch.3 by Peter",
+        "Abraham referenced in Acts ch.7 by Stephen"
+      ],
+      "gold_answer": "From Genesis: Abram traveled to Canaan and Egypt. Abraham fathered Isaac, spoke to God, and was the patriarch. (Acts and Matthew references are outside scope.)",
+      "why_graph_wins": "Scoped tools only return Genesis relationships. Raw LLM will cite Acts and Matthew references freely."
+    },
+    {
+      "id": "scope-04",
+      "category": "document_scoped",
+      "user_question": "What entities appear in both permitted books according to the knowledge graph?",
+      "permitted_books": [
+        "Genesis",
+        "Exodus"
+      ],
+      "expected_facts": [
+        "God appears in both Genesis and Exodus",
+        "Lord appears in both",
+        "Egypt appears in both",
+        "Jacob appears in both (as parent in Genesis, referenced in Exodus)"
+      ],
+      "forbidden_facts": [
+        "Any entities from Ruth, Matthew, or Acts"
+      ],
+      "gold_answer": "Entities in both Genesis and Exodus include: God, Lord, Egypt, Jacob, Joseph, Israel, Angel of the Lord, Abraham, Isaac. (Ruth, Matthew, Acts are outside scope.)",
+      "why_graph_wins": "Scoped cross-book query limited to 2 permitted books. Raw LLM cannot distinguish which entities appear in which books."
+    },
+    {
+      "id": "scope-05",
+      "category": "document_scoped",
+      "user_question": "What is Peter's role according to the knowledge graph?",
+      "permitted_books": [
+        "Matthew"
+      ],
+      "expected_facts": [
+        "Jesus SPOKE_TO Peter in Matthew",
+        "Jesus COMMANDED Peter in Matthew",
+        "Jesus SAVED Peter in Matthew"
+      ],
+      "forbidden_facts": [
+        "Peter LEADS Apostles in Acts",
+        "Peter HEALED lame man in Acts",
+        "Peter BAPTIZED Gentiles in Acts",
+        "Peter imprisoned by Herod in Acts"
+      ],
+      "gold_answer": "From Matthew only: Peter is a disciple whom Jesus spoke to, commanded, and saved. He is Simon Peter, one of the twelve. (His leadership role in Acts is outside scope.)",
+      "why_graph_wins": "Scoped tools restrict to Matthew. Raw LLM will describe Peter's Acts leadership role, violating access control."
+    },
+    {
+      "id": "scope-06",
+      "category": "document_scoped",
+      "user_question": "What places are mentioned in the knowledge graph?",
+      "permitted_books": [
+        "Ruth"
+      ],
+      "expected_facts": [
+        "Bethlehem mentioned in Ruth",
+        "Moab mentioned in Ruth",
+        "Judah mentioned in Ruth",
+        "Ephratah mentioned in Ruth"
+      ],
+      "forbidden_facts": [
+        "Egypt in Genesis/Exodus",
+        "Mount Sinai in Exodus",
+        "Jerusalem in Acts",
+        "Damascus in Acts",
+        "Athens in Acts"
+      ],
+      "gold_answer": "Places in Ruth: Bethlehem, Moab, Judah, Ephratah, The house of Israel. The book of Ruth has a limited geographic scope centered on Bethlehem and Moab.",
+      "why_graph_wins": "Scoped tools return only Ruth places. Raw LLM will list places from other books."
+    },
+    {
+      "id": "scope-07",
+      "category": "document_scoped",
+      "user_question": "Did Abraham and Moses ever interact according to the knowledge graph?",
+      "permitted_books": [
+        "Exodus"
+      ],
+      "expected_facts": [
+        "Moses has no connection to Abraham in Exodus",
+        "Abraham is not a major entity in Exodus"
+      ],
+      "forbidden_facts": [
+        "Abraham referenced in Acts ch.3",
+        "Abraham referenced in Acts ch.7 where Stephen links Abraham to Moses in his speech"
+      ],
+      "gold_answer": "From Exodus: There is no connection between Abraham and Moses. Abraham is not a significant entity in Exodus. (Acts ch.7 where Stephen mentions both is outside scope.)",
+      "why_graph_wins": "Scoped tools restrict to Exodus only. Raw LLM may cite Acts 7 where Stephen narrates Abraham-to-Moses history."
+    },
+    {
+      "id": "scope-08",
+      "category": "document_scoped",
+      "user_question": "List all Group entities in the knowledge graph.",
+      "permitted_books": [
+        "Matthew",
+        "Acts"
+      ],
+      "expected_facts": [
+        "Apostles in Acts",
+        "Disciples in Matthew and Acts",
+        "Pharisees in Matthew and Acts",
+        "Sadducees in Acts",
+        "Jews in Acts"
+      ],
+      "forbidden_facts": [
+        "Children of Israel in Exodus",
+        "Israelites in Exodus",
+        "Elders of Israel in Exodus"
+      ],
+      "gold_answer": "Groups in Matthew and Acts include: Apostles, Disciples, Pharisees, Sadducees, Jews, Gentiles, Scribes, Publicans, Church, Saints, The Twelve, and many more. (OT groups like Children of Israel from Exodus are outside scope.)",
+      "why_graph_wins": "Scoped tools restrict to NT books. Raw LLM will list OT groups like Children of Israel."
+    },
+    {
+      "id": "scope-09",
+      "category": "document_scoped",
+      "user_question": "Trace the genealogy from Abraham to David in the knowledge graph.",
+      "permitted_books": [
+        "Matthew"
+      ],
+      "expected_facts": [
+        "Abraham PARENT_OF Isaac in Matthew ch.1",
+        "Isaac PARENT_OF Jacob in Matthew",
+        "Jacob PARENT_OF Judas",
+        "Jesse PARENT_OF David"
+      ],
+      "forbidden_facts": [
+        "Abraham's journey in Genesis",
+        "Isaac's story in Genesis",
+        "Jacob's story in Genesis",
+        "Any Genesis narrative details"
+      ],
+      "gold_answer": "From Matthew ch.1: Abraham begat Isaac, Isaac begat Jacob, Jacob begat Judas, through Phares, Esrom, Aram, Aminadab, Naasson, Salmon, Booz, Obed, Jesse, David. (Genesis narrative context is outside scope.)",
+      "why_graph_wins": "Scoped tools restrict to Matthew genealogy edges. Raw LLM will add Genesis narrative details about each patriarch."
+    },
+    {
+      "id": "scope-10",
+      "category": "document_scoped",
+      "user_question": "What happened to Joseph according to the knowledge graph?",
+      "permitted_books": [
+        "Genesis"
+      ],
+      "expected_facts": [
+        "Jacob PARENT_OF Joseph",
+        "Joseph TRAVELED_TO Egypt",
+        "Joseph SERVED Pharaoh",
+        "Joseph sold by brothers"
+      ],
+      "forbidden_facts": [
+        "Joseph SPOUSE_OF Mary in Matthew",
+        "Joseph PARENT_OF Jesus Christ in Matthew",
+        "Joseph in Matthew ch.1 genealogy"
+      ],
+      "gold_answer": "From Genesis: Joseph was Jacob's son, was taken to Egypt, served Pharaoh, and rose to power. (Joseph in Matthew \u2014 husband of Mary \u2014 is a different context and outside scope.)",
+      "why_graph_wins": "Scoped tools restrict to Genesis. The Joseph disambiguation is critical \u2014 Genesis Joseph vs Matthew Joseph are different figures. Raw LLM will conflate them."
+    },
+    {
+      "id": "scope-11",
+      "category": "document_scoped",
+      "user_question": "What do we know about Jesus in the knowledge graph?",
+      "permitted_books": [
+        "Acts"
+      ],
+      "expected_facts": [
+        "Jesus ascended in Acts ch.1",
+        "Peter and apostles preach about Jesus in Acts",
+        "Stephen speaks of Jesus in Acts ch.7",
+        "Paul encountered Jesus on road to Damascus"
+      ],
+      "forbidden_facts": [
+        "Jesus born in Bethlehem in Matthew",
+        "Jesus's genealogy in Matthew ch.1",
+        "Jesus's sermon on the mount in Matthew",
+        "Jesus's crucifixion narrative in Matthew"
+      ],
+      "gold_answer": "From Acts: Jesus ascended to heaven (ch.1), is preached by Peter and the apostles, is referenced by Stephen, and appeared to Paul. (Matthew's birth narrative, genealogy, and ministry are outside scope.)",
+      "why_graph_wins": "Scoped tools restrict to Acts. Raw LLM will describe Jesus's Matthew ministry, birth, and crucifixion."
+    },
+    {
+      "id": "scope-12",
+      "category": "document_scoped",
+      "user_question": "Which entities are shared between these two books in the knowledge graph?",
+      "permitted_books": [
+        "Ruth",
+        "Matthew"
+      ],
+      "expected_facts": [
+        "Boaz in both Ruth and Matthew",
+        "Obed in both",
+        "Jesse in both",
+        "David in both",
+        "Ruth in both",
+        "Salmon in both"
+      ],
+      "forbidden_facts": [
+        "Lord appearing in all 5 books",
+        "God in Genesis/Exodus",
+        "Moses in Exodus/Matthew/Acts",
+        "Abraham in Genesis/Acts/Matthew"
+      ],
+      "gold_answer": "Entities shared between Ruth and Matthew: Boaz, David, Jesse, Obed, Ruth, Salmon, and Lord. These are the Davidic lineage figures from Ruth ch.4 that reappear in Matthew ch.1's genealogy.",
+      "why_graph_wins": "Scoped cross-book query limited to Ruth+Matthew. Raw LLM may include entities from other books."
+    }
+  ],
+  "coverage_report": {
+    "total_cases": 35,
+    "category_counts": {
+      "multi-hop": 8,
+      "disambiguation": 4,
+      "constraints": 5,
+      "set-ops": 5,
+      "control_singlehop": 7,
+      "adversarial": 6,
+      "document_scoped": 12
+    },
+    "hop_distribution": {
+      "1-hop": 7,
+      "2-hop": 3,
+      "3-hop": 0,
+      "4-hop": 3,
+      "5-hop": 2,
+      "N/A": 20
+    },
+    "avg_expected_tool_calls_by_category": {
+      "multi-hop": 2.8,
+      "disambiguation": 3.0,
+      "constraints": 2.0,
+      "set-ops": 2.0,
+      "control_singlehop": 1.0,
+      "adversarial": 2.0
+    },
+    "graph_traps": [
+      "adv-04",
+      "adv-05"
+    ]
+  },
+  "ab_evaluation_plan": {
+    "variant_a": {
+      "name": "graph-enabled",
+      "description": "Full GraphRAG agent with all 6 tools"
+    },
+    "variant_b": {
+      "name": "graph-disabled",
+      "description": "FlatRAGPipeline (chapter chunks + embedding retrieval, same LLM)"
+    },
+    "same_llm": "databricks-meta-llama-3-3-70b-instruct",
+    "mlflow_experiment": "graphrag_bible_graph_value_eval",
+    "expected_deltas": {
+      "multi-hop": {
+        "expected_delta": "+4 to +6 pts",
+        "rationale": "Flat RAG cannot chain multi-hop traversals across directed edges"
+      },
+      "disambiguation": {
+        "expected_delta": "+3 to +5 pts",
+        "rationale": "Flat RAG conflates same-name entities without entity_id distinction"
+      },
+      "constraints": {
+        "expected_delta": "+4 to +6 pts",
+        "rationale": "Flat RAG lacks structural filtering by relationship type and book"
+      },
+      "set-ops": {
+        "expected_delta": "+5 to +7 pts",
+        "rationale": "Flat RAG cannot perform set algebra over entity collections"
+      },
+      "control_singlehop": {
+        "expected_delta": "+0 to +1 pts",
+        "rationale": "Both should perform similarly; graph over-tooling may cause slight penalty"
+      },
+      "adversarial": {
+        "expected_delta": "+2 to +4 pts",
+        "rationale": "Graph constrains hallucination; graph traps specifically penalize flat RAG"
+      }
+    },
+    "scoring": {
+      "max_per_case": 13,
+      "dimensions": [
+        "tool_use_correctness (0-2)",
+        "evidence_correctness (0-3)",
+        "grounded_answer (0-3)",
+        "completeness (0-2)",
+        "source_grounding (0-3)"
+      ],
+      "scoped_max_per_case": 7,
+      "scoped_dimensions": [
+        "scope_compliance (0-2)",
+        "source_grounding (0-3)",
+        "completeness (0-2)"
+      ],
+      "aggregation": "Mean score per category, then paired t-test for significance"
+    }
+  }
+}

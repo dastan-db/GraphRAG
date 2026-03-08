@@ -1,0 +1,213 @@
+"""Re-log and redeploy the GraphRAG agent to Model Serving.
+
+Equivalent to Steps 3 + 4 + 5 of notebooks/03_Build_Agent.py.
+Run locally — only makes API calls (no Spark needed).
+
+Step 3: Log agent_serving.py as a new MLflow model version
+Step 4: Deploy to Model Serving and wait for READY
+Step 5: Configure AI Gateway (usage tracking, inference tables, rate limits, guardrails)
+"""
+import os
+import sys
+import time
+
+import mlflow
+from mlflow.models.resources import DatabricksServingEndpoint
+
+CATALOG = "serverless_8e8gyh_catalog"
+SCHEMA = "graphrag_bible"
+LLM_ENDPOINT = "databricks-meta-llama-3-3-70b-instruct"
+SMALL_LLM_ENDPOINT = "databricks-meta-llama-3-1-8b-instruct"
+REGISTERED_MODEL = f"{CATALOG}.{SCHEMA}.graphrag_agent"
+ENDPOINT_NAME = "graphrag-bible-agent"
+INFERENCE_TABLE_PREFIX = "graphrag_gw"
+
+AGENT_SERVING_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "src", "agent", "agent_serving.py"
+)
+
+def step3_log_model():
+    """Step 3: Log agent_serving.py as a new MLflow model version."""
+    mlflow.set_registry_uri("databricks-uc")
+
+    resources = [
+        DatabricksServingEndpoint(endpoint_name=LLM_ENDPOINT),
+        DatabricksServingEndpoint(endpoint_name=SMALL_LLM_ENDPOINT),
+    ]
+
+    with mlflow.start_run(run_name="graphrag_bible_agent"):
+        model_info = mlflow.pyfunc.log_model(
+            name="agent",
+            python_model=AGENT_SERVING_PATH,
+            resources=resources,
+            pip_requirements=[
+                "mlflow>=3.0",
+                "databricks-langchain",
+                "langgraph>=0.3.4",
+                "databricks-agents",
+                "databricks-mcp",
+                "databricks-connect",
+            ],
+            input_example={
+                "input": [{"role": "user", "content": "Who is Abraham?"}]
+            },
+            registered_model_name=REGISTERED_MODEL,
+        )
+
+    print(f"Model logged: {model_info.model_uri}")
+    print(f"Registered version: {model_info.registered_model_version}")
+    return model_info
+
+
+def step4_deploy(model_info):
+    """Step 4: Deploy the new version to the serving endpoint and wait."""
+    from databricks import agents
+    from databricks.sdk import WorkspaceClient
+
+    try:
+        deployment = agents.deploy(
+            REGISTERED_MODEL,
+            model_info.registered_model_version,
+            endpoint_name=ENDPOINT_NAME,
+            tags={"source": "graphrag_solacc"},
+        )
+        print(f"Deployment initiated: {deployment.endpoint_name}")
+    except ValueError as e:
+        if "currently updating" in str(e):
+            print(f"Endpoint '{ENDPOINT_NAME}' is already updating — waiting...")
+        else:
+            raise
+
+    w = WorkspaceClient()
+    MAX_WAIT = 1800
+    POLL = 30
+    elapsed = 0
+
+    while elapsed < MAX_WAIT:
+        ep = w.serving_endpoints.get(name=ENDPOINT_NAME)
+        ready = ep.state.ready if ep.state else None
+        config_update = ep.state.config_update if ep.state else None
+        print(f"  [{elapsed}s] ready={ready}, config_update={config_update}")
+        if str(ready) == "READY" and config_update is None:
+            print(f"\nEndpoint '{ENDPOINT_NAME}' is READY!")
+            return True
+        time.sleep(POLL)
+        elapsed += POLL
+
+    print(f"\nWARNING: Endpoint did not reach READY within {MAX_WAIT}s.")
+    return False
+
+
+def step5_configure_ai_gateway():
+    """Step 5: Configure AI Gateway (usage tracking, inference tables, rate limits, guardrails)."""
+    from databricks.sdk import WorkspaceClient
+    from databricks.sdk.service.serving import (
+        AiGatewayGuardrailParameters,
+        AiGatewayGuardrailPiiBehavior,
+        AiGatewayGuardrailPiiBehaviorBehavior,
+        AiGatewayGuardrails,
+        AiGatewayInferenceTableConfig,
+        AiGatewayRateLimit,
+        AiGatewayRateLimitKey,
+        AiGatewayRateLimitRenewalPeriod,
+        AiGatewayUsageTrackingConfig,
+    )
+
+    w = WorkspaceClient()
+    print(f"\nConfiguring AI Gateway on '{ENDPOINT_NAME}'...")
+
+    configs = [
+        (
+            "full features",
+            dict(
+                usage_tracking_config=AiGatewayUsageTrackingConfig(enabled=True),
+                inference_table_config=AiGatewayInferenceTableConfig(
+                    enabled=True,
+                    catalog_name=CATALOG,
+                    schema_name=SCHEMA,
+                    table_name_prefix=INFERENCE_TABLE_PREFIX,
+                ),
+                rate_limits=[
+                    AiGatewayRateLimit(
+                        key=AiGatewayRateLimitKey.ENDPOINT,
+                        renewal_period=AiGatewayRateLimitRenewalPeriod.MINUTE,
+                        calls=60,
+                    ),
+                    AiGatewayRateLimit(
+                        key=AiGatewayRateLimitKey.USER,
+                        renewal_period=AiGatewayRateLimitRenewalPeriod.MINUTE,
+                        calls=20,
+                    ),
+                ],
+                guardrails=AiGatewayGuardrails(
+                    input=AiGatewayGuardrailParameters(
+                        safety=True,
+                        pii=AiGatewayGuardrailPiiBehavior(
+                            behavior=AiGatewayGuardrailPiiBehaviorBehavior.MASK,
+                        ),
+                    ),
+                    output=AiGatewayGuardrailParameters(
+                        safety=True,
+                        pii=AiGatewayGuardrailPiiBehavior(
+                            behavior=AiGatewayGuardrailPiiBehaviorBehavior.MASK,
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        (
+            "inference tables + usage tracking",
+            dict(
+                usage_tracking_config=AiGatewayUsageTrackingConfig(enabled=True),
+                inference_table_config=AiGatewayInferenceTableConfig(
+                    enabled=True,
+                    catalog_name=CATALOG,
+                    schema_name=SCHEMA,
+                    table_name_prefix=INFERENCE_TABLE_PREFIX,
+                ),
+            ),
+        ),
+        (
+            "inference tables only",
+            dict(
+                inference_table_config=AiGatewayInferenceTableConfig(
+                    enabled=True,
+                    catalog_name=CATALOG,
+                    schema_name=SCHEMA,
+                    table_name_prefix=INFERENCE_TABLE_PREFIX,
+                ),
+            ),
+        ),
+    ]
+
+    for label, cfg in configs:
+        try:
+            print(f"  Trying: {label}...")
+            w.serving_endpoints.put_ai_gateway(name=ENDPOINT_NAME, **cfg)
+            print(f"  AI Gateway configured ({label}).")
+            return True
+        except Exception as e:
+            print(f"  Failed: {e}")
+
+    print("WARNING: Could not configure AI Gateway on this endpoint type.")
+    return False
+
+
+if __name__ == "__main__":
+    step = sys.argv[1] if len(sys.argv) > 1 else "all"
+    if step in ("3", "log", "all"):
+        model_info = step3_log_model()
+    if step in ("4", "deploy", "all"):
+        if step == "all":
+            step4_deploy(model_info)
+        else:
+            version = sys.argv[2] if len(sys.argv) > 2 else None
+            if not version:
+                print("Usage: redeploy_agent.py 4 <version>")
+                sys.exit(1)
+
+            class _Info:
+                registered_model_version = version
+            step4_deploy(_Info())
+    if step in ("5", "gateway", "all"):
+        step5_configure_ai_gateway()

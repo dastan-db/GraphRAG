@@ -1,37 +1,24 @@
 import dash_bootstrap_components as dbc
-from dash import html, dcc
+from dash import html
 
-MERMAID_DIAGRAM = """
-graph TB
-    subgraph workspace ["Databricks Workspace"]
-        subgraph dataLayer ["Data Layer — Unity Catalog"]
-            Verses["verses"]
-            Entities["entities"]
-            Rels["relationships"]
-            Mentions["entity_mentions"]
-        end
-        subgraph modelLayer ["Model Layer"]
-            LLM["Foundation Model API"]
-            Agent["GraphRAG Agent"]
-        end
-        subgraph orchLayer ["Orchestration"]
-            Tools["5 Graph Tools"]
-            MLflow["MLflow Tracing"]
-            Serving["Model Serving"]
-        end
-        subgraph appLayer ["Application"]
-            WebApp["Web App"]
-            Lakebase["Lakebase"]
-        end
-    end
-    WebApp -->|query| Serving
-    Serving --> Agent
-    Agent -->|tool calls| Tools
-    Tools -->|SQL| dataLayer
-    Agent --> LLM
-    Agent --> MLflow
-    WebApp --> Lakebase
-"""
+
+def _layer_box(title, color, items):
+    """Render one architecture layer as a styled card with item badges."""
+    return html.Div([
+        html.Div(title, className="fw-bold small text-uppercase mb-2", style={"color": color, "letterSpacing": "0.05em"}),
+        html.Div([
+            dbc.Badge(item, className="me-2 mb-1 p-2", style={"backgroundColor": color, "fontSize": "0.8rem"})
+            for item in items
+        ]),
+    ], className="p-3 mb-2 rounded", style={"border": f"1px solid {color}30", "backgroundColor": f"{color}10"})
+
+
+def _flow_arrow(label=""):
+    return html.Div([
+        html.Div(style={"width": "2px", "height": "18px", "backgroundColor": "#555", "margin": "0 auto"}),
+        html.Small(label, className="text-muted d-block text-center", style={"fontSize": "0.7rem"}) if label else html.Div(),
+        html.Div("▼", className="text-center text-muted", style={"fontSize": "0.6rem", "lineHeight": "1"}),
+    ])
 
 
 def _info_card(icon, title, text, color):
@@ -49,14 +36,20 @@ def arch_layout():
         ], className="text-center py-3"),
         html.Hr(),
 
-        # Mermaid diagram
         html.H4("System Diagram", className="mb-3"),
-        html.Div(
-            dcc.Markdown(f"```mermaid\n{MERMAID_DIAGRAM}\n```"),
-            className="p-3 rounded",
-            style={"backgroundColor": "#1a1f2b", "border": "1px solid #333"},
-        ),
-        html.Small("Diagram: full data flow from web app through agent to Delta tables.", className="text-muted d-block mb-4"),
+        html.Div([
+            html.Div("Databricks Workspace", className="text-center text-muted small fw-bold text-uppercase mb-3",
+                      style={"letterSpacing": "0.1em"}),
+            _layer_box("Application Layer", "#ffc107", ["Web App (Dash)", "Lakebase (Chat History)"]),
+            _flow_arrow("query"),
+            _layer_box("Orchestration Layer", "#28a745", ["Model Serving", "5 Graph Tools", "MLflow Tracing"]),
+            _flow_arrow("tool calls"),
+            _layer_box("Model Layer", "#9b59b6", ["GraphRAG Agent (LangGraph)", "Foundation Model API (Llama 3.3 70B)"]),
+            _flow_arrow("SQL"),
+            _layer_box("Data Layer — Unity Catalog", "#4682B4", ["verses", "entities", "relationships", "entity_mentions"]),
+        ], className="p-4 rounded", style={"backgroundColor": "#1a1f2b", "border": "1px solid #333", "maxWidth": "600px", "margin": "0 auto"}),
+        html.Small("Data flow: Web App → Model Serving → Agent → Graph Tools → Delta tables in Unity Catalog.",
+                   className="text-muted d-block mb-4 text-center mt-2"),
 
         # Comparison table
         html.H4("Traditional RAG vs GraphRAG", className="mt-4 mb-3"),
@@ -103,7 +96,7 @@ def arch_layout():
                     html.Td("Delta tables in Unity Catalog — no external DB"),
                 ]),
             ]),
-        ], bordered=True, dark=True, hover=True, striped=True, className="mb-4"),
+        ], bordered=True, color="dark", hover=True, striped=True, className="mb-4"),
 
         # Why Databricks
         html.H4("Why Databricks", className="mt-4 mb-3"),

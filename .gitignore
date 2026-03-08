@@ -37,16 +37,29 @@ yarn-error.log*
 *.log
 *.sqlite
 *.db
+*.duckdb
+
+# Local graph data export
+data/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# MLflow local runs
+mlruns/
 
 # Secrets and keys
 *.pem
 secrets/
 
-# Agent harness (private IP)
-.harness/
+# Forge runtime artifacts (submodule itself is tracked)
+.forge/mcp/__pycache__/
+
+# Project-specific execution state
 .execution/
+
+# Cursor IDE config (project-specific rules, MCP config)
 .cursor/
+
+# AI dev kit
 .ai-dev-kit/

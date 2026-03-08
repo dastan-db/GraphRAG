@@ -12,6 +12,8 @@ variables:
   warehouse_id:
     lookup:
       warehouse: "Serverless Starter Warehouse"
+  lakebase_project:
+    default: "graphrag"
 
 targets:
   dev:

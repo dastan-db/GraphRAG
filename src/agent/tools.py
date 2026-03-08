@@ -117,97 +117,72 @@ def _find_connections(entity_name: str, permitted_books: list = None) -> str:
 
 # COMMAND ----------
 
-# DBTITLE 1,Tool: Trace Path
+# DBTITLE 1,Tool: Trace Path (Pre-computed via GraphFrames BFS)
 def _trace_path(entity_a: str, entity_b: str, permitted_books: list = None) -> str:
-    """Find how two entities are connected, tracing up to 3 hops through the knowledge graph.
-    Use this for multi-hop questions like 'How is Ruth connected to Jesus?'
+    """Find the shortest path between two entities using pre-computed GraphFrames BFS results.
 
     Args:
         entity_a: Starting entity name (e.g., "Ruth")
         entity_b: Ending entity name (e.g., "Jesus")
     """
+    import re
     from pyspark.sql import SparkSession
     spark = SparkSession.builder.getOrCreate()
 
-    id_a = "_".join(entity_a.lower().split())
-    id_b = "_".join(entity_b.lower().split())
+    def slugify(name):
+        return re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')
+
+    id_a = slugify(entity_a)
+    id_b = slugify(entity_b)
+
+    paths = spark.sql(f"""
+        SELECT p.source_id, p.target_id, p.distance, p.path_names,
+               e1.name as source_name, e2.name as target_name
+        FROM {config['entity_paths_table']} p
+        LEFT JOIN {config['entities_table']} e1 ON p.source_id = e1.entity_id
+        LEFT JOIN {config['entities_table']} e2 ON p.target_id = e2.entity_id
+        WHERE (p.source_id LIKE '%{id_a}%' AND p.target_id LIKE '%{id_b}%')
+           OR (p.source_id LIKE '%{id_b}%' AND p.target_id LIKE '%{id_a}%')
+        ORDER BY p.distance
+        LIMIT 5
+    """).collect()
+
+    if not paths:
+        return f"No path found between '{entity_a}' and '{entity_b}' in the knowledge graph."
+
+    lines = [f"Shortest paths between {entity_a} and {entity_b}:"]
+    for r in paths:
+        lines.append(
+            f"  {r['source_name']} -> {r['target_name']}: "
+            f"distance={r['distance']}, path: {r['path_names']}"
+        )
+
     books_clause = _books_in_clause(permitted_books)
+    book_filter = f"AND r.book IN {books_clause}" if books_clause else ""
 
-    # Book filter for each relationship alias
-    def bf(alias):
-        return f"AND {alias}.book IN {books_clause}" if books_clause else ""
-
-    # 1-hop
-    direct = spark.sql(f"""
+    rels = spark.sql(f"""
         SELECT COALESCE(e1.name, r.source_entity) as src,
-               r.relationship_type as rel,
+               r.relationship_type,
                COALESCE(e2.name, r.target_entity) as tgt,
-               r.description, r.book
+               r.description, r.book, r.chapter
         FROM {config['relationships_table']} r
         LEFT JOIN {config['entities_table']} e1 ON r.source_entity = e1.entity_id
         LEFT JOIN {config['entities_table']} e2 ON r.target_entity = e2.entity_id
         WHERE ((r.source_entity LIKE '%{id_a}%' AND r.target_entity LIKE '%{id_b}%')
            OR (r.source_entity LIKE '%{id_b}%' AND r.target_entity LIKE '%{id_a}%'))
-        {bf('r')}
-    """).collect()
-
-    if direct:
-        lines = [f"Direct connection between {entity_a} and {entity_b}:"]
-        for r in direct:
-            lines.append(f"  {r['src']} --[{r['rel']}]--> {r['tgt']}: {r['description']} ({r['book']})")
-        return "\n".join(lines)
-
-    # 2-hop
-    two_hop = spark.sql(f"""
-        SELECT COALESCE(e1.name, r1.source_entity) as src,
-               r1.relationship_type as rel1,
-               COALESCE(e_mid.name, r1.target_entity) as mid,
-               r2.relationship_type as rel2,
-               COALESCE(e2.name, r2.target_entity) as tgt
-        FROM {config['relationships_table']} r1
-        JOIN {config['relationships_table']} r2 ON r1.target_entity = r2.source_entity
-        LEFT JOIN {config['entities_table']} e1 ON r1.source_entity = e1.entity_id
-        LEFT JOIN {config['entities_table']} e_mid ON r1.target_entity = e_mid.entity_id
-        LEFT JOIN {config['entities_table']} e2 ON r2.target_entity = e2.entity_id
-        WHERE r1.source_entity LIKE '%{id_a}%' AND r2.target_entity LIKE '%{id_b}%'
-        {bf('r1')} {bf('r2')}
+        {book_filter}
         LIMIT 10
     """).collect()
 
-    if two_hop:
-        lines = [f"2-hop path from {entity_a} to {entity_b}:"]
-        for r in two_hop:
-            lines.append(f"  {r['src']} --[{r['rel1']}]--> {r['mid']} --[{r['rel2']}]--> {r['tgt']}")
-        return "\n".join(lines)
+    if rels:
+        lines.append("\nDirect relationships:")
+        for r in rels:
+            lines.append(
+                f"  {r['src']} --[{r['relationship_type']}]--> {r['tgt']}: "
+                f"{r['description']} ({r['book']} ch.{r['chapter']})"
+            )
 
-    # 3-hop
-    three_hop = spark.sql(f"""
-        SELECT COALESCE(e1.name, r1.source_entity) as src,
-               r1.relationship_type as rel1,
-               COALESCE(e_m1.name, r1.target_entity) as mid1,
-               r2.relationship_type as rel2,
-               COALESCE(e_m2.name, r2.target_entity) as mid2,
-               r3.relationship_type as rel3,
-               COALESCE(e3.name, r3.target_entity) as tgt
-        FROM {config['relationships_table']} r1
-        JOIN {config['relationships_table']} r2 ON r1.target_entity = r2.source_entity
-        JOIN {config['relationships_table']} r3 ON r2.target_entity = r3.source_entity
-        LEFT JOIN {config['entities_table']} e1 ON r1.source_entity = e1.entity_id
-        LEFT JOIN {config['entities_table']} e_m1 ON r1.target_entity = e_m1.entity_id
-        LEFT JOIN {config['entities_table']} e_m2 ON r2.target_entity = e_m2.entity_id
-        LEFT JOIN {config['entities_table']} e3 ON r3.target_entity = e3.entity_id
-        WHERE r1.source_entity LIKE '%{id_a}%' AND r3.target_entity LIKE '%{id_b}%'
-        {bf('r1')} {bf('r2')} {bf('r3')}
-        LIMIT 10
-    """).collect()
-
-    if three_hop:
-        lines = [f"3-hop path from {entity_a} to {entity_b}:"]
-        for r in three_hop:
-            lines.append(f"  {r['src']} --[{r['rel1']}]--> {r['mid1']} --[{r['rel2']}]--> {r['mid2']} --[{r['rel3']}]--> {r['tgt']}")
-        return "\n".join(lines)
-
-    return f"No path found between '{entity_a}' and '{entity_b}' within 3 hops. Try using find_connections on each entity separately."
+    return "\n".join(lines)
 
 # COMMAND ----------
 
@@ -353,7 +328,7 @@ def find_connections(entity_name: str) -> str:
 
 @tool
 def trace_path(entity_a: str, entity_b: str) -> str:
-    """Find how two entities are connected, tracing up to 3 hops through the knowledge graph.
+    """Find the shortest path between two entities using pre-computed GraphFrames BFS.
     Use this for multi-hop questions like 'How is Ruth connected to Jesus?'
 
     Args:
@@ -383,6 +358,113 @@ def get_entity_summary(entity_name: str) -> str:
     return _get_entity_summary(entity_name)
 
 GRAPH_TOOLS = [find_entity, find_connections, trace_path, get_context_verses, get_entity_summary]
+
+# COMMAND ----------
+
+# DBTITLE 1,Query Entity Pre-Lookup
+import json
+import re
+import logging
+
+_prelookup_log = logging.getLogger(__name__)
+
+QUERY_ENTITY_PROMPT = """You are an expert biblical scholar. Extract all significant entities and concepts from the following user question.
+
+For each entity, provide:
+- name: The canonical name (e.g., Abraham not Abram unless before the name change)
+- entity_type: One of: Person, Place, Event, Group, Concept (treat God/Lord as Person)
+
+Rules:
+- Use canonical biblical names consistently
+- Include divine figures (God, Lord, Holy Spirit) as Person type
+- Include non-biblical terms exactly as the user stated them (e.g., "Arabs" stays "Arabs")
+- Extract ALL nouns that could refer to entities, even if uncertain whether they appear in the Bible
+
+Return a JSON array of objects, each with "name" and "entity_type" keys. Return ONLY the JSON array, no other text.
+
+Question:
+"""
+
+
+def _slugify(name: str) -> str:
+    """Same normalisation used during corpus build (src/extraction/extraction.py)."""
+    return re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')
+
+
+def extract_query_entities(question: str) -> list[dict]:
+    """Call the small LLM to extract entity mentions from a user question."""
+    from databricks_langchain import ChatDatabricks
+    llm = ChatDatabricks(endpoint=config['small_llm_endpoint'], temperature=0.0, max_tokens=512)
+    response = llm.invoke(QUERY_ENTITY_PROMPT + question)
+    text = response.content.strip()
+
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+
+    try:
+        entities = json.loads(text)
+        if isinstance(entities, list):
+            return [e for e in entities if isinstance(e, dict) and "name" in e]
+    except json.JSONDecodeError:
+        _prelookup_log.warning("Failed to parse entity extraction response: %s", text)
+    return []
+
+
+def pre_lookup_entities(entity_names: list[str]) -> tuple[list[str], list[str]]:
+    """Look up extracted query entities against the graph.
+
+    Returns (found, not_found) where each is a list of display strings.
+    """
+    from pyspark.sql import SparkSession
+    spark = SparkSession.builder.getOrCreate()
+
+    found: list[str] = []
+    not_found: list[str] = []
+
+    for name in entity_names:
+        eid = _slugify(name)
+        rows = spark.sql(f"""
+            SELECT name, entity_type
+            FROM {config['entities_table']}
+            WHERE entity_id LIKE '%{eid}%'
+            LIMIT 3
+        """).collect()
+        if rows:
+            matches = ", ".join(f"{r['name']} ({r['entity_type']})" for r in rows)
+            found.append(f"{name} -> {matches}")
+        else:
+            not_found.append(name)
+
+    return found, not_found
+
+
+def build_prelookup_context(question: str) -> str:
+    """Run entity extraction + graph lookup and return a system-prompt appendix.
+
+    Returns an empty string when extraction finds nothing or fails.
+    """
+    try:
+        entities = extract_query_entities(question)
+        if not entities:
+            return ""
+        names = [e["name"] for e in entities]
+        found, not_found = pre_lookup_entities(names)
+    except Exception:
+        _prelookup_log.exception("Entity pre-lookup failed; proceeding without constraint")
+        return ""
+
+    found_str = "; ".join(found) if found else "(none)"
+    not_found_str = ", ".join(not_found) if not_found else "(none)"
+
+    return (
+        "\n\n---\n"
+        "PRE-LOOKUP RESULTS (DEFINITIVE — produced by an automated system, not the user):\n"
+        f"  FOUND IN GRAPH: {found_str}\n"
+        f"  NOT IN GRAPH: {not_found_str}\n"
+        "Any answer that makes claims about entities listed under \"NOT IN GRAPH\" is WRONG.\n"
+        "---"
+    )
 
 # COMMAND ----------
 
@@ -422,7 +504,7 @@ def build_scoped_tools(permitted_books: list):
 
     @tool
     def trace_path(entity_a: str, entity_b: str) -> str:
-        """Find how two entities are connected, tracing up to 3 hops through the knowledge graph.
+        """Find the shortest path between two entities using pre-computed GraphFrames BFS.
         Use this for multi-hop questions like 'How is Ruth connected to Jesus?'
 
         Args:

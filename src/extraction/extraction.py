@@ -47,6 +47,24 @@ Rules:
 
 # COMMAND ----------
 
+# DBTITLE 1,Query Entity Extraction Prompt (for pre-linking user questions)
+QUERY_ENTITY_PROMPT = """You are an expert biblical scholar. Extract all significant entities and concepts from the following user question.
+
+For each entity, provide:
+- name: The canonical name (e.g., Abraham not Abram unless before the name change)
+- entity_type: One of: Person, Place, Event, Group, Concept (treat God/Lord as Person)
+
+Rules:
+- Use canonical biblical names consistently
+- Include divine figures (God, Lord, Holy Spirit) as Person type
+- Include non-biblical terms exactly as the user stated them (e.g., "Arabs" stays "Arabs")
+- Extract ALL nouns that could refer to entities, even if uncertain whether they appear in the Bible
+
+Question:
+"""
+
+# COMMAND ----------
+
 # DBTITLE 1,Slugify Entity Names
 def slugify(name):
     """Convert an entity name to a stable ID."""

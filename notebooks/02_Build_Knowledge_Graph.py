@@ -10,7 +10,7 @@
 # COMMAND ----------
 
 # DBTITLE 1,Install Dependencies
-# MAGIC %pip install mlflow>=3.0 --quiet
+# MAGIC %pip install mlflow>=3.0 networkx --quiet
 # MAGIC dbutils.library.restartPython()
 
 # COMMAND ----------
@@ -414,6 +414,187 @@ display(
     .select("name", "entity_type", "books_mentioned_in")
     .orderBy(F.desc("books_mentioned_in"))
     .limit(20)
+)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Step 7: Graph Analytics (NetworkX + Spark SQL)
+# MAGIC
+# MAGIC Compute graph-level metrics: degree centrality via Spark SQL aggregations,
+# MAGIC PageRank and all-pairs shortest paths via NetworkX on the driver (the entity
+# MAGIC graph is small enough to fit in memory), and cross-testament connection counts
+# MAGIC via Spark joins. Results are stored in Delta tables and served by the MCP server.
+
+# COMMAND ----------
+
+# DBTITLE 1,Degree Centrality
+rels = spark.table(config['relationships_table'])
+entities = spark.table(config['entities_table'])
+
+in_deg = (
+    rels.groupBy(F.col("target_entity").alias("entity_id"))
+    .agg(F.count("*").alias("in_degree"))
+)
+out_deg = (
+    rels.groupBy(F.col("source_entity").alias("entity_id"))
+    .agg(F.count("*").alias("out_degree"))
+)
+
+degrees_df = (
+    entities.select("entity_id")
+    .join(in_deg, "entity_id", "left")
+    .join(out_deg, "entity_id", "left")
+    .fillna(0, subset=["in_degree", "out_degree"])
+    .withColumn("total_degree", F.col("in_degree") + F.col("out_degree"))
+)
+
+# COMMAND ----------
+
+# DBTITLE 1,PageRank (NetworkX)
+import networkx as nx
+from pyspark.sql.types import DoubleType
+
+distinct_edges = rels.select(
+    F.col("source_entity").alias("src"),
+    F.col("target_entity").alias("dst"),
+).distinct()
+
+edges_pdf = distinct_edges.toPandas()
+G = nx.DiGraph()
+G.add_edges_from(zip(edges_pdf["src"], edges_pdf["dst"]))
+
+for eid in entities.select("entity_id").toPandas()["entity_id"]:
+    if eid not in G:
+        G.add_node(eid)
+
+pagerank = nx.pagerank(G, alpha=0.85, max_iter=20)
+
+pr_df = spark.createDataFrame(
+    [(k, float(v)) for k, v in pagerank.items()],
+    ["entity_id", "pagerank"]
+)
+print(f"PageRank computed for {pr_df.count()} entities")
+
+# COMMAND ----------
+
+# DBTITLE 1,Testament Mapping and Cross-Testament Connections
+book_testament_map = {b: info['testament'] for b, info in config['bible_books'].items()}
+testament_mapping = F.create_map([F.lit(x) for pair in book_testament_map.items() for x in pair])
+
+entities_with_testament = (
+    entities.select("entity_id", "name", "entity_type", "first_mention_book")
+    .withColumn("testament", testament_mapping[F.col("first_mention_book")])
+)
+
+edges_with_testament = (
+    rels.select("source_entity", "target_entity")
+    .join(
+        entities_with_testament.select(
+            F.col("entity_id").alias("source_entity"),
+            F.col("testament").alias("src_testament"),
+        ),
+        "source_entity",
+    )
+    .join(
+        entities_with_testament.select(
+            F.col("entity_id").alias("target_entity"),
+            F.col("testament").alias("tgt_testament"),
+        ),
+        "target_entity",
+    )
+)
+
+cross_testament_df = (
+    edges_with_testament
+    .filter(F.col("src_testament") != F.col("tgt_testament"))
+    .groupBy(F.col("source_entity").alias("entity_id"))
+    .agg(F.countDistinct("target_entity").alias("cross_testament_connections"))
+)
+
+# COMMAND ----------
+
+# DBTITLE 1,Join and Write entity_analytics Table
+entity_analytics_df = (
+    entities_with_testament
+    .join(pr_df, "entity_id", "left")
+    .join(degrees_df, "entity_id", "left")
+    .join(cross_testament_df, "entity_id", "left")
+    .fillna(0, subset=["pagerank", "in_degree", "out_degree", "total_degree", "cross_testament_connections"])
+    .select(
+        "entity_id", "name", "entity_type", "testament",
+        F.col("pagerank").cast(DoubleType()),
+        "in_degree", "out_degree", "total_degree",
+        "cross_testament_connections",
+    )
+)
+
+(
+    entity_analytics_df.write
+    .format("delta")
+    .mode("overwrite")
+    .option("overwriteSchema", "true")
+    .saveAsTable(config['entity_analytics_table'])
+)
+
+analytics_count = spark.table(config['entity_analytics_table']).count()
+print(f"Wrote {analytics_count} entity analytics to {config['entity_analytics_table']}")
+
+display(
+    spark.table(config['entity_analytics_table'])
+    .orderBy(F.desc("pagerank"))
+    .limit(15)
+)
+
+# COMMAND ----------
+
+# DBTITLE 1,BFS Shortest Paths (NetworkX)
+MAX_BFS_DEPTH = 6
+
+UG = G.to_undirected()
+
+entity_names_lookup = {
+    row["entity_id"]: row["name"]
+    for row in entities.select("entity_id", "name").collect()
+}
+
+path_rows = []
+for source in UG.nodes():
+    lengths = nx.single_source_shortest_path_length(UG, source, cutoff=MAX_BFS_DEPTH)
+    src_name = entity_names_lookup.get(source, source)
+    for target, dist in lengths.items():
+        if source == target:
+            continue
+        tgt_name = entity_names_lookup.get(target, target)
+        if dist == 1:
+            path_name = f"{src_name} -> {tgt_name}"
+        else:
+            path_name = f"{src_name} -> ... ({dist} hops) -> {tgt_name}"
+        path_rows.append((source, target, dist, path_name))
+
+entity_paths_df = spark.createDataFrame(
+    path_rows, ["source_id", "target_id", "distance", "path_names"]
+)
+
+(
+    entity_paths_df.write
+    .format("delta")
+    .mode("overwrite")
+    .option("overwriteSchema", "true")
+    .saveAsTable(config['entity_paths_table'])
+)
+
+paths_count = spark.table(config['entity_paths_table']).count()
+print(f"Wrote {paths_count} shortest paths to {config['entity_paths_table']}")
+
+# COMMAND ----------
+
+# DBTITLE 1,Top Cross-Testament Connectors
+display(
+    spark.table(config['entity_analytics_table'])
+    .filter(F.col("cross_testament_connections") > 0)
+    .orderBy(F.desc("cross_testament_connections"))
+    .limit(15)
 )
 
 # COMMAND ----------

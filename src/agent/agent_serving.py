@@ -5,6 +5,7 @@ so MLflow can load it without notebook %run dependencies.
 """
 import json
 import logging
+import os
 import re
 
 import mlflow
@@ -13,17 +14,24 @@ from mlflow.types.responses import (
     ResponsesAgentRequest,
     ResponsesAgentResponse,
     ResponsesAgentStreamEvent,
+    create_function_call_item,
+    create_function_call_output_item,
     output_to_responses_items_stream,
     to_chat_completions_input,
 )
-from databricks_langchain import ChatDatabricks
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableLambda
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt.tool_node import ToolNode
-from typing import Annotated, Generator, Sequence, TypedDict
+from typing import Annotated, Generator, Protocol, Sequence, TypedDict
+
+try:
+    import litellm
+    litellm.suppress_debug_info = True
+except ImportError:
+    pass
 
 log = logging.getLogger(__name__)
 
@@ -31,17 +39,130 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-CATALOG = "serverless_8e8gyh_catalog"
-SCHEMA = "graphrag_bible"
-LLM_ENDPOINT = "databricks-meta-llama-3-3-70b-instruct"
-SMALL_LLM_ENDPOINT = "databricks-meta-llama-3-1-8b-instruct"
+CATALOG = os.environ.get("GRAPHRAG_CATALOG", "serverless_8e8gyh_catalog")
+SCHEMA = os.environ.get("GRAPHRAG_SCHEMA", "graphrag_bible")
+LLM_ENDPOINT = os.environ.get("GRAPHRAG_LLM_ENDPOINT", "databricks-meta-llama-3-3-70b-instruct")
+SMALL_LLM_ENDPOINT = os.environ.get("GRAPHRAG_SMALL_LLM_ENDPOINT", "databricks-meta-llama-3-1-8b-instruct")
 
 ENTITIES_TABLE = f"{CATALOG}.{SCHEMA}.entities"
 RELATIONSHIPS_TABLE = f"{CATALOG}.{SCHEMA}.relationships"
 VERSES_TABLE = f"{CATALOG}.{SCHEMA}.verses"
 AGENT_PROMPTS_TABLE = f"{CATALOG}.{SCHEMA}.agent_prompts"
+ENTITY_ANALYTICS_TABLE = f"{CATALOG}.{SCHEMA}.entity_analytics"
 AGENT_ID = "bible-agent"
 PROMPT_CACHE_TTL = 300  # seconds; set to 0 for instant iteration
+
+BACKEND_TYPE = os.environ.get("GRAPHRAG_BACKEND", "databricks")
+LLM_PROVIDER = os.environ.get("GRAPHRAG_LLM_PROVIDER", "databricks")
+
+
+# ---------------------------------------------------------------------------
+# DataBackend protocol — pluggable SQL execution layer
+# ---------------------------------------------------------------------------
+class DataBackend(Protocol):
+    def execute_sql(self, query: str, params: dict[str, str] | None = None) -> list[dict]: ...
+
+
+class DatabricksBackend:
+    """Statement Execution API — production path for Model Serving."""
+
+    def __init__(self):
+        self._ws_client = None
+        self._warehouse_id = None
+
+    def _get_ws_client(self):
+        if self._ws_client is None:
+            from databricks.sdk import WorkspaceClient
+            self._ws_client = WorkspaceClient()
+        return self._ws_client
+
+    def _get_warehouse_id(self) -> str:
+        if self._warehouse_id is None:
+            wid = os.environ.get("DATABRICKS_WAREHOUSE_ID")
+            if wid:
+                self._warehouse_id = wid
+            else:
+                w = self._get_ws_client()
+                warehouses = list(w.warehouses.list())
+                running = [wh for wh in warehouses if str(wh.state) == "RUNNING"]
+                target = running[0] if running else warehouses[0] if warehouses else None
+                if target is None:
+                    raise RuntimeError("No SQL warehouse found in workspace")
+                self._warehouse_id = target.id
+                log.info("Auto-selected SQL warehouse: %s (%s)", target.name, target.id)
+        return self._warehouse_id
+
+    def execute_sql(self, query: str, params: dict[str, str] | None = None) -> list[dict]:
+        from databricks.sdk.service.sql import StatementParameterListItem, StatementState
+
+        w = self._get_ws_client()
+        wh = self._get_warehouse_id()
+        parameters = (
+            [StatementParameterListItem(name=k, value=v) for k, v in params.items()]
+            if params else None
+        )
+        result = w.statement_execution.execute_statement(
+            warehouse_id=wh,
+            statement=query,
+            catalog=CATALOG,
+            schema=SCHEMA,
+            parameters=parameters,
+        )
+        if result.status.state != StatementState.SUCCEEDED:
+            msg = result.status.error.message if result.status.error else "Unknown error"
+            raise RuntimeError(f"SQL execution failed: {msg}")
+        if not result.manifest or not result.result:
+            return []
+        columns = [col.name for col in result.manifest.schema.columns]
+        rows = []
+        for row_data in result.result.data_array or []:
+            rows.append(dict(zip(columns, row_data)))
+        return rows
+
+
+class LocalBackend:
+    """DuckDB — local development with exported graph data."""
+
+    _FQN_PREFIX = f"{CATALOG}.{SCHEMA}."
+
+    def __init__(self, db_path: str | None = None):
+        import duckdb
+        path = db_path or os.environ.get("GRAPHRAG_LOCAL_DB", "data/graphrag.duckdb")
+        self._conn = duckdb.connect(path, read_only=True)
+        log.info("LocalBackend connected to %s", path)
+
+    def execute_sql(self, query: str, params: dict[str, str] | None = None) -> list[dict]:
+        query = query.replace(self._FQN_PREFIX, "")
+        query = re.sub(r":(\w+)", r"$\1", query)
+        result = self._conn.execute(query, params or {})
+        columns = [desc[0] for desc in result.description]
+        return [dict(zip(columns, row)) for row in result.fetchall()]
+
+
+def _get_backend() -> DataBackend:
+    if BACKEND_TYPE == "local":
+        return LocalBackend()
+    return DatabricksBackend()
+
+
+_backend: DataBackend = _get_backend()
+
+
+# ---------------------------------------------------------------------------
+# LLM factory — pluggable LLM provider
+# ---------------------------------------------------------------------------
+def _get_llm(endpoint: str = LLM_ENDPOINT, **kwargs):
+    """Return a LangChain chat model for the configured provider."""
+    if LLM_PROVIDER == "openai":
+        from langchain_openai import ChatOpenAI
+        model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+        return ChatOpenAI(model=model, **kwargs)
+    if LLM_PROVIDER == "ollama":
+        from langchain_ollama import ChatOllama
+        model = os.environ.get("OLLAMA_MODEL", "llama3.1")
+        return ChatOllama(model=model, **kwargs)
+    from databricks_langchain import ChatDatabricks
+    return ChatDatabricks(endpoint=endpoint, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -59,13 +180,12 @@ def _get_system_prompt(agent_id: str = AGENT_ID) -> str:
     now = time.time()
     if _prompt_cache["text"] is None or (now - _prompt_cache["ts"]) > PROMPT_CACHE_TTL:
         try:
-            from pyspark.sql import SparkSession
-            spark = SparkSession.builder.getOrCreate()
-            row = spark.sql(
+            rows = _backend.execute_sql(
                 f"SELECT prompt_text FROM {AGENT_PROMPTS_TABLE} "
-                f"WHERE agent_id = '{agent_id}' LIMIT 1"
-            ).first()
-            _prompt_cache["text"] = row["prompt_text"] if row else SYSTEM_PROMPT
+                "WHERE agent_id = :agent_id LIMIT 1",
+                params={"agent_id": agent_id},
+            )
+            _prompt_cache["text"] = rows[0]["prompt_text"] if rows else SYSTEM_PROMPT
         except Exception:
             log.warning("Failed to load prompt from Delta; using hardcoded fallback")
             _prompt_cache["text"] = SYSTEM_PROMPT
@@ -102,7 +222,7 @@ def _slugify(name: str) -> str:
 
 def extract_query_entities(question: str) -> list[dict]:
     """Call the small LLM to extract entity mentions from a user question."""
-    llm = ChatDatabricks(endpoint=SMALL_LLM_ENDPOINT, temperature=0.0, max_tokens=512)
+    llm = _get_llm(endpoint=SMALL_LLM_ENDPOINT, temperature=0.0, max_tokens=512)
     response = llm.invoke(QUERY_ENTITY_PROMPT + question)
     text = response.content.strip()
 
@@ -125,20 +245,26 @@ def pre_lookup_entities(entity_names: list[str]) -> tuple[list[str], list[str]]:
 
     Returns (found, not_found) where each is a list of display strings.
     """
-    from pyspark.sql import SparkSession
-    spark = SparkSession.builder.getOrCreate()
-
     found: list[str] = []
     not_found: list[str] = []
 
     for name in entity_names:
         eid = _slugify(name)
-        rows = spark.sql(f"""
-            SELECT name, entity_type
-            FROM {ENTITIES_TABLE}
-            WHERE entity_id LIKE '%{eid}%'
-            LIMIT 3
-        """).collect()
+        rows = _backend.execute_sql(
+            f"SELECT name, entity_type FROM {ENTITIES_TABLE}"
+            " WHERE entity_id LIKE :eid_pattern LIMIT 3",
+            params={"eid_pattern": f"%{eid}%"},
+        )
+        if not rows:
+            for alias in _get_alias_names(name):
+                alias_eid = _slugify(alias)
+                rows = _backend.execute_sql(
+                    f"SELECT name, entity_type FROM {ENTITIES_TABLE}"
+                    " WHERE entity_id LIKE :eid_pattern LIMIT 3",
+                    params={"eid_pattern": f"%{alias_eid}%"},
+                )
+                if rows:
+                    break
         if rows:
             matches = ", ".join(f"{r['name']} ({r['entity_type']})" for r in rows)
             found.append(f"{name} -> {matches}")
@@ -177,6 +303,50 @@ def build_prelookup_context(question: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# KJV name alias resolution
+# ---------------------------------------------------------------------------
+KJV_ALIASES: dict[str, list[str]] = {
+    "Elijah": ["Elias"],
+    "Elisha": ["Eliseus"],
+    "Isaiah": ["Esaias"],
+    "Jeremiah": ["Jeremias", "Jeremy"],
+    "Joshua": ["Jesus (Nave)", "Josue"],
+    "Hosea": ["Osee"],
+    "Noah": ["Noe"],
+    "Jonah": ["Jonas"],
+    "Hezekiah": ["Ezekias"],
+    "Judas Iscariot": ["Judas"],
+    "Paul": ["Saul"],
+    "Saul": ["Paul"],
+    "Abraham": ["Abram"],
+    "Abram": ["Abraham"],
+    "Sarah": ["Sarai", "Sara"],
+    "Sarai": ["Sarah", "Sara"],
+    "Jacob": ["Israel"],
+    "Israel": ["Jacob"],
+    "Rebekah": ["Rebecca"],
+    "Timothy": ["Timotheus"],
+    "Zephaniah": ["Sophonias"],
+}
+
+_KJV_REVERSE: dict[str, str] = {}
+for _modern, _variants in KJV_ALIASES.items():
+    for _v in _variants:
+        _KJV_REVERSE.setdefault(_v.lower(), _modern)
+        _KJV_REVERSE.setdefault(_modern.lower(), _v)
+
+
+def _get_alias_names(name: str) -> list[str]:
+    """Return alternative spellings/names for a given name."""
+    aliases = KJV_ALIASES.get(name, [])
+    lower = name.lower()
+    for _v, _modern in _KJV_REVERSE.items():
+        if _v == lower and _modern not in aliases:
+            aliases.append(_modern)
+    return aliases
+
+
+# ---------------------------------------------------------------------------
 # Graph traversal tools
 # ---------------------------------------------------------------------------
 @tool
@@ -187,18 +357,32 @@ def find_entity(name: str) -> str:
     Args:
         name: The name to search for (e.g., "Moses", "Jerusalem", "covenant")
     """
-    from pyspark.sql import SparkSession
-    spark = SparkSession.builder.getOrCreate()
-    results = spark.sql(f"""
-        SELECT name, entity_type, description, first_mention_book, first_mention_chapter
-        FROM {ENTITIES_TABLE}
-        WHERE LOWER(name) LIKE LOWER('%{name}%')
-        ORDER BY name
-        LIMIT 10
-    """).collect()
+    results = _backend.execute_sql(
+        f"SELECT name, entity_type, description, first_mention_book, first_mention_chapter"
+        f" FROM {ENTITIES_TABLE}"
+        " WHERE LOWER(name) LIKE LOWER(:name_pattern)"
+        " ORDER BY name LIMIT 10",
+        params={"name_pattern": f"%{name}%"},
+    )
 
     if not results:
-        return f"No entity found matching '{name}'."
+        for alias in _get_alias_names(name):
+            results = _backend.execute_sql(
+                f"SELECT name, entity_type, description, first_mention_book, first_mention_chapter"
+                f" FROM {ENTITIES_TABLE}"
+                " WHERE LOWER(name) LIKE LOWER(:name_pattern)"
+                " ORDER BY name LIMIT 10",
+                params={"name_pattern": f"%{alias}%"},
+            )
+            if results:
+                break
+
+    if not results:
+        alias_note = ""
+        aliases = _get_alias_names(name)
+        if aliases:
+            alias_note = f" (also tried KJV variants: {', '.join(aliases)})"
+        return f"No entity found matching '{name}'{alias_note}."
 
     lines = []
     for r in results:
@@ -210,37 +394,38 @@ def find_entity(name: str) -> str:
 
 
 @tool
-def find_connections(entity_name: str) -> str:
+def find_connections(entity_name: str, book: str = "") -> str:
     """Find all relationships involving a given entity — both as source and target.
     Use this to understand how a person, place, or concept is connected to others in the biblical narrative.
 
     Args:
         entity_name: The entity name to find connections for (e.g., "Abraham", "Egypt")
+        book: Optional — filter to a specific book (e.g., "Exodus"). Leave empty for all books.
     """
-    from pyspark.sql import SparkSession
-    spark = SparkSession.builder.getOrCreate()
-
     entity_id = "_".join(entity_name.lower().split())
 
-    results = spark.sql(f"""
-        SELECT
-            COALESCE(e1.name, r.source_entity) as source_name,
-            r.relationship_type,
-            COALESCE(e2.name, r.target_entity) as target_name,
-            r.description,
-            r.book,
-            r.chapter
-        FROM {RELATIONSHIPS_TABLE} r
-        LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id
-        LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id
-        WHERE r.source_entity LIKE '%{entity_id}%'
-           OR r.target_entity LIKE '%{entity_id}%'
-        ORDER BY r.book, r.chapter
-        LIMIT 30
-    """).collect()
+    eid_pattern = f"%{entity_id}%"
+    sql_params = {"eid_pattern": eid_pattern}
+    book_filter = ""
+    if book:
+        book_filter = " AND r.book = :book"
+        sql_params["book"] = book
+
+    results = _backend.execute_sql(
+        f"SELECT COALESCE(e1.name, r.source_entity) as source_name,"
+        f" r.relationship_type, COALESCE(e2.name, r.target_entity) as target_name,"
+        f" r.description, r.book, r.chapter"
+        f" FROM {RELATIONSHIPS_TABLE} r"
+        f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
+        f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
+        f" WHERE (r.source_entity LIKE :eid_pattern OR r.target_entity LIKE :eid_pattern){book_filter}"
+        " ORDER BY r.book, r.chapter LIMIT 100",
+        params=sql_params,
+    )
 
     if not results:
-        return f"No connections found for '{entity_name}'."
+        suffix = f" in {book}" if book else ""
+        return f"No connections found for '{entity_name}'{suffix}."
 
     lines = [f"Connections for '{entity_name}' ({len(results)} found):"]
     for r in results:
@@ -252,88 +437,6 @@ def find_connections(entity_name: str) -> str:
 
 
 @tool
-def trace_path(entity_a: str, entity_b: str) -> str:
-    """Find how two entities are connected, tracing up to 3 hops through the knowledge graph.
-    Use this for multi-hop questions like 'How is Ruth connected to Jesus?'
-
-    Args:
-        entity_a: Starting entity name (e.g., "Ruth")
-        entity_b: Ending entity name (e.g., "Jesus")
-    """
-    from pyspark.sql import SparkSession
-    spark = SparkSession.builder.getOrCreate()
-
-    id_a = "_".join(entity_a.lower().split())
-    id_b = "_".join(entity_b.lower().split())
-
-    direct = spark.sql(f"""
-        SELECT COALESCE(e1.name, r.source_entity) as src,
-               r.relationship_type as rel,
-               COALESCE(e2.name, r.target_entity) as tgt,
-               r.description, r.book
-        FROM {RELATIONSHIPS_TABLE} r
-        LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id
-        LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id
-        WHERE (r.source_entity LIKE '%{id_a}%' AND r.target_entity LIKE '%{id_b}%')
-           OR (r.source_entity LIKE '%{id_b}%' AND r.target_entity LIKE '%{id_a}%')
-    """).collect()
-
-    if direct:
-        lines = [f"Direct connection between {entity_a} and {entity_b}:"]
-        for r in direct:
-            lines.append(f"  {r['src']} --[{r['rel']}]--> {r['tgt']}: {r['description']} ({r['book']})")
-        return "\n".join(lines)
-
-    two_hop = spark.sql(f"""
-        SELECT COALESCE(e1.name, r1.source_entity) as src,
-               r1.relationship_type as rel1,
-               COALESCE(e_mid.name, r1.target_entity) as mid,
-               r2.relationship_type as rel2,
-               COALESCE(e2.name, r2.target_entity) as tgt
-        FROM {RELATIONSHIPS_TABLE} r1
-        JOIN {RELATIONSHIPS_TABLE} r2 ON r1.target_entity = r2.source_entity
-        LEFT JOIN {ENTITIES_TABLE} e1 ON r1.source_entity = e1.entity_id
-        LEFT JOIN {ENTITIES_TABLE} e_mid ON r1.target_entity = e_mid.entity_id
-        LEFT JOIN {ENTITIES_TABLE} e2 ON r2.target_entity = e2.entity_id
-        WHERE r1.source_entity LIKE '%{id_a}%' AND r2.target_entity LIKE '%{id_b}%'
-        LIMIT 10
-    """).collect()
-
-    if two_hop:
-        lines = [f"2-hop path from {entity_a} to {entity_b}:"]
-        for r in two_hop:
-            lines.append(f"  {r['src']} --[{r['rel1']}]--> {r['mid']} --[{r['rel2']}]--> {r['tgt']}")
-        return "\n".join(lines)
-
-    three_hop = spark.sql(f"""
-        SELECT COALESCE(e1.name, r1.source_entity) as src,
-               r1.relationship_type as rel1,
-               COALESCE(e_m1.name, r1.target_entity) as mid1,
-               r2.relationship_type as rel2,
-               COALESCE(e_m2.name, r2.target_entity) as mid2,
-               r3.relationship_type as rel3,
-               COALESCE(e3.name, r3.target_entity) as tgt
-        FROM {RELATIONSHIPS_TABLE} r1
-        JOIN {RELATIONSHIPS_TABLE} r2 ON r1.target_entity = r2.source_entity
-        JOIN {RELATIONSHIPS_TABLE} r3 ON r2.target_entity = r3.source_entity
-        LEFT JOIN {ENTITIES_TABLE} e1 ON r1.source_entity = e1.entity_id
-        LEFT JOIN {ENTITIES_TABLE} e_m1 ON r1.target_entity = e_m1.entity_id
-        LEFT JOIN {ENTITIES_TABLE} e_m2 ON r2.target_entity = e_m2.entity_id
-        LEFT JOIN {ENTITIES_TABLE} e3 ON r3.target_entity = e3.entity_id
-        WHERE r1.source_entity LIKE '%{id_a}%' AND r3.target_entity LIKE '%{id_b}%'
-        LIMIT 10
-    """).collect()
-
-    if three_hop:
-        lines = [f"3-hop path from {entity_a} to {entity_b}:"]
-        for r in three_hop:
-            lines.append(f"  {r['src']} --[{r['rel1']}]--> {r['mid1']} --[{r['rel2']}]--> {r['mid2']} --[{r['rel3']}]--> {r['tgt']}")
-        return "\n".join(lines)
-
-    return f"No path found between '{entity_a}' and '{entity_b}' within 3 hops. Try using find_connections on each entity separately."
-
-
-@tool
 def get_context_verses(entity_name: str, book: str = "") -> str:
     """Get actual Bible verses that mention a specific entity. Provides source text for grounding answers.
 
@@ -341,19 +444,18 @@ def get_context_verses(entity_name: str, book: str = "") -> str:
         entity_name: The entity name to find verses for (e.g., "Moses")
         book: Optional — filter to a specific book (e.g., "Genesis"). Leave empty for all books.
     """
-    from pyspark.sql import SparkSession
-    spark = SparkSession.builder.getOrCreate()
+    sql_params = {"name_pattern": f"%{entity_name}%"}
+    book_filter = ""
+    if book:
+        book_filter = " AND v.book = :book"
+        sql_params["book"] = book
 
-    book_filter = f"AND v.book = '{book}'" if book else ""
-
-    results = spark.sql(f"""
-        SELECT v.book, v.chapter, v.verse_number, v.text
-        FROM {VERSES_TABLE} v
-        WHERE v.text LIKE '%{entity_name}%'
-        {book_filter}
-        ORDER BY v.book, v.chapter, v.verse_number
-        LIMIT 15
-    """).collect()
+    results = _backend.execute_sql(
+        f"SELECT v.book, v.chapter, v.verse_number, v.text FROM {VERSES_TABLE} v"
+        f" WHERE v.text LIKE :name_pattern{book_filter}"
+        " ORDER BY v.book, v.chapter, v.verse_number LIMIT 30",
+        params=sql_params,
+    )
 
     if not results:
         return f"No verses found mentioning '{entity_name}'" + (f" in {book}" if book else "") + "."
@@ -372,17 +474,14 @@ def get_entity_summary(entity_name: str) -> str:
     Args:
         entity_name: The entity to summarize (e.g., "Abraham", "Jerusalem")
     """
-    from pyspark.sql import SparkSession
-    spark = SparkSession.builder.getOrCreate()
-
     entity_id = "_".join(entity_name.lower().split())
+    eid_params = {"eid_pattern": f"%{entity_id}%"}
 
-    entity_rows = spark.sql(f"""
-        SELECT name, entity_type, description, first_mention_book, first_mention_chapter
-        FROM {ENTITIES_TABLE}
-        WHERE entity_id LIKE '%{entity_id}%'
-        LIMIT 1
-    """).collect()
+    entity_rows = _backend.execute_sql(
+        f"SELECT name, entity_type, description, first_mention_book, first_mention_chapter"
+        f" FROM {ENTITIES_TABLE} WHERE entity_id LIKE :eid_pattern LIMIT 1",
+        params=eid_params,
+    )
 
     if not entity_rows:
         return f"Entity '{entity_name}' not found in the knowledge graph."
@@ -394,25 +493,26 @@ def get_entity_summary(entity_name: str) -> str:
         f"First mentioned: {ent['first_mention_book']} ch.{ent['first_mention_chapter']}",
     ]
 
-    books = spark.sql(f"""
-        SELECT DISTINCT book FROM {RELATIONSHIPS_TABLE}
-        WHERE source_entity LIKE '%{entity_id}%' OR target_entity LIKE '%{entity_id}%'
-        ORDER BY book
-    """).collect()
+    books = _backend.execute_sql(
+        f"SELECT DISTINCT book FROM {RELATIONSHIPS_TABLE}"
+        " WHERE source_entity LIKE :eid_pattern OR target_entity LIKE :eid_pattern"
+        " ORDER BY book",
+        params=eid_params,
+    )
     if books:
         lines.append(f"Appears in: {', '.join(r['book'] for r in books)}")
 
-    rels = spark.sql(f"""
-        SELECT COALESCE(e1.name, r.source_entity) as src,
-               r.relationship_type,
-               COALESCE(e2.name, r.target_entity) as tgt,
-               r.description
-        FROM {RELATIONSHIPS_TABLE} r
-        LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id
-        LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id
-        WHERE r.source_entity LIKE '%{entity_id}%' OR r.target_entity LIKE '%{entity_id}%'
-        LIMIT 20
-    """).collect()
+    rels = _backend.execute_sql(
+        f"SELECT COALESCE(e1.name, r.source_entity) as src,"
+        f" r.relationship_type, COALESCE(e2.name, r.target_entity) as tgt,"
+        f" r.description"
+        f" FROM {RELATIONSHIPS_TABLE} r"
+        f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
+        f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
+        " WHERE r.source_entity LIKE :eid_pattern OR r.target_entity LIKE :eid_pattern"
+        " LIMIT 50",
+        params=eid_params,
+    )
 
     if rels:
         lines.append(f"\nKey relationships ({len(rels)}):")
@@ -422,7 +522,703 @@ def get_entity_summary(entity_name: str) -> str:
     return "\n".join(lines)
 
 
-GRAPH_TOOLS = [find_entity, find_connections, trace_path, get_context_verses, get_entity_summary]
+@tool
+def list_entities_by_book(book: str, entity_type: str = "") -> str:
+    """List all named entities that appear in a specific book of the Bible.
+    Use this when the user asks to enumerate all people, places, or entities in a particular book.
+
+    Args:
+        book: The book name (e.g., "Ruth", "Genesis", "Exodus", "Matthew", "Acts")
+        entity_type: Optional — filter by type (e.g., "Person", "Place", "Group"). Leave empty for all types.
+    """
+    sql_params = {"book": book}
+    type_filter = ""
+    if entity_type:
+        type_filter = " AND e.entity_type = :entity_type"
+        sql_params["entity_type"] = entity_type
+
+    results = _backend.execute_sql(
+        f"SELECT DISTINCT e.name, e.entity_type, e.description"
+        f" FROM {ENTITIES_TABLE} e"
+        f" JOIN {RELATIONSHIPS_TABLE} r"
+        f"   ON (e.entity_id = r.source_entity OR e.entity_id = r.target_entity)"
+        f" WHERE r.book = :book{type_filter}"
+        " ORDER BY e.entity_type, e.name",
+        params=sql_params,
+    )
+
+    if not results:
+        return f"No entities found in '{book}'."
+
+    lines = [f"Entities in {book} ({len(results)} found):"]
+    current_type = None
+    for r in results:
+        if r["entity_type"] != current_type:
+            current_type = r["entity_type"]
+            lines.append(f"\n  [{current_type}]")
+        lines.append(f"  - {r['name']}: {r['description'][:100]}")
+    return "\n".join(lines)
+
+
+@tool
+def find_cross_book_entities(min_books: int = 2, entity_type: str = "") -> str:
+    """Find entities that appear across multiple books — useful for cross-book analysis.
+    Use this when the user asks which people or entities appear in more than one book.
+
+    Args:
+        min_books: Minimum number of distinct books an entity must appear in (default: 2)
+        entity_type: Optional — filter by type (e.g., "Person", "Place", "Group"). Leave empty for all types.
+    """
+    from collections import defaultdict
+
+    sql_params = {}
+    type_filter = ""
+    if entity_type:
+        type_filter = " AND e.entity_type = :entity_type"
+        sql_params["entity_type"] = entity_type
+
+    rows = _backend.execute_sql(
+        f"SELECT DISTINCT e.name, e.entity_type, r.book"
+        f" FROM {ENTITIES_TABLE} e"
+        f" JOIN {RELATIONSHIPS_TABLE} r"
+        f"   ON (e.entity_id = r.source_entity OR e.entity_id = r.target_entity)"
+        f" WHERE 1=1{type_filter}"
+        " ORDER BY e.name, r.book",
+        params=sql_params,
+    )
+
+    grouped: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for r in rows:
+        key = (r["name"], r["entity_type"])
+        if r["book"] not in grouped[key]:
+            grouped[key].append(r["book"])
+
+    min_b = int(min_books)
+    filtered = [(name, etype, books) for (name, etype), books in grouped.items() if len(books) >= min_b]
+    filtered.sort(key=lambda x: (-len(x[2]), x[0]))
+
+    if not filtered:
+        type_hint = f" of type '{entity_type}'" if entity_type else ""
+        return f"No entities{type_hint} found appearing in {min_b}+ books."
+
+    lines = [f"Entities appearing in {min_b}+ books ({len(filtered)} found):"]
+    for name, etype, books in filtered:
+        lines.append(f"- {name} ({etype}): {', '.join(sorted(books))} [{len(books)} books]")
+    return "\n".join(lines)
+
+
+@tool
+def trace_path(entity_a: str, entity_b: str, max_hops: int = 5) -> str:
+    """Find the shortest path between two entities by traversing relationships.
+    Use this for multi-hop questions like 'How is Ruth connected to Jesus?' or genealogy chains.
+
+    Args:
+        entity_a: Starting entity name (e.g., "Ruth")
+        entity_b: Ending entity name (e.g., "Jesus")
+        max_hops: Maximum number of hops to search (default: 5)
+    """
+    from collections import deque
+
+    eid_a = "_".join(entity_a.lower().split())
+    eid_b = "_".join(entity_b.lower().split())
+
+    start_rows = _backend.execute_sql(
+        f"SELECT entity_id, name FROM {ENTITIES_TABLE}"
+        " WHERE entity_id LIKE :pattern LIMIT 3",
+        params={"pattern": f"%{eid_a}%"},
+    )
+    end_rows = _backend.execute_sql(
+        f"SELECT entity_id, name FROM {ENTITIES_TABLE}"
+        " WHERE entity_id LIKE :pattern LIMIT 3",
+        params={"pattern": f"%{eid_b}%"},
+    )
+
+    if not start_rows:
+        return f"Entity '{entity_a}' not found in the knowledge graph."
+    if not end_rows:
+        return f"Entity '{entity_b}' not found in the knowledge graph."
+
+    start_ids = {r["entity_id"] for r in start_rows}
+    end_ids = {r["entity_id"] for r in end_rows}
+    id_to_name = {r["entity_id"]: r["name"] for r in start_rows + end_rows}
+
+    queue: deque[tuple[str, list[tuple[str, str, str]]]] = deque()
+    for sid in start_ids:
+        queue.append((sid, []))
+    visited = set(start_ids)
+
+    found_path: list[tuple[str, str, str]] | None = None
+    max_h = min(int(max_hops), 6)
+
+    while queue and not found_path:
+        current_id, path = queue.popleft()
+        if len(path) >= max_h:
+            continue
+
+        neighbors = _backend.execute_sql(
+            f"SELECT r.source_entity, r.target_entity, r.relationship_type,"
+            f" r.book, r.chapter,"
+            f" COALESCE(e1.name, r.source_entity) AS src_name,"
+            f" COALESCE(e2.name, r.target_entity) AS tgt_name"
+            f" FROM {RELATIONSHIPS_TABLE} r"
+            f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
+            f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
+            " WHERE r.source_entity = :eid OR r.target_entity = :eid",
+            params={"eid": current_id},
+        )
+
+        for row in neighbors:
+            next_id = row["target_entity"] if row["source_entity"] == current_id else row["source_entity"]
+            next_name = row["tgt_name"] if row["source_entity"] == current_id else row["src_name"]
+            id_to_name[next_id] = next_name
+
+            step = (
+                id_to_name.get(current_id, current_id),
+                row["relationship_type"],
+                next_name,
+            )
+            new_path = path + [step]
+
+            if next_id in end_ids:
+                found_path = new_path
+                break
+
+            if next_id not in visited:
+                visited.add(next_id)
+                queue.append((next_id, new_path))
+
+    if not found_path:
+        return (
+            f"No path found between '{entity_a}' and '{entity_b}' "
+            f"within {max_h} hops in the knowledge graph."
+        )
+
+    lines = [f"Path from {entity_a} to {entity_b} ({len(found_path)} hops):"]
+    for src, rel, tgt in found_path:
+        lines.append(f"  {src} --[{rel}]--> {tgt}")
+
+    rels = _backend.execute_sql(
+        f"SELECT COALESCE(e1.name, r.source_entity) AS src,"
+        f" r.relationship_type, COALESCE(e2.name, r.target_entity) AS tgt,"
+        f" r.description, r.book, r.chapter"
+        f" FROM {RELATIONSHIPS_TABLE} r"
+        f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
+        f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
+        " WHERE (r.source_entity LIKE :eid_a AND r.target_entity LIKE :eid_b)"
+        "    OR (r.source_entity LIKE :eid_b AND r.target_entity LIKE :eid_a)"
+        " LIMIT 10",
+        params={"eid_a": f"%{eid_a}%", "eid_b": f"%{eid_b}%"},
+    )
+    if rels:
+        lines.append("\nDirect relationships:")
+        for r in rels:
+            lines.append(
+                f"  {r['src']} --[{r['relationship_type']}]--> {r['tgt']}: "
+                f"{r['description']} ({r['book']} ch.{r['chapter']})"
+            )
+
+    return "\n".join(lines)
+
+
+@tool
+def compare_entity_sets(
+    entity_name: str = "",
+    book_a: str = "",
+    book_b: str = "",
+    rel_type_a: str = "",
+    rel_type_b: str = "",
+    operation: str = "difference",
+) -> str:
+    """Compare two sets of entities using set operations (difference, intersection, union).
+    Use this for constraint questions like 'who did Moses COMMAND but not SPOKE_TO'
+    or 'entities in Exodus but not Genesis'.
+
+    Set A is defined by (entity_name + rel_type_a + book_a).
+    Set B is defined by (entity_name + rel_type_b + book_b).
+    If entity_name is empty, sets are all entities in that book (optionally filtered by rel_type).
+
+    Args:
+        entity_name: Optional central entity (e.g., "Moses"). If empty, compares all entities in the two books.
+        book_a: Optional book filter for set A (e.g., "Exodus").
+        book_b: Optional book filter for set B (e.g., "Genesis").
+        rel_type_a: Optional relationship type filter for set A (e.g., "COMMANDED").
+        rel_type_b: Optional relationship type filter for set B (e.g., "SPOKE_TO").
+        operation: One of "difference" (A-B), "intersection" (A&B), or "union" (A|B). Default: "difference".
+    """
+    def _build_set_query(book: str, rel_type: str, alias: str) -> tuple[str, dict]:
+        conditions = []
+        params = {}
+        if entity_name:
+            eid = "_".join(entity_name.lower().split())
+            eid_key = f"eid_{alias}"
+            conditions.append(
+                f"(r.source_entity LIKE :{eid_key} OR r.target_entity LIKE :{eid_key})"
+            )
+            params[eid_key] = f"%{eid}%"
+        if book:
+            bk_key = f"book_{alias}"
+            conditions.append(f"r.book = :{bk_key}")
+            params[bk_key] = book
+        if rel_type:
+            rt_key = f"rt_{alias}"
+            conditions.append(f"r.relationship_type = :{rt_key}")
+            params[rt_key] = rel_type
+        where = " AND ".join(conditions) if conditions else "1=1"
+        sql = (
+            f"SELECT DISTINCT CASE"
+            f"  WHEN r.source_entity LIKE COALESCE(:{f'eid_{alias}'}, '%%') THEN COALESCE(e2.name, r.target_entity)"
+            f"  ELSE COALESCE(e1.name, r.source_entity) END AS neighbor"
+            f" FROM {RELATIONSHIPS_TABLE} r"
+            f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
+            f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
+            f" WHERE {where}"
+        ) if entity_name else (
+            f"SELECT DISTINCT COALESCE(e1.name, r.source_entity) AS neighbor"
+            f" FROM {RELATIONSHIPS_TABLE} r"
+            f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
+            f" WHERE {where}"
+            f" UNION"
+            f" SELECT DISTINCT COALESCE(e2.name, r.target_entity) AS neighbor"
+            f" FROM {RELATIONSHIPS_TABLE} r"
+            f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
+            f" WHERE {where}"
+        )
+        return sql, params
+
+    if not entity_name and not book_a and not book_b:
+        return "Please provide at least entity_name, or book_a and book_b to compare."
+
+    set_a_rows = _backend.execute_sql(
+        f"SELECT DISTINCT COALESCE(e2.name, r.target_entity) AS neighbor,"
+        f" r.relationship_type, r.book"
+        f" FROM {RELATIONSHIPS_TABLE} r"
+        f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
+        f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
+        f" WHERE " + " AND ".join(filter(None, [
+            f"(r.source_entity LIKE :eid_a OR r.target_entity LIKE :eid_a)" if entity_name else None,
+            f"r.book = :book_a" if book_a else None,
+            f"r.relationship_type = :rt_a" if rel_type_a else None,
+            "1=1",
+        ])),
+        params={
+            **({"eid_a": f"%{'_'.join(entity_name.lower().split())}%"} if entity_name else {}),
+            **({"book_a": book_a} if book_a else {}),
+            **({"rt_a": rel_type_a} if rel_type_a else {}),
+        },
+    )
+
+    set_b_rows = _backend.execute_sql(
+        f"SELECT DISTINCT COALESCE(e2.name, r.target_entity) AS neighbor,"
+        f" r.relationship_type, r.book"
+        f" FROM {RELATIONSHIPS_TABLE} r"
+        f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
+        f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
+        f" WHERE " + " AND ".join(filter(None, [
+            f"(r.source_entity LIKE :eid_b OR r.target_entity LIKE :eid_b)" if entity_name else None,
+            f"r.book = :book_b" if book_b else None,
+            f"r.relationship_type = :rt_b" if rel_type_b else None,
+            "1=1",
+        ])),
+        params={
+            **({"eid_b": f"%{'_'.join(entity_name.lower().split())}%"} if entity_name else {}),
+            **({"book_b": book_b} if book_b else {}),
+            **({"rt_b": rel_type_b} if rel_type_b else {}),
+        },
+    )
+
+    names_a = {r["neighbor"] for r in set_a_rows if r["neighbor"]}
+    names_b = {r["neighbor"] for r in set_b_rows if r["neighbor"]}
+
+    if entity_name:
+        names_a.discard(entity_name)
+        names_b.discard(entity_name)
+
+    op = operation.lower()
+    if op == "difference":
+        result_set = sorted(names_a - names_b)
+        op_label = "A \\ B (in A but not B)"
+    elif op == "intersection":
+        result_set = sorted(names_a & names_b)
+        op_label = "A ∩ B (in both)"
+    elif op == "union":
+        result_set = sorted(names_a | names_b)
+        op_label = "A ∪ B (in either)"
+    else:
+        return f"Unknown operation '{operation}'. Use 'difference', 'intersection', or 'union'."
+
+    desc_a = " + ".join(filter(None, [entity_name, rel_type_a, book_a])) or "(all)"
+    desc_b = " + ".join(filter(None, [entity_name, rel_type_b, book_b])) or "(all)"
+
+    lines = [
+        f"Set A ({desc_a}): {len(names_a)} entities",
+        f"Set B ({desc_b}): {len(names_b)} entities",
+        f"Operation: {op_label}",
+        f"Result: {len(result_set)} entities",
+    ]
+    if result_set:
+        for name in result_set:
+            lines.append(f"  - {name}")
+    else:
+        lines.append("  (empty set)")
+    return "\n".join(lines)
+
+
+LOCAL_TOOLS = [find_entity, find_connections, get_context_verses, get_entity_summary,
+               list_entities_by_book, find_cross_book_entities, trace_path, compare_entity_sets]
+
+
+def build_scoped_tools_local(permitted_books: list):
+    """Create graph tools scoped to a specific document set using the local backend.
+
+    Unlike build_scoped_tools in tools.py (Spark-dependent), this version works
+    with the agent_serving backend abstraction (DuckDB locally, Statement Execution
+    API on Databricks).
+    """
+    books_csv = ", ".join(f"'{b}'" for b in permitted_books)
+    book_filter_rel = f" AND r.book IN ({books_csv})"
+    book_filter_v = f" AND v.book IN ({books_csv})"
+
+    @tool
+    def find_entity(name: str) -> str:
+        """Search for a biblical entity by name. Returns matching entities with their type, description, and first mention.
+
+        Args:
+            name: The name to search for (e.g., "Moses", "Jerusalem", "covenant")
+        """
+        search_names = [name] + _get_alias_names(name)
+        results = []
+        for search_name in search_names:
+            results = _backend.execute_sql(
+                f"SELECT DISTINCT e.name, e.entity_type, e.description, e.first_mention_book, e.first_mention_chapter"
+                f" FROM {ENTITIES_TABLE} e"
+                f" JOIN {RELATIONSHIPS_TABLE} r ON (e.entity_id = r.source_entity OR e.entity_id = r.target_entity)"
+                f" WHERE LOWER(e.name) LIKE LOWER(:name_pattern){book_filter_rel}"
+                " ORDER BY e.name LIMIT 10",
+                params={"name_pattern": f"%{search_name}%"},
+            )
+            if results:
+                break
+
+        if not results:
+            for search_name in search_names:
+                verse_hits = _backend.execute_sql(
+                    f"SELECT DISTINCT e.name, e.entity_type, e.description,"
+                    f" e.first_mention_book, e.first_mention_chapter"
+                    f" FROM {ENTITIES_TABLE} e"
+                    f" WHERE EXISTS ("
+                    f"   SELECT 1 FROM {VERSES_TABLE} v"
+                    f"   WHERE v.text LIKE :name_pattern{book_filter_v}"
+                    f"   AND LOWER(e.name) LIKE LOWER(:entity_pattern)"
+                    f" )"
+                    " ORDER BY e.name LIMIT 10",
+                    params={"name_pattern": f"%{search_name}%", "entity_pattern": f"%{search_name}%"},
+                )
+                if verse_hits:
+                    results = verse_hits
+                    break
+
+        if not results:
+            return f"No entity found matching '{name}' in permitted books."
+        lines = []
+        for r in results:
+            lines.append(
+                f"- **{r['name']}** ({r['entity_type']}): {r['description']} "
+                f"[First mentioned: {r['first_mention_book']} ch.{r['first_mention_chapter']}]"
+            )
+        return "\n".join(lines)
+
+    @tool
+    def find_connections(entity_name: str, book: str = "") -> str:
+        """Find all relationships involving a given entity — both as source and target.
+
+        Args:
+            entity_name: The entity name to find connections for (e.g., "Abraham", "Egypt")
+            book: Optional — filter to a specific book (e.g., "Exodus"). Leave empty for all permitted books.
+        """
+        entity_id = "_".join(entity_name.lower().split())
+        eid_pattern = f"%{entity_id}%"
+        sql_params = {"eid_pattern": eid_pattern}
+        extra_filter = book_filter_rel
+        if book:
+            if book not in permitted_books:
+                return f"Book '{book}' is not in your permitted document set."
+            extra_filter = f" AND r.book = :book"
+            sql_params["book"] = book
+        results = _backend.execute_sql(
+            f"SELECT COALESCE(e1.name, r.source_entity) as source_name,"
+            f" r.relationship_type, COALESCE(e2.name, r.target_entity) as target_name,"
+            f" r.description, r.book, r.chapter"
+            f" FROM {RELATIONSHIPS_TABLE} r"
+            f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
+            f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
+            f" WHERE (r.source_entity LIKE :eid_pattern OR r.target_entity LIKE :eid_pattern){extra_filter}"
+            " ORDER BY r.book, r.chapter LIMIT 100",
+            params=sql_params,
+        )
+        if not results:
+            suffix = f" in {book}" if book else ""
+            return f"No connections found for '{entity_name}'{suffix}."
+        lines = [f"Connections for '{entity_name}' ({len(results)} found):"]
+        for r in results:
+            lines.append(
+                f"- {r['source_name']} --[{r['relationship_type']}]--> {r['target_name']}: "
+                f"{r['description']} ({r['book']} ch.{r['chapter']})"
+            )
+        return "\n".join(lines)
+
+    @tool
+    def get_context_verses(entity_name: str, book: str = "") -> str:
+        """Get actual Bible verses that mention a specific entity.
+
+        Args:
+            entity_name: The entity name to find verses for (e.g., "Moses")
+            book: Optional — filter to a specific book. Leave empty for all permitted books.
+        """
+        sql_params = {"name_pattern": f"%{entity_name}%"}
+        extra_filter = book_filter_v
+        if book:
+            if book not in permitted_books:
+                return f"Book '{book}' is not in your permitted document set."
+            extra_filter = f" AND v.book = :book"
+            sql_params["book"] = book
+        results = _backend.execute_sql(
+            f"SELECT v.book, v.chapter, v.verse_number, v.text FROM {VERSES_TABLE} v"
+            f" WHERE v.text LIKE :name_pattern{extra_filter}"
+            " ORDER BY v.book, v.chapter, v.verse_number LIMIT 30",
+            params=sql_params,
+        )
+        if not results:
+            return f"No verses found mentioning '{entity_name}' in permitted books."
+        lines = [f"Verses mentioning '{entity_name}' ({len(results)} found):"]
+        for r in results:
+            lines.append(f"  {r['book']} {r['chapter']}:{r['verse_number']} — {r['text']}")
+        return "\n".join(lines)
+
+    @tool
+    def get_entity_summary(entity_name: str) -> str:
+        """Get a comprehensive profile of a biblical entity within the permitted document set.
+
+        Args:
+            entity_name: The entity to summarize (e.g., "Abraham", "Jerusalem")
+        """
+        entity_id = "_".join(entity_name.lower().split())
+        eid_params = {"eid_pattern": f"%{entity_id}%"}
+        entity_rows = _backend.execute_sql(
+            f"SELECT DISTINCT e.name, e.entity_type, e.description, e.first_mention_book, e.first_mention_chapter"
+            f" FROM {ENTITIES_TABLE} e"
+            f" JOIN {RELATIONSHIPS_TABLE} r ON (e.entity_id = r.source_entity OR e.entity_id = r.target_entity)"
+            f" WHERE e.entity_id LIKE :eid_pattern{book_filter_rel}"
+            " LIMIT 1",
+            params=eid_params,
+        )
+        if not entity_rows:
+            entity_rows = _backend.execute_sql(
+                f"SELECT DISTINCT e.name, e.entity_type, e.description,"
+                f" e.first_mention_book, e.first_mention_chapter"
+                f" FROM {ENTITIES_TABLE} e"
+                f" WHERE e.entity_id LIKE :eid_pattern"
+                f" AND EXISTS (SELECT 1 FROM {VERSES_TABLE} v"
+                f"   WHERE v.text LIKE :name_pattern{book_filter_v})"
+                " LIMIT 1",
+                params={"eid_pattern": f"%{entity_id}%", "name_pattern": f"%{entity_name}%"},
+            )
+        if not entity_rows:
+            return f"Entity '{entity_name}' not found in the permitted document set."
+        ent = entity_rows[0]
+        lines = [
+            f"**{ent['name']}** ({ent['entity_type']})",
+            f"Description: {ent['description']}",
+            f"First mentioned: {ent['first_mention_book']} ch.{ent['first_mention_chapter']}",
+        ]
+        rels = _backend.execute_sql(
+            f"SELECT COALESCE(e1.name, r.source_entity) as src,"
+            f" r.relationship_type, COALESCE(e2.name, r.target_entity) as tgt,"
+            f" r.description, r.book"
+            f" FROM {RELATIONSHIPS_TABLE} r"
+            f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
+            f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
+            f" WHERE (r.source_entity LIKE :eid_pattern OR r.target_entity LIKE :eid_pattern){book_filter_rel}"
+            " LIMIT 50",
+            params=eid_params,
+        )
+        if rels:
+            books_seen = set(r["book"] for r in rels)
+            lines.append(f"Appears in (permitted): {', '.join(sorted(books_seen))}")
+            lines.append(f"\nKey relationships ({len(rels)}):")
+            for r in rels:
+                lines.append(f"  {r['src']} --[{r['relationship_type']}]--> {r['tgt']}: {r['description']}")
+        return "\n".join(lines)
+
+    @tool
+    def list_entities_by_book(book: str, entity_type: str = "") -> str:
+        """List all named entities in a specific book.
+
+        Args:
+            book: The book name (must be in permitted set)
+            entity_type: Optional — filter by type
+        """
+        if book not in permitted_books:
+            return f"Book '{book}' is not in your permitted document set."
+        sql_params = {"book": book}
+        type_filter = ""
+        if entity_type:
+            type_filter = " AND e.entity_type = :entity_type"
+            sql_params["entity_type"] = entity_type
+        results = _backend.execute_sql(
+            f"SELECT DISTINCT e.name, e.entity_type, e.description"
+            f" FROM {ENTITIES_TABLE} e"
+            f" JOIN {RELATIONSHIPS_TABLE} r ON (e.entity_id = r.source_entity OR e.entity_id = r.target_entity)"
+            f" WHERE r.book = :book{type_filter}"
+            " ORDER BY e.entity_type, e.name",
+            params=sql_params,
+        )
+        if not results:
+            return f"No entities found in '{book}'."
+        lines = [f"Entities in {book} ({len(results)} found):"]
+        current_type = None
+        for r in results:
+            if r["entity_type"] != current_type:
+                current_type = r["entity_type"]
+                lines.append(f"\n  [{current_type}]")
+            lines.append(f"  - {r['name']}: {r['description'][:100]}")
+        return "\n".join(lines)
+
+    @tool
+    def compare_entity_sets(
+        entity_name: str = "",
+        book_a: str = "",
+        book_b: str = "",
+        rel_type_a: str = "",
+        rel_type_b: str = "",
+        operation: str = "difference",
+    ) -> str:
+        """Compare two sets of entities using set operations (difference, intersection, union).
+
+        Args:
+            entity_name: Optional central entity (e.g., "Moses").
+            book_a: Book filter for set A (must be in permitted set).
+            book_b: Book filter for set B (must be in permitted set).
+            rel_type_a: Relationship type filter for set A.
+            rel_type_b: Relationship type filter for set B.
+            operation: "difference" (A-B), "intersection" (A&B), or "union" (A|B).
+        """
+        for bk in [book_a, book_b]:
+            if bk and bk not in permitted_books:
+                return f"Book '{bk}' is not in your permitted document set."
+
+        def _query_set(book, rel_type, tag):
+            conditions = [f"r.book IN ({books_csv})"]
+            params = {}
+            if entity_name:
+                eid = "_".join(entity_name.lower().split())
+                conditions.append(f"(r.source_entity LIKE :eid_{tag} OR r.target_entity LIKE :eid_{tag})")
+                params[f"eid_{tag}"] = f"%{eid}%"
+            if book:
+                conditions = [f"r.book = :book_{tag}"]
+                params[f"book_{tag}"] = book
+            if rel_type:
+                conditions.append(f"r.relationship_type = :rt_{tag}")
+                params[f"rt_{tag}"] = rel_type
+            where = " AND ".join(conditions)
+            rows = _backend.execute_sql(
+                f"SELECT DISTINCT COALESCE(e2.name, r.target_entity) AS neighbor"
+                f" FROM {RELATIONSHIPS_TABLE} r"
+                f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
+                f" WHERE {where}",
+                params=params,
+            )
+            return {r["neighbor"] for r in rows if r["neighbor"]}
+
+        names_a = _query_set(book_a, rel_type_a, "a")
+        names_b = _query_set(book_b, rel_type_b, "b")
+        if entity_name:
+            names_a.discard(entity_name)
+            names_b.discard(entity_name)
+
+        op = operation.lower()
+        if op == "difference":
+            result_set = sorted(names_a - names_b)
+            op_label = "A \\ B"
+        elif op == "intersection":
+            result_set = sorted(names_a & names_b)
+            op_label = "A ∩ B"
+        elif op == "union":
+            result_set = sorted(names_a | names_b)
+            op_label = "A ∪ B"
+        else:
+            return f"Unknown operation '{operation}'."
+
+        desc_a = " + ".join(filter(None, [entity_name, rel_type_a, book_a])) or "(all permitted)"
+        desc_b = " + ".join(filter(None, [entity_name, rel_type_b, book_b])) or "(all permitted)"
+        lines = [
+            f"Set A ({desc_a}): {len(names_a)} entities",
+            f"Set B ({desc_b}): {len(names_b)} entities",
+            f"Operation: {op_label} — Result: {len(result_set)} entities",
+        ]
+        for name in result_set:
+            lines.append(f"  - {name}")
+        if not result_set:
+            lines.append("  (empty set)")
+        return "\n".join(lines)
+
+    return [find_entity, find_connections, get_context_verses, get_entity_summary,
+            list_entities_by_book, compare_entity_sets]
+
+
+# ---------------------------------------------------------------------------
+# MCP tool discovery — GraphFrames MCP server
+# ---------------------------------------------------------------------------
+def _wrap_mcp_tools(client, mcp_tools) -> list:
+    """Convert MCP tool descriptors into LangChain @tool-compatible callables."""
+    wrapped = []
+    for t in mcp_tools:
+        tool_name = t.name
+        tool_desc = t.description or tool_name
+
+        def _make_caller(_name, _client):
+            def _call(**kwargs) -> str:
+                result = _client.call_tool(_name, kwargs)
+                if hasattr(result, "content") and result.content:
+                    return "\n".join(
+                        c.text if hasattr(c, "text") else str(c)
+                        for c in result.content
+                    )
+                return str(result)
+            return _call
+
+        caller = _make_caller(tool_name, client)
+        lc_tool = tool(caller, name=tool_name, description=tool_desc)
+        wrapped.append(lc_tool)
+    return wrapped
+
+
+def _get_mcp_tools() -> list:
+    """Discover graph analytics tools from the GraphFrames MCP server.
+
+    Returns an empty list if the MCP server is unavailable or in local mode.
+    """
+    if BACKEND_TYPE == "local":
+        log.info("Local backend — MCP graph analytics tools disabled")
+        return []
+    try:
+        from databricks_mcp import DatabricksMCPClient
+        from databricks.sdk import WorkspaceClient
+        w = WorkspaceClient()
+        url = os.environ.get(
+            "GRAPHFRAMES_MCP_URL",
+            f"{w.config.host}/api/2.0/mcp/external/graphframes_connection",
+        )
+        client = DatabricksMCPClient(server_url=url, workspace_client=w)
+        mcp_tools = client.list_tools()
+        wrapped = _wrap_mcp_tools(client, mcp_tools)
+        log.info("Discovered %d MCP tools from GraphFrames server", len(wrapped))
+        return wrapped
+    except Exception:
+        log.warning("GraphFrames MCP server unavailable; graph analytics tools disabled")
+        return []
+
+
+GRAPH_TOOLS = LOCAL_TOOLS + _get_mcp_tools()
 
 
 # ---------------------------------------------------------------------------
@@ -430,54 +1226,44 @@ GRAPH_TOOLS = [find_entity, find_connections, trace_path, get_context_verses, ge
 # ---------------------------------------------------------------------------
 SYSTEM_PROMPT = """You are a biblical scholar with access to a knowledge graph built from five books of the King James Bible: Genesis, Exodus, Ruth, Matthew, and Acts.
 
-You have tools that let you search the knowledge graph for entities, relationships, and source verses. Use them to provide well-grounded, auditable answers.
+You have tools that let you search the knowledge graph for entities, relationships, source verses, and structural analysis. Use them to provide well-grounded, comprehensive answers.
 
-## Tool Usage
-- ALWAYS use tools to look up information before answering. Do NOT use your training data to make factual claims. If the knowledge graph does not contain the information, say so.
-- Before answering, verify that EVERY key term from the user's question exists in the knowledge graph using find_entity. If a term (e.g., "Arabs", "Philistines") returns no results, explicitly state that this concept is not present in the graph and do not assume connections to it.
-- When asked about connections between entities, use trace_path first, then find_connections for more context.
-- When asked about a person or concept, use get_entity_summary for a comprehensive profile.
-- Always cite specific Bible verses (book chapter:verse) when possible using get_context_verses.
-- For multi-hop questions, break them into steps: find each entity, then trace connections.
+## Available Tools
+- **find_entity(name)** — search for an entity by name (automatically checks KJV spelling variants)
+- **find_connections(entity_name, book="")** — find relationships for an entity, optionally filtered by book
+- **get_context_verses(entity_name, book="")** — retrieve actual Bible verses mentioning an entity
+- **get_entity_summary(entity_name)** — get a comprehensive entity profile with all relationships
+- **list_entities_by_book(book, entity_type="")** — list all entities in a specific book, optionally by type
+- **find_cross_book_entities(min_books=2)** — find entities appearing across multiple books
+- **trace_path(entity_a, entity_b, max_hops=5)** — find shortest path between two entities via relationship traversal
+- **compare_entity_sets(entity_name, book_a, book_b, rel_type_a, rel_type_b, operation)** — compare two entity sets using difference/intersection/union
 
-## Response Format
-Structure EVERY response with these two sections:
+## Tool Usage Strategy
+- ALWAYS use tools before answering. Prefer graph data over training knowledge.
+- For enumeration questions ("list all people in Ruth"), use **list_entities_by_book**.
+- For cross-book questions ("who appears in multiple books"), use **find_cross_book_entities**.
+- For entity-specific questions, use **find_connections** with the **book** filter to get targeted results.
+- For broad entity questions, use **get_entity_summary** for a full profile.
+- For multi-entity or multi-book questions, **call tools multiple times** — once per entity or per book — to build a complete picture. Do not rely on a single tool call.
+- After gathering entity/relationship data, call **get_context_verses** for key claims you want to ground with verse references.
+- For constraint/set-difference questions ("X but not Y", "in book A but not B"), use **compare_entity_sets** with the appropriate operation. Example: "Who did Moses COMMAND but not SPOKE_TO?" → `compare_entity_sets(entity_name="Moses", rel_type_a="COMMANDED", rel_type_b="SPOKE_TO", operation="difference")`.
+- For intersection questions ("entities connected to BOTH X and Y"), use **compare_entity_sets** with `operation="intersection"`.
+- For shortest-path questions ("How is Ruth connected to Jesus?"), use **trace_path** to find the path automatically.
+- For long genealogy chains (e.g., Abraham to Jesus in Matthew ch.1), use **trace_path** first, then call **find_connections** on intermediate entities for detailed relationship data.
+- The KJV uses archaic spellings (Elias for Elijah, Esaias for Isaiah). The find_entity tool checks variants automatically, but if a search returns nothing, try the KJV spelling explicitly.
 
-### Answer
-- For yes/no questions, lead with a definitive one-word answer ("Yes." or "No.") on its own line, then explain with bullet points.
-- Use bullet points to break down supporting facts. Each bullet should state one claim with its verse citation.
-- Be concise — do not restate the question or hedge.
+## Response Guidelines
+- **Be direct and comprehensive.** Answer the question fully. Do not restate the question.
+- **Prioritize completeness.** Include all relevant findings from the tools. If a tool returns many results, summarize the key ones.
+- **Cite sources inline** where natural (e.g., "Ruth 4:17" or "Genesis 12:1"), but do not force citations for every sentence.
+- **State coverage limitations** when relevant: "My knowledge graph covers Genesis, Exodus, Ruth, Matthew, and Acts."
+- If information is not in the knowledge graph, say so honestly rather than guessing.
 
-### Provenance
-At the end of every response, include a structured provenance section with:
-- **Path**: Show only the relevant portion of the graph. Omit shared ancestry above the divergence point.
-  - Connected entities example: Ruth → Boaz (MARRIED_TO, Ruth 4:13) → Obed (FATHER_OF, Ruth 4:17) → Jesse → David
-  - Unconnected entities (separate lineages) example: Levi → Aaron, Judah → David
-- **Sources**: List ONLY the verses that directly support the claims in your answer. Omit tangential references.
-- **Grounding**: State one of:
-  - "All claims grounded in knowledge graph" — if every factual claim came from tool results
-  - "Partially grounded — the following claims rely on general knowledge: [list them]" — if any claim was not found via tools
-
-## HARD CONSTRAINT — Entity Pre-Lookup
-Before you received this message, every entity in the user's question was automatically looked up in the knowledge graph. The results appear at the END of this system prompt and are DEFINITIVE and FINAL.
-
-YOU MUST:
-- REFUSE to answer if the question's primary subject is listed under "NOT IN GRAPH"
-- NEVER use your training data to connect a graph entity to a non-graph concept
-- State clearly: "[term] is not found in the knowledge graph. I cannot answer this question based on the available data."
-
-EXAMPLE — follow this pattern exactly:
-  Question: "Who is the father of all Arabs?"
-  Pre-lookup: NOT IN GRAPH: Arabs
-  CORRECT response: "Arabs is not found in the knowledge graph. I cannot determine who the 'father of all Arabs' is from the available data."
-  WRONG response: "Abraham through Ishmael..." (this bridges to a non-graph concept using training data — NEVER do this)
-
-## Critical Rules
-- If information is not in the knowledge graph, say so explicitly rather than guessing. NEVER invent relationships or events.
-- If a tool returns no results, report that honestly. Do not fabricate an alternative answer.
-- Every factual claim must cite its source verse or explicitly state it was not found in the graph.
-- If the user asks about a group, concept, or entity that does not appear in the graph, your answer MUST state: "[term] is not found in the knowledge graph." Do not bridge the gap using external knowledge.
-- When reporting Grounding, any claim that connects a graph entity to a non-graph concept (e.g., linking Ishmael to "Arabs" when "Arabs" is not in the graph) MUST be listed under "Partially grounded" with the specific claim identified."""
+## Entity Pre-Lookup
+Before you received this message, entities from the user's question were automatically looked up in the knowledge graph. Results appear at the END of this system prompt.
+- If an entity is listed under "NOT IN GRAPH" and it is the primary subject, state that it is not available and answer based on what IS in the graph.
+- Scope terms like "Old Testament", "New Testament", "the Bible" are NOT entity names — ignore if they appear under NOT IN GRAPH.
+- Do NOT bridge graph entities to non-graph concepts using training data (e.g., linking Ishmael to "Arabs" when "Arabs" is not in the graph)."""
 
 
 # ---------------------------------------------------------------------------
@@ -489,7 +1275,7 @@ class AgentState(TypedDict):
 
 class GraphRAGAgent(ResponsesAgent):
     def __init__(self, endpoint=None, tools=None):
-        self.llm = ChatDatabricks(endpoint=endpoint or LLM_ENDPOINT)
+        self.llm = _get_llm(endpoint=endpoint or LLM_ENDPOINT)
         self.tools = tools or GRAPH_TOOLS
         self.llm_with_tools = self.llm.bind_tools(self.tools)
 
@@ -538,8 +1324,28 @@ class GraphRAGAgent(ResponsesAgent):
         for event in graph.stream({"messages": messages}, stream_mode=["updates"]):
             if event[0] == "updates":
                 for node_data in event[1].values():
-                    if node_data.get("messages"):
-                        yield from output_to_responses_items_stream(node_data["messages"])
+                    for msg in node_data.get("messages", []):
+                        if isinstance(msg, AIMessage) and msg.tool_calls:
+                            for tc in msg.tool_calls:
+                                yield ResponsesAgentStreamEvent(
+                                    type="response.output_item.done",
+                                    item=create_function_call_item(
+                                        id=tc["id"],
+                                        call_id=tc["id"],
+                                        name=tc["name"],
+                                        arguments=json.dumps(tc["args"]),
+                                    ),
+                                )
+                        elif isinstance(msg, ToolMessage):
+                            yield ResponsesAgentStreamEvent(
+                                type="response.output_item.done",
+                                item=create_function_call_output_item(
+                                    call_id=msg.tool_call_id,
+                                    output=str(msg.content),
+                                ),
+                            )
+                        else:
+                            yield from output_to_responses_items_stream([msg])
 
 
 mlflow.langchain.autolog()

@@ -51,7 +51,7 @@ def apply_layout():
                     html.Td("ERP data, contracts, audit logs, regulatory filings"),
                 ]),
             ]),
-        ], bordered=True, dark=True, hover=True, striped=True, className="mb-4"),
+        ], bordered=True, color="dark", hover=True, striped=True, className="mb-4"),
 
         # Supply chain example
         html.H4("Example: Supply Chain Risk Analysis", className="mt-4 mb-3"),
@@ -124,7 +124,7 @@ def get_entity_summary(entity_name: str) -> str:
                 html.Tr([html.Td("Query Latency (p95)"), html.Td("< 10s"), html.Td("MLflow trace latency metrics")]),
                 html.Tr([html.Td("Cost per Query"), html.Td("< $0.01"), html.Td("System tables: billing usage")]),
             ]),
-        ], bordered=True, dark=True, hover=True, striped=True, className="mb-4"),
+        ], bordered=True, color="dark", hover=True, striped=True, className="mb-4"),
 
         html.P(
             "Ready to get started? The full source code is in this repository. "

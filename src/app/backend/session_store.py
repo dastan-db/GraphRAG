@@ -1,4 +1,8 @@
-"""Persist demo chat sessions to Lakebase (PostgreSQL) or fall back to in-memory."""
+"""Persist demo chat sessions to Lakebase (PostgreSQL) or fall back to in-memory.
+
+Pending integration: this module is not yet wired into the app.
+It will be integrated when Lakebase provisioning is complete (Phase 05).
+"""
 
 from __future__ import annotations
 
