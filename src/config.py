@@ -34,6 +34,27 @@ config['book_registry_table'] = f"{config['catalog']}.{config['schema']}.book_re
 
 # COMMAND ----------
 
+# DBTITLE 1,Enron Corpus Config
+config['enron_schema'] = 'graphrag_enron'
+config['enron_emails_table'] = f"{config['catalog']}.{config['enron_schema']}.emails"
+config['enron_participants_table'] = f"{config['catalog']}.{config['enron_schema']}.participants"
+config['enron_threads_table'] = f"{config['catalog']}.{config['enron_schema']}.threads"
+config['enron_entities_table'] = f"{config['catalog']}.{config['enron_schema']}.entities"
+config['enron_relationships_table'] = f"{config['catalog']}.{config['enron_schema']}.relationships"
+config['enron_entity_mentions_table'] = f"{config['catalog']}.{config['enron_schema']}.entity_mentions"
+config['enron_entity_analytics_table'] = f"{config['catalog']}.{config['enron_schema']}.entity_analytics"
+config['enron_entity_paths_table'] = f"{config['catalog']}.{config['enron_schema']}.entity_paths"
+
+config['enron_key_custodians'] = [
+    'lay-k', 'skilling-j', 'fastow-a', 'delainey-d', 'dasovich-j',
+    'kaminski-v', 'kitchen-l', 'shackleton-s', 'germany-c', 'bass-e',
+    'allen-p', 'arnold-j', 'beck-s', 'blair-l', 'campbell-l',
+]
+
+config['enron_max_emails'] = 20000
+
+# COMMAND ----------
+
 # DBTITLE 1,Bible Books to Ingest
 config['bible_books'] = {
     'Genesis': {'chapters': 50, 'testament': 'OT'},
@@ -51,9 +72,10 @@ config['bible_books_all'] = BIBLE_BOOKS_ALL
 
 # COMMAND ----------
 
-# DBTITLE 1,Create Schema
+# DBTITLE 1,Create Schemas
 _ = spark.sql(f"USE CATALOG {config['catalog']}")
 _ = spark.sql(f"CREATE SCHEMA IF NOT EXISTS {config['catalog']}.{config['schema']}")
+_ = spark.sql(f"CREATE SCHEMA IF NOT EXISTS {config['catalog']}.{config['enron_schema']}")
 _ = spark.sql(f"USE SCHEMA {config['schema']}")
 
 # COMMAND ----------

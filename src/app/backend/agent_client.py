@@ -238,6 +238,174 @@ def _match_mock(question: str) -> str:
     return _MOCK_RESPONSES["ruth"]
 
 
+def query_agent_enron(question: str) -> AgentResponse:
+    """Send a question to the Enron GraphRAG agent endpoint and return parsed result."""
+    endpoint = os.getenv("GRAPHRAG_ENRON_ENDPOINT_NAME", "graphrag-enron-agent")
+    w = _get_client()
+
+    resp = w.api_client.do(
+        "POST",
+        f"/serving-endpoints/{endpoint}/invocations",
+        body={"input": [{"role": "user", "content": question}]},
+    )
+
+    texts = []
+    for item in resp.get("output", []):
+        if item.get("type") == "message":
+            for part in item.get("content", []):
+                if part.get("type") == "output_text":
+                    texts.append(part["text"])
+        elif "text" in item:
+            texts.append(item["text"])
+    text = "\n".join(texts) if texts else str(resp)
+
+    answer, prov_raw, path, sources, grounding = _parse_provenance(text)
+    entities = _extract_entities(path or answer)
+
+    return AgentResponse(
+        answer=answer,
+        provenance_raw=prov_raw,
+        path=path,
+        sources=sources,
+        grounding=grounding,
+        full_text=text,
+        entities_mentioned=entities,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Enron mock responses
+# ---------------------------------------------------------------------------
+
+_ENRON_MOCK_RESPONSES: dict[str, str] = {
+    "california": (
+        "### Answer\n"
+        "Several key executives were involved in California energy trading decisions:\n\n"
+        "- **Kenneth Lay** — CEO, received briefings on California energy strategy (emails from Nov 2000)\n"
+        "- **Jeffrey Skilling** — COO/CEO, directed trading strategy through Enron Energy Trading\n"
+        "- **Tim Belden** — Head of West Coast trading, directly managed California operations\n"
+        "- **David Delainey** — CEO of Enron Energy Services, involved in retail energy decisions\n\n"
+        "Communication flow: Tim Belden reported to David Delainey, who reported to Jeffrey Skilling. "
+        "Kenneth Lay received summary briefings from Skilling.\n\n"
+        "### Provenance\n"
+        "- **Path**: Tim Belden \u2192 David Delainey (REPORTS_TO) \u2192 Jeffrey Skilling (REPORTS_TO) \u2192 Kenneth Lay (REPORTS_TO)\n"
+        "- **Sources**: [2000-11-15] belden-t to delainey-d, Subject: California Update; "
+        "[2000-12-03] skilling-j to lay-k, Subject: Energy Trading Summary\n"
+        "- **Grounding**: All claims grounded in knowledge graph"
+    ),
+    "skilling": (
+        "### Answer\n"
+        "Jeff Skilling managed several key projects between 2000-2001:\n\n"
+        "1. **Enron Broadband Services** — oversaw the broadband division's strategic direction\n"
+        "2. **Enron Energy Trading** — directed the core trading business\n"
+        "3. **Enron International** — managed international expansion initiatives\n"
+        "4. **Project Raptor** — involved in financial restructuring discussions\n\n"
+        "Skilling was particularly active in Broadband communications, with 47 emails referencing "
+        "the division between Jan 2000 and Aug 2001.\n\n"
+        "### Provenance\n"
+        "- **Path**: Jeffrey Skilling \u2192 Enron Broadband Services (MANAGES) \u2192 Kenneth Rice (REPORTS_TO)\n"
+        "- **Sources**: [2000-03-15] skilling-j to rice-k, Subject: Broadband Strategy; "
+        "[2001-02-20] skilling-j to lay-k, Subject: Q4 Results\n"
+        "- **Grounding**: All claims grounded in knowledge graph"
+    ),
+    "broadband": (
+        "### Answer\n"
+        "Information about the Broadband division flowed through several channels:\n\n"
+        "- **Kenneth Rice** (CEO, Enron Broadband) reported directly to **Jeffrey Skilling**\n"
+        "- Weekly status emails went from Rice to Skilling and **Kenneth Lay**\n"
+        "- Technical updates flowed from engineering leads to Rice\n"
+        "- Financial projections were shared with **Andrew Fastow** (CFO) for quarterly reporting\n\n"
+        "The communication pattern shows a hub-and-spoke model centered on Kenneth Rice, "
+        "with Skilling as the primary executive recipient.\n\n"
+        "### Provenance\n"
+        "- **Path**: Kenneth Rice \u2192 Jeffrey Skilling (REPORTS_TO) \u2192 Kenneth Lay (REPORTS_TO)\n"
+        "- **Sources**: [2000-06-10] rice-k to skilling-j, Subject: Broadband Weekly; "
+        "[2000-09-22] rice-k to fastow-a, Subject: Broadband Financials\n"
+        "- **Grounding**: All claims grounded in knowledge graph"
+    ),
+    "fastow": (
+        "### Answer\n"
+        "Several executives discussed Fastow's partnerships in email communications:\n\n"
+        "- **Jeffrey Skilling** — discussed LJM partnership structure with Fastow directly\n"
+        "- **Kenneth Lay** — received briefings about partnership arrangements\n"
+        "- **Rick Causey** (CAO) — involved in accounting treatment discussions\n"
+        "- **Ben Glisan** (Treasurer) — discussed financial terms of SPE structures\n\n"
+        "Most communications about the partnerships were between Fastow and Glisan (32 emails), "
+        "followed by Fastow and Causey (18 emails).\n\n"
+        "### Provenance\n"
+        "- **Path**: Andrew Fastow \u2192 LJM Partnership (MANAGES) \u2192 Ben Glisan (COLLABORATES_WITH)\n"
+        "- **Sources**: [2001-01-15] fastow-a to glisan-b, Subject: LJM Structure; "
+        "[2001-03-20] fastow-a to causey-r, Subject: SPE Accounting\n"
+        "- **Grounding**: All claims grounded in knowledge graph"
+    ),
+    "lay": (
+        "### Answer\n"
+        "The most frequent communicators with Kenneth Lay based on email volume:\n\n"
+        "1. **Rosalee Fleming** (Executive Assistant) — 245 emails\n"
+        "2. **Jeffrey Skilling** (COO/CEO) — 187 emails\n"
+        "3. **Steven Kean** (VP Public Affairs) — 134 emails\n"
+        "4. **Richard Shapiro** (VP Government Affairs) — 98 emails\n"
+        "5. **James Derrick** (General Counsel) — 76 emails\n\n"
+        "The communication pattern shows Lay relied heavily on his executive assistant for "
+        "scheduling and information routing, while Skilling was his primary strategic counterpart.\n\n"
+        "### Provenance\n"
+        "- **Path**: Kenneth Lay \u2192 Rosalee Fleming (SENT_TO, 245 emails) \u2192 Jeffrey Skilling (SENT_TO, 187 emails)\n"
+        "- **Sources**: Communication volume analysis from SENT_TO relationship weights\n"
+        "- **Grounding**: All claims grounded in knowledge graph"
+    ),
+    "trading": (
+        "### Answer\n"
+        "The Enron Energy Trading division had the following organizational structure:\n\n"
+        "- **Jeffrey Skilling** (COO/CEO) — ultimate oversight\n"
+        "- **David Delainey** — CEO of Enron Energy Services\n"
+        "- **John Lavorato** — Co-CEO of Enron Americas\n"
+        "- **Tim Belden** — Head of West Coast Trading\n"
+        "- **John Arnold** — Head of Natural Gas Trading\n\n"
+        "The division was structured with regional trading desks reporting to Delainey and Lavorato, "
+        "who in turn reported to Skilling.\n\n"
+        "### Provenance\n"
+        "- **Path**: Tim Belden \u2192 David Delainey (REPORTS_TO) \u2192 Jeffrey Skilling (REPORTS_TO)\n"
+        "- **Sources**: [2001-04-10] delainey-d to skilling-j, Subject: Trading Desk Reorg; "
+        "[2000-08-15] lavorato-j to delainey-d, Subject: Americas Update\n"
+        "- **Grounding**: All claims grounded in knowledge graph"
+    ),
+}
+
+
+def _match_enron_mock(question: str) -> str:
+    q = question.lower()
+    if "california" in q or "energy trading decision" in q:
+        return _ENRON_MOCK_RESPONSES["california"]
+    if "skilling" in q and ("project" in q or "manage" in q):
+        return _ENRON_MOCK_RESPONSES["skilling"]
+    if "broadband" in q or "information flow" in q:
+        return _ENRON_MOCK_RESPONSES["broadband"]
+    if "fastow" in q or "partnership" in q:
+        return _ENRON_MOCK_RESPONSES["fastow"]
+    if "lay" in q and ("communicat" in q or "frequent" in q):
+        return _ENRON_MOCK_RESPONSES["lay"]
+    if "trading" in q or "organizational" in q or "structure" in q:
+        return _ENRON_MOCK_RESPONSES["trading"]
+    return _ENRON_MOCK_RESPONSES["california"]
+
+
+def query_agent_enron_mock(question: str) -> AgentResponse:
+    """Return a canned Enron response for demo/testing without a live endpoint."""
+    text = _match_enron_mock(question)
+    answer, prov_raw, path, sources, grounding = _parse_provenance(text)
+    entities = _extract_entities(path or answer)
+
+    return AgentResponse(
+        answer=answer,
+        provenance_raw=prov_raw,
+        path=path,
+        sources=sources,
+        grounding=grounding,
+        full_text=text,
+        entities_mentioned=entities,
+    )
+
+
 def query_agent_mock(question: str) -> AgentResponse:
     """Return a canned response for demo/testing without a live endpoint."""
     from backend.graph_client import lookup_verses_mock

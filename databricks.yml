@@ -12,6 +12,8 @@ variables:
   warehouse_id:
     lookup:
       warehouse: "Serverless Starter Warehouse"
+  enron_schema:
+    default: "graphrag_enron"
   lakebase_project:
     default: "graphrag"
 
@@ -24,6 +26,7 @@ targets:
     variables:
       catalog: "serverless_8e8gyh_catalog"
       schema: "graphrag_bible"
+      enron_schema: "graphrag_enron"
 
   prod:
     mode: production
@@ -32,3 +35,4 @@ targets:
     variables:
       catalog: "serverless_8e8gyh_catalog"
       schema: "graphrag_bible"
+      enron_schema: "graphrag_enron"

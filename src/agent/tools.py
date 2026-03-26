@@ -534,3 +534,230 @@ def build_scoped_tools(permitted_books: list):
         return _get_entity_summary(entity_name, permitted_books=permitted_books)
 
     return [find_entity, find_connections, trace_path, get_context_verses, get_entity_summary]
+
+# COMMAND ----------
+
+# DBTITLE 1,Corpus Table Config
+def _get_corpus_tables(corpus: str = "bible") -> dict:
+    """Return the table config dict for a given corpus."""
+    if corpus == "enron":
+        return {
+            "entities": config['enron_entities_table'],
+            "relationships": config['enron_relationships_table'],
+            "entity_mentions": config['enron_entity_mentions_table'],
+            "entity_analytics": config['enron_entity_analytics_table'],
+            "entity_paths": config['enron_entity_paths_table'],
+            "source_table": config['enron_emails_table'],
+            "source_type": "email",
+        }
+    return {
+        "entities": config['entities_table'],
+        "relationships": config['relationships_table'],
+        "entity_mentions": config['entity_mentions_table'],
+        "entity_analytics": config['entity_analytics_table'],
+        "entity_paths": config['entity_paths_table'],
+        "source_table": config['verses_table'],
+        "source_type": "verse",
+    }
+
+# COMMAND ----------
+
+# DBTITLE 1,Enron: Get Source Emails Tool
+def _get_source_emails(entity_name: str, thread_id: str = "") -> str:
+    """Get actual Enron emails that mention a specific entity. Provides source text for grounding answers.
+
+    Args:
+        entity_name: The entity name to find emails for (e.g., "Kenneth Lay")
+        thread_id: Optional — filter to a specific thread. Leave empty for all threads.
+    """
+    from pyspark.sql import SparkSession
+    spark = SparkSession.builder.getOrCreate()
+
+    thread_filter = f"AND e.thread_id = '{thread_id}'" if thread_id else ""
+
+    results = spark.sql(f"""
+        SELECT e.date, e.sender, e.subject, SUBSTRING(e.body, 1, 500) as body_preview
+        FROM {config['enron_emails_table']} e
+        WHERE e.body LIKE '%{entity_name}%'
+        {thread_filter}
+        ORDER BY e.date DESC
+        LIMIT 10
+    """).collect()
+
+    if not results:
+        return f"No emails found mentioning '{entity_name}'."
+
+    lines = [f"Emails mentioning '{entity_name}' ({len(results)} found):"]
+    for r in results:
+        date_str = str(r['date'])[:10] if r['date'] else "unknown date"
+        lines.append(f"  [{date_str}] From: {r['sender']} | Subject: {r['subject']}")
+        lines.append(f"    {r['body_preview']}...")
+    return "\n".join(lines)
+
+# COMMAND ----------
+
+# DBTITLE 1,Corpus-Aware Tool Factory
+def build_corpus_tools(corpus: str = "bible"):
+    """Create a set of graph tools for a specific corpus (bible or enron).
+
+    The LLM sees the same tool signatures regardless of corpus.
+    Table references are resolved via closure.
+
+    Args:
+        corpus: Either "bible" or "enron".
+
+    Returns:
+        List of 5 LangChain tools targeting the specified corpus tables.
+    """
+    tables = _get_corpus_tables(corpus)
+
+    @tool
+    def find_entity(name: str) -> str:
+        """Search for an entity by name. Returns matching entities with their type and description.
+
+        Args:
+            name: The name to search for (e.g., "Moses", "Kenneth Lay")
+        """
+        from pyspark.sql import SparkSession
+        spark = SparkSession.builder.getOrCreate()
+        results = spark.sql(f"""
+            SELECT name, entity_type, description
+            FROM {tables['entities']}
+            WHERE LOWER(name) LIKE LOWER('%{name}%')
+            ORDER BY name
+            LIMIT 10
+        """).collect()
+        if not results:
+            return f"No entity found matching '{name}'."
+        lines = []
+        for r in results:
+            lines.append(f"- **{r['name']}** ({r['entity_type']}): {r['description']}")
+        return "\n".join(lines)
+
+    @tool
+    def find_connections(entity_name: str) -> str:
+        """Find all relationships involving a given entity — both as source and target.
+
+        Args:
+            entity_name: The entity name to find connections for
+        """
+        from pyspark.sql import SparkSession
+        spark = SparkSession.builder.getOrCreate()
+        entity_id = "_".join(entity_name.lower().split())
+        results = spark.sql(f"""
+            SELECT
+                COALESCE(e1.name, r.source_entity) as source_name,
+                r.relationship_type,
+                COALESCE(e2.name, r.target_entity) as target_name,
+                r.description
+            FROM {tables['relationships']} r
+            LEFT JOIN {tables['entities']} e1 ON r.source_entity = e1.entity_id
+            LEFT JOIN {tables['entities']} e2 ON r.target_entity = e2.entity_id
+            WHERE r.source_entity LIKE '%{entity_id}%'
+               OR r.target_entity LIKE '%{entity_id}%'
+            LIMIT 30
+        """).collect()
+        if not results:
+            return f"No connections found for '{entity_name}'."
+        lines = [f"Connections for '{entity_name}' ({len(results)} found):"]
+        for r in results:
+            lines.append(
+                f"- {r['source_name']} --[{r['relationship_type']}]--> {r['target_name']}: "
+                f"{r['description']}"
+            )
+        return "\n".join(lines)
+
+    @tool
+    def trace_path(entity_a: str, entity_b: str) -> str:
+        """Find the shortest path between two entities.
+
+        Args:
+            entity_a: Starting entity name
+            entity_b: Ending entity name
+        """
+        import re as _re
+        from pyspark.sql import SparkSession
+        spark = SparkSession.builder.getOrCreate()
+        def _slug(n):
+            return _re.sub(r'[^a-z0-9]+', '_', n.lower()).strip('_')
+        id_a, id_b = _slug(entity_a), _slug(entity_b)
+        paths = spark.sql(f"""
+            SELECT p.source_id, p.target_id, p.distance, p.path_names,
+                   e1.name as source_name, e2.name as target_name
+            FROM {tables['entity_paths']} p
+            LEFT JOIN {tables['entities']} e1 ON p.source_id = e1.entity_id
+            LEFT JOIN {tables['entities']} e2 ON p.target_id = e2.entity_id
+            WHERE (p.source_id LIKE '%{id_a}%' AND p.target_id LIKE '%{id_b}%')
+               OR (p.source_id LIKE '%{id_b}%' AND p.target_id LIKE '%{id_a}%')
+            ORDER BY p.distance
+            LIMIT 5
+        """).collect()
+        if not paths:
+            return f"No path found between '{entity_a}' and '{entity_b}' in the knowledge graph."
+        lines = [f"Shortest paths between {entity_a} and {entity_b}:"]
+        for r in paths:
+            lines.append(f"  {r['source_name']} -> {r['target_name']}: distance={r['distance']}, path: {r['path_names']}")
+        return "\n".join(lines)
+
+    if corpus == "enron":
+        @tool
+        def get_source_context(entity_name: str, thread_id: str = "") -> str:
+            """Get actual Enron emails mentioning an entity. Provides source text for grounding answers.
+
+            Args:
+                entity_name: The entity name to find emails for (e.g., "Kenneth Lay")
+                thread_id: Optional — filter to a specific thread. Leave empty for all.
+            """
+            return _get_source_emails(entity_name, thread_id)
+    else:
+        @tool
+        def get_source_context(entity_name: str, book: str = "") -> str:
+            """Get actual Bible verses that mention a specific entity. Provides source text for grounding answers.
+
+            Args:
+                entity_name: The entity name to find verses for (e.g., "Moses")
+                book: Optional — filter to a specific book (e.g., "Genesis"). Leave empty for all books.
+            """
+            return _get_context_verses(entity_name, book)
+
+    @tool
+    def get_entity_summary(entity_name: str) -> str:
+        """Get a comprehensive profile of an entity: type, description, and all relationships.
+
+        Args:
+            entity_name: The entity to summarize
+        """
+        from pyspark.sql import SparkSession
+        spark = SparkSession.builder.getOrCreate()
+        entity_id = "_".join(entity_name.lower().split())
+        entity_rows = spark.sql(f"""
+            SELECT name, entity_type, description
+            FROM {tables['entities']}
+            WHERE entity_id LIKE '%{entity_id}%'
+            LIMIT 1
+        """).collect()
+        if not entity_rows:
+            return f"Entity '{entity_name}' not found in the knowledge graph."
+        ent = entity_rows[0]
+        lines = [
+            f"**{ent['name']}** ({ent['entity_type']})",
+            f"Description: {ent['description']}",
+        ]
+        rels = spark.sql(f"""
+            SELECT COALESCE(e1.name, r.source_entity) as src,
+                   r.relationship_type,
+                   COALESCE(e2.name, r.target_entity) as tgt,
+                   r.description
+            FROM {tables['relationships']} r
+            LEFT JOIN {tables['entities']} e1 ON r.source_entity = e1.entity_id
+            LEFT JOIN {tables['entities']} e2 ON r.target_entity = e2.entity_id
+            WHERE r.source_entity LIKE '%{entity_id}%' OR r.target_entity LIKE '%{entity_id}%'
+            LIMIT 20
+        """).collect()
+        if rels:
+            lines.append(f"\nKey relationships ({len(rels)}):")
+            for r in rels:
+                lines.append(f"  {r['src']} --[{r['relationship_type']}]--> {r['tgt']}: {r['description']}")
+        return "\n".join(lines)
+
+    return [find_entity, find_connections, trace_path, get_source_context, get_entity_summary]

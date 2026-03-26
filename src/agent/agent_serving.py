@@ -52,6 +52,16 @@ ENTITY_ANALYTICS_TABLE = f"{CATALOG}.{SCHEMA}.entity_analytics"
 AGENT_ID = "bible-agent"
 PROMPT_CACHE_TTL = 300  # seconds; set to 0 for instant iteration
 
+CORPUS = os.environ.get("GRAPHRAG_CORPUS", "bible")
+
+ENRON_SCHEMA = os.environ.get("GRAPHRAG_ENRON_SCHEMA", "graphrag_enron")
+ENRON_ENTITIES_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.entities"
+ENRON_RELATIONSHIPS_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.relationships"
+ENRON_EMAILS_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.emails"
+ENRON_ENTITY_ANALYTICS_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.entity_analytics"
+ENRON_ENTITY_PATHS_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.entity_paths"
+ENRON_ENTITY_MENTIONS_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.entity_mentions"
+
 BACKEND_TYPE = os.environ.get("GRAPHRAG_BACKEND", "databricks")
 LLM_PROVIDER = os.environ.get("GRAPHRAG_LLM_PROVIDER", "databricks")
 
@@ -1266,6 +1276,65 @@ Before you received this message, entities from the user's question were automat
 - Do NOT bridge graph entities to non-graph concepts using training data (e.g., linking Ishmael to "Arabs" when "Arabs" is not in the graph)."""
 
 
+ENRON_SYSTEM_PROMPT = """You are a corporate communications analyst with access to a knowledge graph built from the Enron email corpus (~20,000 emails from key executives and employees, 2000-2002).
+
+You have tools that let you search the knowledge graph for entities, relationships, source emails, and structural analysis. Use them to provide well-grounded, auditable answers about organizational structure, communication patterns, and corporate activities.
+
+## Available Tools
+- **find_entity(name)** — search for a person, organization, project, or event by name
+- **find_connections(entity_name)** — find relationships for an entity (SENT_TO, MANAGES, DISCUSSES, etc.)
+- **get_source_emails(entity_name)** — retrieve actual Enron emails mentioning an entity
+- **get_entity_summary(entity_name)** — get a comprehensive entity profile with all relationships
+- **trace_path(entity_a, entity_b)** — find shortest path between two entities via relationship traversal
+
+## Tool Usage Strategy
+- ALWAYS use tools before answering. Prefer graph data over training knowledge.
+- For questions about people, use **find_entity** first, then **find_connections** for their network.
+- For questions about who communicated with whom, use **find_connections** — SENT_TO relationships show email flows.
+- After gathering entity/relationship data, call **get_source_emails** for key entities to ground claims with email evidence.
+- For questions about how two people or entities are connected, use **trace_path**.
+- For broad entity questions, use **get_entity_summary** for a full profile.
+- For multi-entity questions, **call tools multiple times** — once per entity — to build a complete picture.
+
+## Response Guidelines
+- **Be direct and comprehensive.** Answer the question fully. Do not restate the question.
+- **Prioritize completeness.** Include all relevant findings from the tools.
+- **Cite email sources inline** where natural (e.g., date, sender, subject).
+- **State coverage limitations** when relevant: "My knowledge graph covers emails from a curated subset of Enron employees."
+- If information is not in the knowledge graph, say so honestly rather than guessing.
+
+## Entity Pre-Lookup
+Before you received this message, entities from the user's question were automatically looked up in the knowledge graph. Results appear at the END of this system prompt.
+- If an entity is listed under "NOT IN GRAPH" and it is the primary subject, state that it is not available.
+- Scope terms like "Enron", "the company", "executives" are NOT entity names — ignore if they appear under NOT IN GRAPH.
+- Do NOT bridge graph entities to external knowledge (e.g., public news about Enron's collapse) without stating this is outside the graph."""
+
+
+def _get_corpus_config() -> dict:
+    """Return table references and system prompt for the active corpus."""
+    if CORPUS == "enron":
+        return {
+            "entities": ENRON_ENTITIES_TABLE,
+            "relationships": ENRON_RELATIONSHIPS_TABLE,
+            "source_table": ENRON_EMAILS_TABLE,
+            "entity_analytics": ENRON_ENTITY_ANALYTICS_TABLE,
+            "entity_paths": ENRON_ENTITY_PATHS_TABLE,
+            "entity_mentions": ENRON_ENTITY_MENTIONS_TABLE,
+            "system_prompt": ENRON_SYSTEM_PROMPT,
+            "source_type": "email",
+        }
+    return {
+        "entities": ENTITIES_TABLE,
+        "relationships": RELATIONSHIPS_TABLE,
+        "source_table": VERSES_TABLE,
+        "entity_analytics": ENTITY_ANALYTICS_TABLE,
+        "entity_paths": f"{CATALOG}.{SCHEMA}.entity_paths",
+        "entity_mentions": f"{CATALOG}.{SCHEMA}.entity_mentions",
+        "system_prompt": SYSTEM_PROMPT,
+        "source_type": "verse",
+    }
+
+
 # ---------------------------------------------------------------------------
 # Agent
 # ---------------------------------------------------------------------------
@@ -1280,7 +1349,9 @@ class GraphRAGAgent(ResponsesAgent):
         self.llm_with_tools = self.llm.bind_tools(self.tools)
 
     def _build_graph(self, prelookup_context: str = ""):
-        system_prompt = _get_system_prompt() + prelookup_context
+        corpus_cfg = _get_corpus_config()
+        base_prompt = _get_system_prompt() if CORPUS == "bible" else corpus_cfg["system_prompt"]
+        system_prompt = base_prompt + prelookup_context
 
         def should_continue(state):
             last = state["messages"][-1]

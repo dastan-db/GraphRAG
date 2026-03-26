@@ -7,6 +7,7 @@ from pages.home import home_layout
 from pages.how_it_works import how_layout
 from pages.architecture import arch_layout
 from pages.live_demo import demo_layout, register_demo_callbacks
+from pages.corporate_demo import corporate_demo_layout, register_corporate_demo_callbacks
 from pages.apply import apply_layout
 from pages.manage_corpus import manage_corpus_layout, register_corpus_callbacks
 
@@ -41,7 +42,8 @@ NAV_ITEMS = [
         {"href": "/architecture", "icon": "fa-sitemap", "text": "Architecture"},
     ]},
     {"label": "Experience", "children": [
-        {"href": "/live-demo", "icon": "fa-rocket", "text": "Live Demo"},
+        {"href": "/live-demo", "icon": "fa-book", "text": "Bible Demo"},
+        {"href": "/corporate-demo", "icon": "fa-building", "text": "Corporate Demo"},
         {"href": "/manage-corpus", "icon": "fa-database", "text": "Manage Corpus"},
     ]},
     {"label": "Adopt", "children": [
@@ -85,6 +87,8 @@ def render_page(pathname):
         return arch_layout()
     elif pathname == "/live-demo":
         return demo_layout()
+    elif pathname == "/corporate-demo":
+        return corporate_demo_layout()
     elif pathname == "/manage-corpus":
         return manage_corpus_layout()
     elif pathname == "/apply":
@@ -93,6 +97,7 @@ def render_page(pathname):
 
 
 register_demo_callbacks(app)
+register_corporate_demo_callbacks(app)
 register_corpus_callbacks(app)
 
 server = app.server
