@@ -10,6 +10,8 @@
 
 # COMMAND ----------
 
+import json
+
 from langchain_core.tools import tool
 from functools import partial
 
@@ -87,31 +89,39 @@ def _find_connections(entity_name: str, permitted_books: list = None) -> str:
     book_filter = f"AND r.book IN {books_clause}" if books_clause else ""
 
     results = spark.sql(f"""
-        SELECT
-            COALESCE(e1.name, r.source_entity) as source_name,
-            r.relationship_type,
-            COALESCE(e2.name, r.target_entity) as target_name,
-            r.description,
-            r.book,
-            r.chapter
-        FROM {config['relationships_table']} r
-        LEFT JOIN {config['entities_table']} e1 ON r.source_entity = e1.entity_id
-        LEFT JOIN {config['entities_table']} e2 ON r.target_entity = e2.entity_id
-        WHERE (r.source_entity LIKE '%{entity_id}%'
-           OR r.target_entity LIKE '%{entity_id}%')
-        {book_filter}
-        ORDER BY r.book, r.chapter
-        LIMIT 30
+        SELECT source_name, relationship_type, target_name,
+               MAX(description) as description,
+               MAX(book) as book, MAX(chapter) as chapter,
+               COUNT(*) as frequency
+        FROM (
+            SELECT
+                COALESCE(e1.name, r.source_entity) as source_name,
+                r.relationship_type,
+                COALESCE(e2.name, r.target_entity) as target_name,
+                r.description,
+                r.book,
+                r.chapter
+            FROM {config['relationships_table']} r
+            LEFT JOIN {config['entities_table']} e1 ON r.source_entity = e1.entity_id
+            LEFT JOIN {config['entities_table']} e2 ON r.target_entity = e2.entity_id
+            WHERE (r.source_entity LIKE '%{entity_id}%'
+               OR r.target_entity LIKE '%{entity_id}%')
+            {book_filter}
+        ) sub
+        GROUP BY source_name, relationship_type, target_name
+        ORDER BY frequency DESC
+        LIMIT 100
     """).collect()
 
     if not results:
         return f"No connections found for '{entity_name}'."
 
-    lines = [f"Connections for '{entity_name}' ({len(results)} found):"]
+    lines = [f"Connections for '{entity_name}' ({len(results)} found, ranked by frequency):"]
     for r in results:
+        freq = int(r['frequency']) if r.get('frequency') else 1
         lines.append(
             f"- {r['source_name']} --[{r['relationship_type']}]--> {r['target_name']}: "
-            f"{r['description']} ({r['book']} ch.{r['chapter']})"
+            f"{r['description']} ({r['book']} ch.{r['chapter']}) [freq={freq}]"
         )
     return "\n".join(lines)
 
@@ -368,7 +378,7 @@ import logging
 
 _prelookup_log = logging.getLogger(__name__)
 
-QUERY_ENTITY_PROMPT = """You are an expert biblical scholar. Extract all significant entities and concepts from the following user question.
+_BIBLE_QUERY_ENTITY_PROMPT = """You are an expert biblical scholar. Extract all significant entities and concepts from the following user question.
 
 For each entity, provide:
 - name: The canonical name (e.g., Abraham not Abram unless before the name change)
@@ -385,17 +395,38 @@ Return a JSON array of objects, each with "name" and "entity_type" keys. Return 
 Question:
 """
 
+_CORPORATE_QUERY_ENTITY_PROMPT = """You are a corporate communications analyst. Extract all significant entities and concepts from the following user question about the Enron email corpus.
+
+For each entity, provide:
+- name: The canonical name (e.g., "Kenneth Lay" not "Ken"; "Enron Broadband Services" not "broadband")
+- entity_type: One of: Person, Organization, Division, Project, Meeting, Document, Location, Financial_Event
+
+Rules:
+- Use full canonical names for people when possible
+- NEVER use title prefixes (Dr., Mr., Mrs.) — just the bare name
+- Include company and division names as stated by the user
+- Extract ALL nouns that could refer to entities in a corporate context
+- Terms like "executives", "leadership", "management" should be extracted as Group-type concepts
+
+Return a JSON array of objects, each with "name" and "entity_type" keys. Return ONLY the JSON array, no other text.
+
+Question:
+"""
+
+QUERY_ENTITY_PROMPT = _BIBLE_QUERY_ENTITY_PROMPT
+
 
 def _slugify(name: str) -> str:
     """Same normalisation used during corpus build (src/extraction/extraction.py)."""
     return re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')
 
 
-def extract_query_entities(question: str) -> list[dict]:
+def extract_query_entities(question: str, corpus: str = "bible") -> list[dict]:
     """Call the small LLM to extract entity mentions from a user question."""
     from databricks_langchain import ChatDatabricks
+    prompt = _CORPORATE_QUERY_ENTITY_PROMPT if corpus == "enron" else _BIBLE_QUERY_ENTITY_PROMPT
     llm = ChatDatabricks(endpoint=config['small_llm_endpoint'], temperature=0.0, max_tokens=512)
-    response = llm.invoke(QUERY_ENTITY_PROMPT + question)
+    response = llm.invoke(prompt + question)
     text = response.content.strip()
 
     if text.startswith("```"):
@@ -439,13 +470,13 @@ def pre_lookup_entities(entity_names: list[str]) -> tuple[list[str], list[str]]:
     return found, not_found
 
 
-def build_prelookup_context(question: str) -> str:
+def build_prelookup_context(question: str, corpus: str = "bible") -> str:
     """Run entity extraction + graph lookup and return a system-prompt appendix.
 
     Returns an empty string when extraction finds nothing or fails.
     """
     try:
-        entities = extract_query_entities(question)
+        entities = extract_query_entities(question, corpus=corpus)
         if not entities:
             return ""
         names = [e["name"] for e in entities]
@@ -563,34 +594,50 @@ def _get_corpus_tables(corpus: str = "bible") -> dict:
 # COMMAND ----------
 
 # DBTITLE 1,Enron: Get Source Emails Tool
+def _parse_search_terms(entity_name: str) -> list:
+    """Split 'A AND B' into multiple search terms; returns single-element list otherwise."""
+    if " AND " in entity_name:
+        return [t.strip() for t in entity_name.split(" AND ") if t.strip()]
+    return [entity_name]
+
+
 def _get_source_emails(entity_name: str, thread_id: str = "") -> str:
     """Get actual Enron emails that mention a specific entity. Provides source text for grounding answers.
 
+    Supports 'A AND B' syntax to find emails mentioning both entities.
+
     Args:
-        entity_name: The entity name to find emails for (e.g., "Kenneth Lay")
+        entity_name: The entity name to find emails for (e.g., "Kenneth Lay",
+            or "Kathy Dodgen AND Kenneth Lay" for emails mentioning both)
         thread_id: Optional — filter to a specific thread. Leave empty for all threads.
     """
     from pyspark.sql import SparkSession
     spark = SparkSession.builder.getOrCreate()
 
+    terms = _parse_search_terms(entity_name)
+    like_clauses = " AND ".join(f"e.body LIKE '%{t}%'" for t in terms)
     thread_filter = f"AND e.thread_id = '{thread_id}'" if thread_id else ""
 
     results = spark.sql(f"""
-        SELECT e.date, e.sender, e.subject, SUBSTRING(e.body, 1, 500) as body_preview
+        SELECT e.date, e.sender, e.subject, SUBSTRING(e.body, 1, 500) as body_preview,
+               COALESCE(SIZE(e.to_recipients), 0) + COALESCE(SIZE(e.cc_recipients), 0) as recipient_count
         FROM {config['enron_emails_table']} e
-        WHERE e.body LIKE '%{entity_name}%'
+        WHERE {like_clauses}
         {thread_filter}
         ORDER BY e.date DESC
         LIMIT 10
     """).collect()
 
+    search_desc = " AND ".join(terms)
     if not results:
-        return f"No emails found mentioning '{entity_name}'."
+        return f"No emails found mentioning '{search_desc}'."
 
-    lines = [f"Emails mentioning '{entity_name}' ({len(results)} found):"]
+    lines = [f"Emails mentioning '{search_desc}' ({len(results)} found):"]
     for r in results:
         date_str = str(r['date'])[:10] if r['date'] else "unknown date"
-        lines.append(f"  [{date_str}] From: {r['sender']} | Subject: {r['subject']}")
+        rc = r['recipient_count'] if r.get('recipient_count') else 0
+        email_type = "direct" if rc <= 5 else "group" if rc <= 20 else "mass"
+        lines.append(f"  [{date_str}] From: {r['sender']} | Subject: {r['subject']} | [{email_type}, {rc} recipients]")
         lines.append(f"    {r['body_preview']}...")
     return "\n".join(lines)
 
@@ -629,10 +676,9 @@ def build_corpus_tools(corpus: str = "bible"):
         """).collect()
         if not results:
             return f"No entity found matching '{name}'."
-        lines = []
-        for r in results:
-            lines.append(f"- **{r['name']}** ({r['entity_type']}): {r['description']}")
-        return "\n".join(lines)
+        return json.dumps([{
+            "name": r["name"], "type": r["entity_type"], "description": r["description"],
+        } for r in results], ensure_ascii=False)
 
     @tool
     def find_connections(entity_name: str) -> str:
@@ -644,28 +690,50 @@ def build_corpus_tools(corpus: str = "bible"):
         from pyspark.sql import SparkSession
         spark = SparkSession.builder.getOrCreate()
         entity_id = "_".join(entity_name.lower().split())
+        freq_expr = "SUM(COALESCE(edge_count, 1))" if corpus == "enron" else "COUNT(*)"
+        edge_col = ", r.edge_count" if corpus == "enron" else ""
         results = spark.sql(f"""
-            SELECT
-                COALESCE(e1.name, r.source_entity) as source_name,
-                r.relationship_type,
-                COALESCE(e2.name, r.target_entity) as target_name,
-                r.description
-            FROM {tables['relationships']} r
-            LEFT JOIN {tables['entities']} e1 ON r.source_entity = e1.entity_id
-            LEFT JOIN {tables['entities']} e2 ON r.target_entity = e2.entity_id
-            WHERE r.source_entity LIKE '%{entity_id}%'
-               OR r.target_entity LIKE '%{entity_id}%'
-            LIMIT 30
+            SELECT source_name, relationship_type, target_name,
+                   MAX(description) as description,
+                   {freq_expr} as frequency
+            FROM (
+                SELECT
+                    COALESCE(e1.name, r.source_entity) as source_name,
+                    r.relationship_type,
+                    COALESCE(e2.name, r.target_entity) as target_name,
+                    r.description{edge_col}
+                FROM {tables['relationships']} r
+                LEFT JOIN {tables['entities']} e1 ON r.source_entity = e1.entity_id
+                LEFT JOIN {tables['entities']} e2 ON r.target_entity = e2.entity_id
+                WHERE r.source_entity LIKE '%{entity_id}%'
+                   OR r.target_entity LIKE '%{entity_id}%'
+            ) sub
+            GROUP BY source_name, relationship_type, target_name
+            ORDER BY frequency DESC
+            LIMIT 100
         """).collect()
         if not results:
             return f"No connections found for '{entity_name}'."
-        lines = [f"Connections for '{entity_name}' ({len(results)} found):"]
+        from collections import defaultdict
+        groups: dict[str, list[dict]] = defaultdict(list)
         for r in results:
-            lines.append(
-                f"- {r['source_name']} --[{r['relationship_type']}]--> {r['target_name']}: "
-                f"{r['description']}"
-            )
-        return "\n".join(lines)
+            entry = {
+                "source": r["source_name"], "target": r["target_name"],
+                "description": r["description"],
+            }
+            freq = r.get("frequency")
+            if freq is not None:
+                try:
+                    entry["frequency"] = int(freq)
+                except (ValueError, TypeError):
+                    pass
+            groups[r["relationship_type"]].append(entry)
+        for rel_type in groups:
+            groups[rel_type].sort(key=lambda e: e.get("frequency", 0), reverse=True)
+        return json.dumps({
+            "entity": entity_name, "total": len(results),
+            "by_type": dict(groups),
+        }, ensure_ascii=False)
 
     @tool
     def trace_path(entity_a: str, entity_b: str) -> str:
@@ -694,10 +762,12 @@ def build_corpus_tools(corpus: str = "bible"):
         """).collect()
         if not paths:
             return f"No path found between '{entity_a}' and '{entity_b}' in the knowledge graph."
-        lines = [f"Shortest paths between {entity_a} and {entity_b}:"]
-        for r in paths:
-            lines.append(f"  {r['source_name']} -> {r['target_name']}: distance={r['distance']}, path: {r['path_names']}")
-        return "\n".join(lines)
+        return json.dumps({
+            "from": entity_a, "to": entity_b,
+            "paths": [{"source": r["source_name"], "target": r["target_name"],
+                        "distance": r["distance"], "path_names": r["path_names"]}
+                       for r in paths],
+        }, ensure_ascii=False)
 
     if corpus == "enron":
         @tool
@@ -739,10 +809,10 @@ def build_corpus_tools(corpus: str = "bible"):
         if not entity_rows:
             return f"Entity '{entity_name}' not found in the knowledge graph."
         ent = entity_rows[0]
-        lines = [
-            f"**{ent['name']}** ({ent['entity_type']})",
-            f"Description: {ent['description']}",
-        ]
+        summary = {
+            "name": ent["name"], "type": ent["entity_type"],
+            "description": ent["description"],
+        }
         rels = spark.sql(f"""
             SELECT COALESCE(e1.name, r.source_entity) as src,
                    r.relationship_type,
@@ -755,10 +825,14 @@ def build_corpus_tools(corpus: str = "bible"):
             LIMIT 20
         """).collect()
         if rels:
-            lines.append(f"\nKey relationships ({len(rels)}):")
+            from collections import defaultdict
+            groups: dict[str, list[dict]] = defaultdict(list)
             for r in rels:
-                lines.append(f"  {r['src']} --[{r['relationship_type']}]--> {r['tgt']}: {r['description']}")
-        return "\n".join(lines)
+                groups[r["relationship_type"]].append({
+                    "source": r["src"], "target": r["tgt"], "description": r["description"],
+                })
+            summary["relationships"] = {"total": len(rels), "by_type": dict(groups)}
+        return json.dumps(summary, ensure_ascii=False)
 
     return [find_entity, find_connections, trace_path, get_source_context, get_entity_summary]
 
@@ -822,10 +896,10 @@ def build_abac_tools(tier: str = "legal_team"):
         """).collect()
         if not results:
             return f"No entity found matching '{name}' at your access level."
-        lines = [f"[Access tier: {tier}]"]
-        for r in results:
-            lines.append(f"- **{r['name']}** ({r['entity_type']}): {r['description']}")
-        return "\n".join(lines)
+        return json.dumps([{
+            "name": r["name"], "type": r["entity_type"], "description": r["description"],
+            "access_tier": tier,
+        } for r in results], ensure_ascii=False)
 
     @tool
     def find_connections(entity_name: str) -> str:
@@ -852,13 +926,17 @@ def build_abac_tools(tier: str = "legal_team"):
         """).collect()
         if not results:
             return f"No connections found for '{entity_name}' at your access level."
-        lines = [f"[Access tier: {tier}] Connections for '{entity_name}' ({len(results)} found):"]
+        from collections import defaultdict
+        groups: dict[str, list[dict]] = defaultdict(list)
         for r in results:
-            lines.append(
-                f"- {r['source_name']} --[{r['relationship_type']}]--> {r['target_name']}: "
-                f"{r['description']}"
-            )
-        return "\n".join(lines)
+            groups[r["relationship_type"]].append({
+                "source": r["source_name"], "target": r["target_name"],
+                "description": r["description"],
+            })
+        return json.dumps({
+            "entity": entity_name, "total": len(results),
+            "by_type": dict(groups), "access_tier": tier,
+        }, ensure_ascii=False)
 
     @tool
     def trace_path(entity_a: str, entity_b: str) -> str:
@@ -891,13 +969,12 @@ def build_abac_tools(tier: str = "legal_team"):
                 f"at your access level ({tier}). The path may exist in the full "
                 f"graph but passes through restricted entities."
             )
-        lines = [f"[Access tier: {tier}] Shortest paths between {entity_a} and {entity_b}:"]
-        for r in paths:
-            lines.append(
-                f"  {r['source_name']} -> {r['target_name']}: "
-                f"distance={r['distance']}, path: {r['path_names']}"
-            )
-        return "\n".join(lines)
+        return json.dumps({
+            "from": entity_a, "to": entity_b, "access_tier": tier,
+            "paths": [{"source": r["source_name"], "target": r["target_name"],
+                        "distance": r["distance"], "path_names": r["path_names"]}
+                       for r in paths],
+        }, ensure_ascii=False)
 
     @tool
     def get_source_context(entity_name: str, thread_id: str = "") -> str:
@@ -920,12 +997,17 @@ def build_abac_tools(tier: str = "legal_team"):
         """).collect()
         if not results:
             return f"No emails found mentioning '{entity_name}' at your access level."
-        lines = [f"[Access tier: {tier}] Emails mentioning '{entity_name}' ({len(results)} found):"]
+        emails = []
         for r in results:
-            date_str = str(r['date'])[:10] if r['date'] else "unknown date"
-            lines.append(f"  [{date_str}] From: {r['sender']} | Subject: {r['subject']}")
-            lines.append(f"    {r['body_preview']}...")
-        return "\n".join(lines)
+            emails.append({
+                "date": str(r["date"])[:10] if r["date"] else "unknown",
+                "sender": r["sender"], "subject": r["subject"],
+                "body_preview": (r["body_preview"] or "")[:200],
+            })
+        return json.dumps({
+            "entity": entity_name, "total": len(emails),
+            "emails": emails, "access_tier": tier,
+        }, ensure_ascii=False)
 
     @tool
     def get_entity_summary(entity_name: str) -> str:
@@ -946,11 +1028,10 @@ def build_abac_tools(tier: str = "legal_team"):
         if not entity_rows:
             return f"Entity '{entity_name}' not found at your access level ({tier})."
         ent = entity_rows[0]
-        lines = [
-            f"[Access tier: {tier}]",
-            f"**{ent['name']}** ({ent['entity_type']})",
-            f"Description: {ent['description']}",
-        ]
+        summary = {
+            "name": ent["name"], "type": ent["entity_type"],
+            "description": ent["description"], "access_tier": tier,
+        }
         rels = spark.sql(f"""
             SELECT COALESCE(e1.name, r.source_entity) as src,
                    r.relationship_type,
@@ -963,9 +1044,13 @@ def build_abac_tools(tier: str = "legal_team"):
             LIMIT 20
         """).collect()
         if rels:
-            lines.append(f"\nKey relationships ({len(rels)}):")
+            from collections import defaultdict
+            groups: dict[str, list[dict]] = defaultdict(list)
             for r in rels:
-                lines.append(f"  {r['src']} --[{r['relationship_type']}]--> {r['tgt']}: {r['description']}")
-        return "\n".join(lines)
+                groups[r["relationship_type"]].append({
+                    "source": r["src"], "target": r["tgt"], "description": r["description"],
+                })
+            summary["relationships"] = {"total": len(rels), "by_type": dict(groups)}
+        return json.dumps(summary, ensure_ascii=False)
 
     return [find_entity, find_connections, trace_path, get_source_context, get_entity_summary]

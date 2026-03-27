@@ -161,8 +161,10 @@ class LocalBackend:
 class LakebaseBackend:
     """Lakebase Autoscaling (Postgres) — low-latency OLTP with RLS.
 
-    Connects via psycopg with Databricks OAuth tokens.  Supports session-level
-    RLS context: call ``set_rls_context({"permitted_books": "Genesis,Exodus"})``
+    Connects via psycopg with Databricks OAuth tokens.  Uses a connection pool
+    to avoid per-query TCP/TLS handshake and credential generation overhead.
+    Supports session-level RLS context: call
+    ``set_rls_context({"permitted_books": "Genesis,Exodus"})``
     to scope all subsequent queries via Postgres RLS policies.
     """
 
@@ -177,13 +179,13 @@ class LakebaseBackend:
         self._host: str | None = os.environ.get("LAKEBASE_HOST") or None
         self._dbname = os.environ.get("LAKEBASE_DBNAME", "databricks_postgres")
         self._rls_context: dict[str, str] = {}
+        self._pool = None
 
     def set_rls_context(self, context: dict[str, str]):
         """Set session-level RLS variables applied on every new connection."""
         self._rls_context = dict(context)
 
-    def _connect(self):
-        import psycopg as pg
+    def _build_conninfo(self) -> str:
         from databricks.sdk import WorkspaceClient
 
         w = WorkspaceClient()
@@ -196,20 +198,26 @@ class LakebaseBackend:
         cred = w.postgres.generate_database_credential(endpoint=self._endpoint)
         username = w.current_user.me().user_name
 
-        return pg.connect(
-            host=host,
-            dbname=self._dbname,
-            user=username,
-            password=cred.token,
-            sslmode="require",
+        return (
+            f"host={host} dbname={self._dbname} "
+            f"user={username} password={cred.token} sslmode=require"
         )
+
+    def _get_pool(self):
+        if self._pool is None:
+            from psycopg_pool import ConnectionPool
+            conninfo = self._build_conninfo()
+            self._pool = ConnectionPool(
+                conninfo, min_size=2, max_size=10, open=True,
+            )
+        return self._pool
 
     def execute_sql(self, query: str, params: dict[str, str] | None = None) -> list[dict]:
         query = query.replace(self._FQN_BIBLE, "")
         query = query.replace(self._FQN_ENRON, "enron.")
 
-        conn = self._connect()
-        try:
+        pool = self._get_pool()
+        with pool.connection() as conn:
             with conn.cursor() as cur:
                 for key, value in self._rls_context.items():
                     if value:
@@ -228,8 +236,6 @@ class LakebaseBackend:
                     return []
                 columns = [desc[0] for desc in cur.description]
                 return [dict(zip(columns, row)) for row in cur.fetchall()]
-        finally:
-            conn.close()
 
 
 def _get_backend() -> DataBackend:
@@ -297,7 +303,7 @@ def _get_system_prompt(agent_id: str = AGENT_ID) -> str:
 # Query entity pre-linking
 # ---------------------------------------------------------------------------
 # Same canonical-name conventions as ENTITY_PROMPT_PREFIX used during corpus build.
-QUERY_ENTITY_PROMPT = """You are an expert biblical scholar. Extract all significant entities and concepts from the following user question.
+_BIBLE_QUERY_ENTITY_PROMPT = """You are an expert biblical scholar. Extract all significant entities and concepts from the following user question.
 
 For each entity, provide:
 - name: The canonical name (e.g., Abraham not Abram unless before the name change)
@@ -313,6 +319,26 @@ Return a JSON array of objects, each with "name" and "entity_type" keys. Return 
 
 Question:
 """
+
+_CORPORATE_QUERY_ENTITY_PROMPT = """You are a corporate communications analyst. Extract all significant entities and concepts from the following user question about the Enron email corpus.
+
+For each entity, provide:
+- name: The canonical name (e.g., "Kenneth Lay" not "Ken"; "Enron Broadband Services" not "broadband")
+- entity_type: One of: Person, Organization, Division, Project, Meeting, Document, Location, Financial_Event
+
+Rules:
+- Use full canonical names for people when possible
+- NEVER use title prefixes (Dr., Mr., Mrs.) — just the bare name
+- Include company and division names as stated by the user
+- Extract ALL nouns that could refer to entities in a corporate context
+- Terms like "executives", "leadership", "management" should be extracted as Group-type concepts
+
+Return a JSON array of objects, each with "name" and "entity_type" keys. Return ONLY the JSON array, no other text.
+
+Question:
+"""
+
+QUERY_ENTITY_PROMPT = _CORPORATE_QUERY_ENTITY_PROMPT if CORPUS == "enron" else _BIBLE_QUERY_ENTITY_PROMPT
 
 
 def _slugify(name: str) -> str:
@@ -344,33 +370,41 @@ def pre_lookup_entities(entity_names: list[str]) -> tuple[list[str], list[str]]:
     """Look up extracted query entities against the graph.
 
     Returns (found, not_found) where each is a list of display strings.
+    Batches all entity slug + alias patterns into a single SQL query.
     """
-    found: list[str] = []
-    not_found: list[str] = []
-
+    slug_to_original: dict[str, str] = {}
     for name in entity_names:
         eid = _slugify(name)
-        rows = _backend.execute_sql(
-            f"SELECT name, entity_type FROM {ENTITIES_TABLE}"
-            " WHERE entity_id LIKE :eid_pattern LIMIT 3",
-            params={"eid_pattern": f"%{eid}%"},
-        )
-        if not rows:
-            for alias in _get_alias_names(name):
-                alias_eid = _slugify(alias)
-                rows = _backend.execute_sql(
-                    f"SELECT name, entity_type FROM {ENTITIES_TABLE}"
-                    " WHERE entity_id LIKE :eid_pattern LIMIT 3",
-                    params={"eid_pattern": f"%{alias_eid}%"},
-                )
-                if rows:
-                    break
-        if rows:
-            matches = ", ".join(f"{r['name']} ({r['entity_type']})" for r in rows)
-            found.append(f"{name} -> {matches}")
-        else:
-            not_found.append(name)
+        slug_to_original.setdefault(eid, name)
+        for alias in _get_alias_names(name):
+            slug_to_original.setdefault(_slugify(alias), name)
 
+    if not slug_to_original:
+        return [], list(entity_names)
+
+    conditions = " OR ".join(
+        f"entity_id LIKE :p{i}" for i in range(len(slug_to_original))
+    )
+    params = {f"p{i}": f"%{eid}%" for i, eid in enumerate(slug_to_original)}
+    rows = _backend.execute_sql(
+        f"SELECT entity_id, name, entity_type FROM {ENTITIES_TABLE}"
+        f" WHERE {conditions}",
+        params=params,
+    )
+
+    matched_originals: dict[str, list[str]] = {}
+    for row in rows:
+        rid = row["entity_id"]
+        for slug, orig in slug_to_original.items():
+            if slug in rid and orig not in matched_originals:
+                matched_originals[orig] = []
+            if slug in rid:
+                display = f"{row['name']} ({row['entity_type']})"
+                if display not in matched_originals.get(orig, []):
+                    matched_originals.setdefault(orig, []).append(display)
+
+    found = [f"{name} -> {', '.join(matches)}" for name, matches in matched_originals.items()]
+    not_found = [name for name in entity_names if name not in matched_originals]
     return found, not_found
 
 
@@ -447,6 +481,78 @@ def _get_alias_names(name: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Enron entity-ID humanization
+# ---------------------------------------------------------------------------
+_ENRON_EMAIL_SUFFIXES = ("_enron_com", "_enron_net", "_ect_enron_com", "_enronxgate_com")
+
+
+def _humanize_enron_id(eid: str) -> str:
+    """Convert email-derived entity IDs like 'andrew_fastow_enron_com' to 'Andrew Fastow'."""
+    for suffix in _ENRON_EMAIL_SUFFIXES:
+        if eid.endswith(suffix):
+            eid = eid[: -len(suffix)]
+            break
+    return eid.replace("_", " ").title()
+
+
+def _maybe_humanize(name: str) -> str:
+    """Humanize if the name looks like an email-derived entity ID."""
+    if any(name.endswith(s) for s in _ENRON_EMAIL_SUFFIXES):
+        return _humanize_enron_id(name)
+    return name
+
+
+# ---------------------------------------------------------------------------
+# Structured output helpers
+# ---------------------------------------------------------------------------
+def _group_connections(entity_name: str, results: list[dict], corpus: str = "bible") -> dict:
+    """Group raw connection rows by relationship_type for structured JSON output."""
+    from collections import defaultdict
+    humanize = _maybe_humanize if corpus == "enron" else lambda x: x
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for r in results:
+        entry = {
+            "source": humanize(r["source_name"]),
+            "target": humanize(r["target_name"]),
+            "description": r["description"],
+        }
+        freq = r.get("frequency")
+        if freq is not None:
+            try:
+                entry["frequency"] = int(freq)
+            except (ValueError, TypeError):
+                pass
+        if corpus != "enron" and "book" in r:
+            entry["book"] = r["book"]
+            entry["chapter"] = r.get("chapter")
+        groups[r["relationship_type"]].append(entry)
+
+    for rel_type in groups:
+        groups[rel_type].sort(key=lambda e: e.get("frequency", 0), reverse=True)
+
+    return {
+        "entity": entity_name,
+        "total": len(results),
+        "by_type": dict(groups),
+    }
+
+
+def _group_entities_by_type(results: list[dict], book: str = "") -> dict:
+    """Group entity list rows by entity_type for structured JSON output."""
+    from collections import defaultdict
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for r in results:
+        groups[r["entity_type"]].append({
+            "name": r["name"],
+            "description": (r.get("description") or "")[:100],
+        })
+    out: dict = {"total": len(results), "by_type": dict(groups)}
+    if book:
+        out["book"] = book
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Graph traversal tools
 # ---------------------------------------------------------------------------
 @tool
@@ -487,17 +593,19 @@ def find_entity(name: str) -> str:
             alias_note = f" (also tried KJV variants: {', '.join(aliases)})"
         return f"No entity found matching '{name}'{alias_note}."
 
-    lines = []
+    entities = []
     for r in results:
         if CORPUS == "enron":
             mention = f"Thread: {r.get('first_mention_subject', 'N/A')}"
         else:
             mention = f"{r['first_mention_book']} ch.{r['first_mention_chapter']}"
-        lines.append(
-            f"- **{r['name']}** ({r['entity_type']}): {r['description']} "
-            f"[First mentioned: {mention}]"
-        )
-    return "\n".join(lines)
+        entities.append({
+            "name": r["name"],
+            "type": r["entity_type"],
+            "description": r["description"],
+            "first_mention": mention,
+        })
+    return json.dumps(entities, ensure_ascii=False)
 
 
 @tool
@@ -516,25 +624,29 @@ def find_connections(entity_name: str, book: str = "") -> str:
 
     if CORPUS == "enron":
         results = _backend.execute_sql(
-            f"SELECT COALESCE(e1.name, r.source_entity) as source_name,"
-            f" r.relationship_type, COALESCE(e2.name, r.target_entity) as target_name,"
-            f" r.description, r.thread_id"
-            f" FROM {RELATIONSHIPS_TABLE} r"
-            f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
-            f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
-            f" WHERE (r.source_entity LIKE :eid_pattern OR r.target_entity LIKE :eid_pattern)"
+            f"SELECT source_name, relationship_type, target_name,"
+            f" MAX(description) as description,"
+            f" SUM(COALESCE(edge_count, 1)) as frequency"
+            f" FROM ("
+            f"   SELECT COALESCE(e1.name, r.source_entity) as source_name,"
+            f"   r.relationship_type, COALESCE(e2.name, r.target_entity) as target_name,"
+            f"   r.description, r.edge_count"
+            f"   FROM {RELATIONSHIPS_TABLE} r"
+            f"   LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
+            f"   LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
+            f"   WHERE (r.source_entity LIKE :eid_pattern OR r.target_entity LIKE :eid_pattern)"
+            f" ) sub"
+            f" GROUP BY source_name, relationship_type, target_name"
+            f" ORDER BY frequency DESC"
             " LIMIT 100",
             params=sql_params,
         )
         if not results:
             return f"No connections found for '{entity_name}'."
-        lines = [f"Connections for '{entity_name}' ({len(results)} found):"]
-        for r in results:
-            lines.append(
-                f"- {r['source_name']} --[{r['relationship_type']}]--> {r['target_name']}: "
-                f"{r['description']}"
-            )
-        return "\n".join(lines)
+        return json.dumps(
+            _group_connections(entity_name, results, corpus="enron"),
+            ensure_ascii=False,
+        )
 
     book_filter = ""
     if book:
@@ -557,13 +669,17 @@ def find_connections(entity_name: str, book: str = "") -> str:
         suffix = f" in {book}" if book else ""
         return f"No connections found for '{entity_name}'{suffix}."
 
-    lines = [f"Connections for '{entity_name}' ({len(results)} found):"]
-    for r in results:
-        lines.append(
-            f"- {r['source_name']} --[{r['relationship_type']}]--> {r['target_name']}: "
-            f"{r['description']} ({r['book']} ch.{r['chapter']})"
-        )
-    return "\n".join(lines)
+    return json.dumps(
+        _group_connections(entity_name, results, corpus="bible"),
+        ensure_ascii=False,
+    )
+
+
+def _parse_search_terms(entity_name: str) -> list[str]:
+    """Split 'A AND B' into multiple search terms; returns single-element list otherwise."""
+    if " AND " in entity_name:
+        return [t.strip() for t in entity_name.split(" AND ") if t.strip()]
+    return [entity_name]
 
 
 @tool
@@ -571,26 +687,60 @@ def get_context_verses(entity_name: str, book: str = "") -> str:
     """Get source text that mentions a specific entity. For Bible: returns verses. For Enron: returns emails.
 
     Args:
-        entity_name: The entity name to find source text for (e.g., "Moses", "Kenneth Lay")
-        book: Optional — filter to a specific book (Bible) or thread subject (Enron).
+        entity_name: The entity name to find source text for. Supports 'A AND B' syntax
+            to find emails mentioning both entities (e.g., "Kathy Dodgen AND Kenneth Lay").
+        book: For Bible: filter to a specific book (e.g., "Genesis").
+            For Enron: filter to a second entity name — returns emails mentioning BOTH
+            entity_name and book (e.g., entity_name="Kathy Dodgen", book="Kenneth Lay").
     """
-    sql_params = {"name_pattern": f"%{entity_name}%"}
-
     if CORPUS == "enron":
+        terms = _parse_search_terms(entity_name)
+        if book:
+            terms.append(book)
+
+        sql_params = {}
+        conditions = []
+        for i, term in enumerate(terms):
+            param_name = f"p{i}"
+            sql_params[param_name] = f"%{term}%"
+            conditions.append(f"body LIKE :{param_name}")
+
+        where_clause = " AND ".join(conditions)
         src_table = _get_corpus_config()["source_table"]
+
         results = _backend.execute_sql(
-            f"SELECT sender, subject, date, SUBSTRING(body, 1, 500) AS body_preview"
+            f"SELECT sender, subject, date,"
+            f" SUBSTRING(body, 1, 500) AS body_preview,"
+            f" COALESCE(SIZE(to_recipients), 0) + COALESCE(SIZE(cc_recipients), 0) AS recipient_count"
             f" FROM {src_table}"
-            f" WHERE body LIKE :name_pattern"
+            f" WHERE {where_clause}"
             " ORDER BY date DESC LIMIT 20",
             params=sql_params,
         )
         if not results:
-            return f"No emails found mentioning '{entity_name}'."
-        lines = [f"Emails mentioning '{entity_name}' ({len(results)} found):"]
+            search_desc = " AND ".join(terms)
+            return f"No emails found mentioning '{search_desc}'."
+        emails = []
         for r in results:
-            lines.append(f"  [{r.get('date', '')}] From: {r.get('sender', '')} | Subject: {r.get('subject', '')} — {r.get('body_preview', '')[:200]}")
-        return "\n".join(lines)
+            entry = {
+                "date": str(r.get("date", ""))[:10],
+                "sender": r.get("sender", ""),
+                "subject": r.get("subject", ""),
+                "body_preview": (r.get("body_preview", "") or "")[:200],
+            }
+            rc = r.get("recipient_count")
+            if rc is not None:
+                try:
+                    rc_int = int(rc)
+                    entry["recipient_count"] = rc_int
+                    entry["email_type"] = "direct" if rc_int <= 5 else "group" if rc_int <= 20 else "mass"
+                except (ValueError, TypeError):
+                    pass
+            emails.append(entry)
+        search_desc = " AND ".join(terms)
+        return json.dumps({"entity": search_desc, "total": len(emails), "emails": emails}, ensure_ascii=False)
+
+    sql_params = {"name_pattern": f"%{entity_name}%"}
 
     book_filter = ""
     if book:
@@ -607,10 +757,13 @@ def get_context_verses(entity_name: str, book: str = "") -> str:
     if not results:
         return f"No verses found mentioning '{entity_name}'" + (f" in {book}" if book else "") + "."
 
-    lines = [f"Verses mentioning '{entity_name}' ({len(results)} found):"]
+    verses = []
     for r in results:
-        lines.append(f"  {r['book']} {r['chapter']}:{r['verse_number']} — {r['text']}")
-    return "\n".join(lines)
+        verses.append({
+            "reference": f"{r['book']} {r['chapter']}:{r['verse_number']}",
+            "text": r["text"],
+        })
+    return json.dumps({"entity": entity_name, "total": len(verses), "verses": verses}, ensure_ascii=False)
 
 
 @tool
@@ -625,48 +778,58 @@ def get_entity_summary(entity_name: str) -> str:
     eid_params = {"eid_pattern": f"%{entity_id}%"}
 
     if CORPUS == "enron":
-        cols = "name, entity_type, description, first_mention_thread, first_mention_subject"
+        entity_cols = "entity_id, name, entity_type, description, first_mention_subject AS mention_a, first_mention_thread AS mention_b"
     else:
-        cols = "name, entity_type, description, first_mention_book, first_mention_chapter"
+        entity_cols = "entity_id, name, entity_type, description, first_mention_book AS mention_a, first_mention_chapter AS mention_b"
 
-    entity_rows = _backend.execute_sql(
-        f"SELECT {cols} FROM {ENTITIES_TABLE} WHERE entity_id LIKE :eid_pattern LIMIT 1",
-        params=eid_params,
-    )
-
-    if not entity_rows:
-        return f"Entity '{entity_name}' not found in the knowledge graph."
-
-    ent = entity_rows[0]
-    if CORPUS == "enron":
-        mention = f"Thread: {ent.get('first_mention_subject', 'N/A')}"
-    else:
-        mention = f"{ent['first_mention_book']} ch.{ent['first_mention_chapter']}"
-
-    lines = [
-        f"**{ent['name']}** ({ent['entity_type']})",
-        f"Description: {ent['description']}",
-        f"First mentioned: {mention}",
-    ]
-
-    rels = _backend.execute_sql(
-        f"SELECT COALESCE(e1.name, r.source_entity) as src,"
-        f" r.relationship_type, COALESCE(e2.name, r.target_entity) as tgt,"
-        f" r.description"
-        f" FROM {RELATIONSHIPS_TABLE} r"
+    combined = _backend.execute_sql(
+        f"WITH target AS ("
+        f" SELECT {entity_cols} FROM {ENTITIES_TABLE}"
+        f" WHERE entity_id LIKE :eid_pattern LIMIT 1"
+        f") SELECT t.name, t.entity_type, t.description,"
+        f" t.mention_a, t.mention_b,"
+        f" COALESCE(e1.name, r.source_entity) AS src,"
+        f" r.relationship_type,"
+        f" COALESCE(e2.name, r.target_entity) AS tgt,"
+        f" r.description AS rel_desc"
+        f" FROM target t"
+        f" LEFT JOIN {RELATIONSHIPS_TABLE} r"
+        f"   ON r.source_entity = t.entity_id OR r.target_entity = t.entity_id"
         f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
         f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
-        " WHERE r.source_entity LIKE :eid_pattern OR r.target_entity LIKE :eid_pattern"
-        " LIMIT 50",
+        " LIMIT 51",
         params=eid_params,
     )
 
-    if rels:
-        lines.append(f"\nKey relationships ({len(rels)}):")
-        for r in rels:
-            lines.append(f"  {r['src']} --[{r['relationship_type']}]--> {r['tgt']}: {r['description']}")
+    if not combined:
+        return f"Entity '{entity_name}' not found in the knowledge graph."
 
-    return "\n".join(lines)
+    first = combined[0]
+    if CORPUS == "enron":
+        mention = f"Thread: {first.get('mention_a', 'N/A')}"
+    else:
+        mention = f"{first['mention_a']} ch.{first['mention_b']}"
+
+    summary = {
+        "name": first["name"],
+        "type": first["entity_type"],
+        "description": first["description"],
+        "first_mention": mention,
+    }
+
+    rels = [r for r in combined if r.get("relationship_type")]
+    if rels:
+        from collections import defaultdict
+        humanize = _maybe_humanize if CORPUS == "enron" else lambda x: x
+        groups: dict[str, list[dict]] = defaultdict(list)
+        for r in rels:
+            groups[r["relationship_type"]].append({
+                "source": humanize(r["src"]), "target": humanize(r["tgt"]),
+                "description": r["rel_desc"],
+            })
+        summary["relationships"] = {"total": len(rels), "by_type": dict(groups)}
+
+    return json.dumps(summary, ensure_ascii=False)
 
 
 @tool
@@ -692,14 +855,9 @@ def list_entities_by_book(book: str, entity_type: str = "") -> str:
         )
         if not results:
             return f"No entities found" + (f" of type '{entity_type}'" if entity_type else "") + "."
-        lines = [f"Entities ({len(results)} found):"]
-        current_type = None
-        for r in results:
-            if r["entity_type"] != current_type:
-                current_type = r["entity_type"]
-                lines.append(f"\n  [{current_type}]")
-            lines.append(f"  - {r['name']}: {r['description'][:100]}")
-        return "\n".join(lines)
+        return json.dumps(
+            _group_entities_by_type(results), ensure_ascii=False,
+        )
 
     sql_params = {"book": book}
     type_filter = ""
@@ -720,14 +878,9 @@ def list_entities_by_book(book: str, entity_type: str = "") -> str:
     if not results:
         return f"No entities found in '{book}'."
 
-    lines = [f"Entities in {book} ({len(results)} found):"]
-    current_type = None
-    for r in results:
-        if r["entity_type"] != current_type:
-            current_type = r["entity_type"]
-            lines.append(f"\n  [{current_type}]")
-        lines.append(f"  - {r['name']}: {r['description'][:100]}")
-    return "\n".join(lines)
+    return json.dumps(
+        _group_entities_by_type(results, book=book), ensure_ascii=False,
+    )
 
 
 @tool
@@ -739,9 +892,7 @@ def find_cross_book_entities(min_books: int = 2, entity_type: str = "") -> str:
         min_books: Minimum number of distinct books/threads (default: 2)
         entity_type: Optional — filter by type (e.g., "Person", "Place", "Organization").
     """
-    from collections import defaultdict
-
-    sql_params = {}
+    sql_params: dict[str, str] = {"min_count": str(int(min_books))}
     type_filter = ""
     if entity_type:
         type_filter = " AND e.entity_type = :entity_type"
@@ -749,56 +900,55 @@ def find_cross_book_entities(min_books: int = 2, entity_type: str = "") -> str:
 
     if CORPUS == "enron":
         rows = _backend.execute_sql(
-            f"SELECT DISTINCT e.name, e.entity_type, r.thread_id"
+            f"SELECT e.name, e.entity_type,"
+            f" COUNT(DISTINCT r.thread_id) AS thread_count"
             f" FROM {ENTITIES_TABLE} e"
             f" JOIN {RELATIONSHIPS_TABLE} r"
             f"   ON (e.entity_id = r.source_entity OR e.entity_id = r.target_entity)"
             f" WHERE 1=1{type_filter}"
-            " ORDER BY e.name",
+            " GROUP BY e.name, e.entity_type"
+            " HAVING COUNT(DISTINCT r.thread_id) >= :min_count"
+            " ORDER BY thread_count DESC, e.name"
+            " LIMIT 100",
             params=sql_params,
         )
-        grouped: dict[tuple[str, str], set] = defaultdict(set)
-        for r in rows:
-            key = (r["name"], r["entity_type"])
-            grouped[key].add(r["thread_id"])
-        min_t = int(min_books)
-        filtered = [(name, etype, len(threads)) for (name, etype), threads in grouped.items() if len(threads) >= min_t]
-        filtered.sort(key=lambda x: (-x[2], x[0]))
-        if not filtered:
-            return f"No entities found appearing in {min_t}+ email threads."
-        lines = [f"Entities appearing in {min_t}+ threads ({len(filtered)} found):"]
-        for name, etype, count in filtered[:50]:
-            lines.append(f"- {name} ({etype}): {count} threads")
-        return "\n".join(lines)
+        if not rows:
+            return f"No entities found appearing in {min_books}+ email threads."
+        return json.dumps({
+            "min_threads": int(min_books), "total": len(rows),
+            "entities": [
+                {"name": r["name"], "type": r["entity_type"],
+                 "thread_count": int(r["thread_count"])}
+                for r in rows
+            ],
+        }, ensure_ascii=False)
 
     rows = _backend.execute_sql(
-        f"SELECT DISTINCT e.name, e.entity_type, r.book"
+        f"SELECT e.name, e.entity_type,"
+        f" COUNT(DISTINCT r.book) AS book_count"
         f" FROM {ENTITIES_TABLE} e"
         f" JOIN {RELATIONSHIPS_TABLE} r"
         f"   ON (e.entity_id = r.source_entity OR e.entity_id = r.target_entity)"
         f" WHERE 1=1{type_filter}"
-        " ORDER BY e.name, r.book",
+        " GROUP BY e.name, e.entity_type"
+        " HAVING COUNT(DISTINCT r.book) >= :min_count"
+        " ORDER BY book_count DESC, e.name"
+        " LIMIT 100",
         params=sql_params,
     )
 
-    grouped_books: dict[tuple[str, str], list[str]] = defaultdict(list)
-    for r in rows:
-        key = (r["name"], r["entity_type"])
-        if r["book"] not in grouped_books[key]:
-            grouped_books[key].append(r["book"])
-
-    min_b = int(min_books)
-    filtered_b = [(name, etype, books) for (name, etype), books in grouped_books.items() if len(books) >= min_b]
-    filtered_b.sort(key=lambda x: (-len(x[2]), x[0]))
-
-    if not filtered_b:
+    if not rows:
         type_hint = f" of type '{entity_type}'" if entity_type else ""
-        return f"No entities{type_hint} found appearing in {min_b}+ books."
+        return f"No entities{type_hint} found appearing in {min_books}+ books."
 
-    lines = [f"Entities appearing in {min_b}+ books ({len(filtered_b)} found):"]
-    for name, etype, books in filtered_b:
-        lines.append(f"- {name} ({etype}): {', '.join(sorted(books))} [{len(books)} books]")
-    return "\n".join(lines)
+    return json.dumps({
+        "min_books": int(min_books), "total": len(rows),
+        "entities": [
+            {"name": r["name"], "type": r["entity_type"],
+             "book_count": int(r["book_count"])}
+            for r in rows
+        ],
+    }, ensure_ascii=False)
 
 
 @tool
@@ -811,8 +961,6 @@ def trace_path(entity_a: str, entity_b: str, max_hops: int = 5) -> str:
         entity_b: Ending entity name (e.g., "Jesus")
         max_hops: Maximum number of hops to search (default: 5)
     """
-    from collections import deque
-
     eid_a = "_".join(entity_a.lower().split())
     eid_b = "_".join(entity_b.lower().split())
 
@@ -834,81 +982,74 @@ def trace_path(entity_a: str, entity_b: str, max_hops: int = 5) -> str:
 
     start_ids = {r["entity_id"] for r in start_rows}
     end_ids = {r["entity_id"] for r in end_rows}
-    id_to_name = {r["entity_id"]: r["name"] for r in start_rows + end_rows}
-
-    queue: deque[tuple[str, list[tuple[str, str, str]]]] = deque()
-    for sid in start_ids:
-        queue.append((sid, []))
-    visited = set(start_ids)
-
-    found_path: list[tuple[str, str, str]] | None = None
     max_h = min(int(max_hops), 6)
 
-    while queue and not found_path:
-        current_id, path = queue.popleft()
-        if len(path) >= max_h:
-            continue
+    # Slugified IDs contain only [a-z0-9_], safe for inline SQL values
+    start_list = ", ".join(f"'{s}'" for s in start_ids)
+    end_list = ", ".join(f"'{e}'" for e in end_ids)
 
-        if CORPUS == "enron":
-            neighbors = _backend.execute_sql(
-                f"SELECT r.source_entity, r.target_entity, r.relationship_type,"
-                f" COALESCE(e1.name, r.source_entity) AS src_name,"
-                f" COALESCE(e2.name, r.target_entity) AS tgt_name"
-                f" FROM {RELATIONSHIPS_TABLE} r"
-                f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
-                f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
-                " WHERE r.source_entity = :eid OR r.target_entity = :eid",
-                params={"eid": current_id},
-            )
-        else:
-            neighbors = _backend.execute_sql(
-                f"SELECT r.source_entity, r.target_entity, r.relationship_type,"
-                f" r.book, r.chapter,"
-                f" COALESCE(e1.name, r.source_entity) AS src_name,"
-                f" COALESCE(e2.name, r.target_entity) AS tgt_name"
-                f" FROM {RELATIONSHIPS_TABLE} r"
-                f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
-                f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
-                " WHERE r.source_entity = :eid OR r.target_entity = :eid",
-                params={"eid": current_id},
-            )
+    cte_query = (
+        f"WITH RECURSIVE bfs(current_id, depth, visited, path_names, path_rels) AS ("
+        f" SELECT e.entity_id, 0,"
+        f"  CAST('|' || e.entity_id || '|' AS VARCHAR(4000)),"
+        f"  CAST(e.name AS VARCHAR(4000)),"
+        f"  CAST('' AS VARCHAR(4000))"
+        f" FROM {ENTITIES_TABLE} e"
+        f" WHERE e.entity_id IN ({start_list})"
+        f" UNION ALL"
+        f" SELECT"
+        f"  CASE WHEN r.source_entity = b.current_id"
+        f"   THEN r.target_entity ELSE r.source_entity END,"
+        f"  b.depth + 1,"
+        f"  b.visited"
+        f"   || CASE WHEN r.source_entity = b.current_id"
+        f"       THEN r.target_entity ELSE r.source_entity END || '|',"
+        f"  b.path_names || '|' || COALESCE("
+        f"   CASE WHEN r.source_entity = b.current_id THEN e2.name ELSE e1.name END,"
+        f"   CASE WHEN r.source_entity = b.current_id"
+        f"    THEN r.target_entity ELSE r.source_entity END),"
+        f"  CASE WHEN b.path_rels = '' THEN r.relationship_type"
+        f"   ELSE b.path_rels || '|' || r.relationship_type END"
+        f" FROM bfs b"
+        f" JOIN {RELATIONSHIPS_TABLE} r"
+        f"  ON r.source_entity = b.current_id OR r.target_entity = b.current_id"
+        f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
+        f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
+        f" WHERE b.depth < {max_h}"
+        f"  AND b.visited NOT LIKE"
+        f"   '%|' || CASE WHEN r.source_entity = b.current_id"
+        f"    THEN r.target_entity ELSE r.source_entity END || '|%'"
+        f") SELECT path_names, path_rels, depth FROM bfs"
+        f" WHERE current_id IN ({end_list})"
+        f" ORDER BY depth LIMIT 1"
+    )
 
-        for row in neighbors:
-            next_id = row["target_entity"] if row["source_entity"] == current_id else row["source_entity"]
-            next_name = row["tgt_name"] if row["source_entity"] == current_id else row["src_name"]
-            id_to_name[next_id] = next_name
+    path_rows = _backend.execute_sql(cte_query)
 
-            step = (
-                id_to_name.get(current_id, current_id),
-                row["relationship_type"],
-                next_name,
-            )
-            new_path = path + [step]
-
-            if next_id in end_ids:
-                found_path = new_path
-                break
-
-            if next_id not in visited:
-                visited.add(next_id)
-                queue.append((next_id, new_path))
-
-    if not found_path:
+    if not path_rows:
         return (
             f"No path found between '{entity_a}' and '{entity_b}' "
             f"within {max_h} hops in the knowledge graph."
         )
 
-    lines = [f"Path from {entity_a} to {entity_b} ({len(found_path)} hops):"]
-    for src, rel, tgt in found_path:
-        lines.append(f"  {src} --[{rel}]--> {tgt}")
+    row = path_rows[0]
+    names = row["path_names"].split("|")
+    rels = row["path_rels"].split("|") if row["path_rels"] else []
+
+    if CORPUS == "enron":
+        names = [_maybe_humanize(n) for n in names]
+
+    path_steps = [
+        {"source": names[i], "relationship": rels[i], "target": names[i + 1]}
+        for i in range(len(rels))
+    ]
 
     if CORPUS == "enron":
         detail_cols = "COALESCE(e1.name, r.source_entity) AS src, r.relationship_type, COALESCE(e2.name, r.target_entity) AS tgt, r.description"
     else:
         detail_cols = "COALESCE(e1.name, r.source_entity) AS src, r.relationship_type, COALESCE(e2.name, r.target_entity) AS tgt, r.description, r.book, r.chapter"
 
-    rels = _backend.execute_sql(
+    direct_rels_rows = _backend.execute_sql(
         f"SELECT {detail_cols}"
         f" FROM {RELATIONSHIPS_TABLE} r"
         f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
@@ -918,16 +1059,24 @@ def trace_path(entity_a: str, entity_b: str, max_hops: int = 5) -> str:
         " LIMIT 10",
         params={"eid_a": f"%{eid_a}%", "eid_b": f"%{eid_b}%"},
     )
-    if rels:
-        lines.append("\nDirect relationships:")
-        for r in rels:
-            ctx = f" ({r['book']} ch.{r['chapter']})" if CORPUS != "enron" else ""
-            lines.append(
-                f"  {r['src']} --[{r['relationship_type']}]--> {r['tgt']}: "
-                f"{r['description']}{ctx}"
-            )
+    direct_rels = []
+    for r in direct_rels_rows:
+        entry = {
+            "source": r["src"], "relationship": r["relationship_type"],
+            "target": r["tgt"], "description": r["description"],
+        }
+        if CORPUS != "enron" and "book" in r:
+            entry["book"] = r["book"]
+            entry["chapter"] = r.get("chapter")
+        direct_rels.append(entry)
 
-    return "\n".join(lines)
+    result = {
+        "from": entity_a, "to": entity_b,
+        "hops": len(rels), "path": path_steps,
+    }
+    if direct_rels:
+        result["direct_relationships"] = direct_rels
+    return json.dumps(result, ensure_ascii=False)
 
 
 @tool
@@ -1024,18 +1173,13 @@ def compare_entity_sets(
     desc_a = " + ".join(filter(None, [entity_name, rel_type_a, book_a])) or "(all)"
     desc_b = " + ".join(filter(None, [entity_name, rel_type_b, book_b])) or "(all)"
 
-    lines = [
-        f"Set A ({desc_a}): {len(names_a)} entities",
-        f"Set B ({desc_b}): {len(names_b)} entities",
-        f"Operation: {op_label}",
-        f"Result: {len(result_set)} entities",
-    ]
-    if result_set:
-        for name in result_set:
-            lines.append(f"  - {name}")
-    else:
-        lines.append("  (empty set)")
-    return "\n".join(lines)
+    return json.dumps({
+        "set_a": {"description": desc_a, "count": len(names_a)},
+        "set_b": {"description": desc_b, "count": len(names_b)},
+        "operation": op_label,
+        "result_count": len(result_set),
+        "result": result_set,
+    }, ensure_ascii=False)
 
 
 LOCAL_TOOLS = [find_entity, find_connections, get_context_verses, get_entity_summary,
@@ -1094,13 +1238,12 @@ def build_scoped_tools_local(permitted_books: list):
 
         if not results:
             return f"No entity found matching '{name}' in permitted books."
-        lines = []
-        for r in results:
-            lines.append(
-                f"- **{r['name']}** ({r['entity_type']}): {r['description']} "
-                f"[First mentioned: {r['first_mention_book']} ch.{r['first_mention_chapter']}]"
-            )
-        return "\n".join(lines)
+        entities = [{
+            "name": r["name"], "type": r["entity_type"],
+            "description": r["description"],
+            "first_mention": f"{r['first_mention_book']} ch.{r['first_mention_chapter']}",
+        } for r in results]
+        return json.dumps(entities, ensure_ascii=False)
 
     @tool
     def find_connections(entity_name: str, book: str = "") -> str:
@@ -1133,13 +1276,10 @@ def build_scoped_tools_local(permitted_books: list):
         if not results:
             suffix = f" in {book}" if book else ""
             return f"No connections found for '{entity_name}'{suffix}."
-        lines = [f"Connections for '{entity_name}' ({len(results)} found):"]
-        for r in results:
-            lines.append(
-                f"- {r['source_name']} --[{r['relationship_type']}]--> {r['target_name']}: "
-                f"{r['description']} ({r['book']} ch.{r['chapter']})"
-            )
-        return "\n".join(lines)
+        return json.dumps(
+            _group_connections(entity_name, results, corpus="bible"),
+            ensure_ascii=False,
+        )
 
     @tool
     def get_context_verses(entity_name: str, book: str = "") -> str:
@@ -1164,10 +1304,11 @@ def build_scoped_tools_local(permitted_books: list):
         )
         if not results:
             return f"No verses found mentioning '{entity_name}' in permitted books."
-        lines = [f"Verses mentioning '{entity_name}' ({len(results)} found):"]
-        for r in results:
-            lines.append(f"  {r['book']} {r['chapter']}:{r['verse_number']} — {r['text']}")
-        return "\n".join(lines)
+        verses = [{
+            "reference": f"{r['book']} {r['chapter']}:{r['verse_number']}",
+            "text": r["text"],
+        } for r in results]
+        return json.dumps({"entity": entity_name, "total": len(verses), "verses": verses}, ensure_ascii=False)
 
     @tool
     def get_entity_summary(entity_name: str) -> str:
@@ -1200,11 +1341,11 @@ def build_scoped_tools_local(permitted_books: list):
         if not entity_rows:
             return f"Entity '{entity_name}' not found in the permitted document set."
         ent = entity_rows[0]
-        lines = [
-            f"**{ent['name']}** ({ent['entity_type']})",
-            f"Description: {ent['description']}",
-            f"First mentioned: {ent['first_mention_book']} ch.{ent['first_mention_chapter']}",
-        ]
+        summary = {
+            "name": ent["name"], "type": ent["entity_type"],
+            "description": ent["description"],
+            "first_mention": f"{ent['first_mention_book']} ch.{ent['first_mention_chapter']}",
+        }
         rels = _backend.execute_sql(
             f"SELECT COALESCE(e1.name, r.source_entity) as src,"
             f" r.relationship_type, COALESCE(e2.name, r.target_entity) as tgt,"
@@ -1217,12 +1358,16 @@ def build_scoped_tools_local(permitted_books: list):
             params=eid_params,
         )
         if rels:
+            from collections import defaultdict
             books_seen = set(r["book"] for r in rels)
-            lines.append(f"Appears in (permitted): {', '.join(sorted(books_seen))}")
-            lines.append(f"\nKey relationships ({len(rels)}):")
+            summary["appears_in"] = sorted(books_seen)
+            groups: dict[str, list[dict]] = defaultdict(list)
             for r in rels:
-                lines.append(f"  {r['src']} --[{r['relationship_type']}]--> {r['tgt']}: {r['description']}")
-        return "\n".join(lines)
+                groups[r["relationship_type"]].append({
+                    "source": r["src"], "target": r["tgt"], "description": r["description"],
+                })
+            summary["relationships"] = {"total": len(rels), "by_type": dict(groups)}
+        return json.dumps(summary, ensure_ascii=False)
 
     @tool
     def list_entities_by_book(book: str, entity_type: str = "") -> str:
@@ -1249,14 +1394,9 @@ def build_scoped_tools_local(permitted_books: list):
         )
         if not results:
             return f"No entities found in '{book}'."
-        lines = [f"Entities in {book} ({len(results)} found):"]
-        current_type = None
-        for r in results:
-            if r["entity_type"] != current_type:
-                current_type = r["entity_type"]
-                lines.append(f"\n  [{current_type}]")
-            lines.append(f"  - {r['name']}: {r['description'][:100]}")
-        return "\n".join(lines)
+        return json.dumps(
+            _group_entities_by_type(results, book=book), ensure_ascii=False,
+        )
 
     @tool
     def compare_entity_sets(
@@ -1325,16 +1465,13 @@ def build_scoped_tools_local(permitted_books: list):
 
         desc_a = " + ".join(filter(None, [entity_name, rel_type_a, book_a])) or "(all permitted)"
         desc_b = " + ".join(filter(None, [entity_name, rel_type_b, book_b])) or "(all permitted)"
-        lines = [
-            f"Set A ({desc_a}): {len(names_a)} entities",
-            f"Set B ({desc_b}): {len(names_b)} entities",
-            f"Operation: {op_label} — Result: {len(result_set)} entities",
-        ]
-        for name in result_set:
-            lines.append(f"  - {name}")
-        if not result_set:
-            lines.append("  (empty set)")
-        return "\n".join(lines)
+        return json.dumps({
+            "set_a": {"description": desc_a, "count": len(names_a)},
+            "set_b": {"description": desc_b, "count": len(names_b)},
+            "operation": op_label,
+            "result_count": len(result_set),
+            "result": result_set,
+        }, ensure_ascii=False)
 
     return [find_entity, find_connections, get_context_verses, get_entity_summary,
             list_entities_by_book, compare_entity_sets]

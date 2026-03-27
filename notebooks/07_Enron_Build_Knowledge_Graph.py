@@ -194,6 +194,207 @@ print(f"Wrote {entity_count:,} unique entities to {config['enron_entities_table'
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ## Step 3.5: Entity Resolution
+# MAGIC
+# MAGIC Merge variant entity IDs that refer to the same real-world entity.
+# MAGIC Three strategies applied in order:
+# MAGIC 1. **Email-to-name linking** — join `slugify(email)` IDs against `slugify(x_from)` display names
+# MAGIC 2. **Title/prefix stripping** — "Dr. Kenneth Lay" → "Kenneth Lay"
+# MAGIC 3. **Substring containment** — `ken_lay` merges into `kenneth_lay` when same entity_type
+# MAGIC
+# MAGIC Results are written to an `entity_aliases` table, then entities and the
+# MAGIC exploded mentions table are rewritten with canonical IDs.
+
+# COMMAND ----------
+
+# DBTITLE 1,Strategy 1: Email-to-Name Linking via x_from
+_TITLE_PREFIXES = r"^(dr|mr|mrs|ms|prof|sir|rev)[\.\s]+"
+
+def _strip_title(name_str):
+    """Remove honorific prefixes before slugifying."""
+    if name_str is None:
+        return None
+    import re as _re
+    return _re.sub(_TITLE_PREFIXES, "", name_str.strip(), flags=_re.IGNORECASE).strip()
+
+strip_title_udf = F.udf(_strip_title, StringType())
+
+emails_for_alias = spark.table(emails_table).select(
+    F.col("sender"),
+    F.col("x_from"),
+).filter(
+    F.col("sender").isNotNull() & F.col("x_from").isNotNull()
+    & (F.col("sender") != "") & (F.col("x_from") != "")
+).distinct()
+
+email_name_links = (
+    emails_for_alias
+    .withColumn("email_id", slugify_udf(F.col("sender")))
+    .withColumn("name_id", slugify_udf(strip_title_udf(F.col("x_from"))))
+    .filter(
+        (F.col("email_id").isNotNull()) & (F.col("name_id").isNotNull())
+        & (F.col("email_id") != F.col("name_id"))
+        & (F.length(F.col("name_id")) > 2)
+    )
+    .select(
+        F.col("email_id").alias("alias_id"),
+        F.col("name_id").alias("canonical_id"),
+    )
+    .distinct()
+)
+
+email_link_count = email_name_links.count()
+print(f"Strategy 1 (email→name): {email_link_count:,} alias mappings")
+
+# COMMAND ----------
+
+# DBTITLE 1,Strategy 2: Title/Prefix Stripping
+entities_df = spark.table(config['enron_entities_table'])
+
+title_aliases = (
+    entities_df
+    .withColumn("stripped_id", slugify_udf(strip_title_udf(F.col("name"))))
+    .filter(
+        (F.col("stripped_id").isNotNull())
+        & (F.col("stripped_id") != F.col("entity_id"))
+        & (F.length(F.col("stripped_id")) > 2)
+    )
+    .join(
+        entities_df.select(F.col("entity_id").alias("canonical_id")),
+        F.col("stripped_id") == F.col("canonical_id"),
+        "inner",
+    )
+    .select(
+        F.col("entity_id").alias("alias_id"),
+        F.col("canonical_id"),
+    )
+    .distinct()
+)
+
+title_alias_count = title_aliases.count()
+print(f"Strategy 2 (title strip): {title_alias_count:,} alias mappings")
+
+# COMMAND ----------
+
+# DBTITLE 1,Strategy 3: Substring Containment (same entity_type)
+from pyspark.sql import Window as W
+
+ent_for_substr = entities_df.select("entity_id", "entity_type", F.length("entity_id").alias("id_len"))
+
+substr_aliases = (
+    ent_for_substr.alias("short")
+    .join(
+        ent_for_substr.alias("long"),
+        (F.col("short.entity_type") == F.col("long.entity_type"))
+        & (F.col("long.id_len") > F.col("short.id_len"))
+        & F.col("long.entity_id").contains(F.col("short.entity_id")),
+    )
+    .select(
+        F.col("short.entity_id").alias("alias_id"),
+        F.col("long.entity_id").alias("canonical_id"),
+    )
+    .distinct()
+)
+
+substr_alias_count = substr_aliases.count()
+print(f"Strategy 3 (substring): {substr_alias_count:,} alias mappings")
+
+# COMMAND ----------
+
+# DBTITLE 1,Combine Aliases and Resolve Chains
+all_aliases = (
+    email_name_links
+    .unionByName(title_aliases)
+    .unionByName(substr_aliases)
+    .distinct()
+)
+
+canonical_ids = entities_df.select("entity_id").distinct()
+all_aliases = all_aliases.join(
+    canonical_ids,
+    all_aliases.canonical_id == canonical_ids.entity_id,
+    "left_semi",
+)
+
+all_aliases = all_aliases.filter(F.col("alias_id") != F.col("canonical_id"))
+
+alias_window = W.partitionBy("alias_id").orderBy(F.length("canonical_id").desc())
+resolved_aliases = (
+    all_aliases
+    .withColumn("rn", F.row_number().over(alias_window))
+    .filter(F.col("rn") == 1)
+    .select("alias_id", "canonical_id")
+)
+
+enron_schema = config['enron_schema']
+alias_table = f"{config['catalog']}.{enron_schema}.entity_aliases"
+
+(
+    resolved_aliases.write
+    .format("delta")
+    .mode("overwrite")
+    .option("overwriteSchema", "true")
+    .saveAsTable(alias_table)
+)
+
+alias_count = spark.table(alias_table).count()
+print(f"Wrote {alias_count:,} entity aliases to {alias_table}")
+
+# COMMAND ----------
+
+# DBTITLE 1,Rewrite Entity Mentions with Canonical IDs
+aliases_df = spark.table(alias_table)
+
+entities_exploded_df = (
+    spark.table(entity_mentions_temp_table)
+    .join(aliases_df, F.col("entity_id") == aliases_df.alias_id, "left")
+    .withColumn("entity_id", F.coalesce(aliases_df.canonical_id, F.col("entity_id")))
+    .drop("alias_id", "canonical_id")
+)
+
+(
+    entities_exploded_df.write
+    .format("delta")
+    .mode("overwrite")
+    .option("overwriteSchema", "true")
+    .saveAsTable(entity_mentions_temp_table)
+)
+
+print(f"Rewrote entity mentions with canonical IDs")
+
+# COMMAND ----------
+
+# DBTITLE 1,Rebuild Deduplicated Entities with Merged Aliases
+first_mention_window_2 = Window.partitionBy("entity_id").orderBy("thread_id")
+
+unique_entities_df = (
+    entities_exploded_df
+    .withColumn("rn", F.row_number().over(first_mention_window_2))
+    .filter(F.col("rn") == 1)
+    .select(
+        "entity_id",
+        "name",
+        "entity_type",
+        "description",
+        F.col("thread_id").alias("first_mention_thread"),
+        F.col("subject").alias("first_mention_subject"),
+    )
+)
+
+(
+    unique_entities_df.write
+    .format("delta")
+    .mode("overwrite")
+    .option("overwriteSchema", "true")
+    .saveAsTable(config['enron_entities_table'])
+)
+
+resolved_entity_count = spark.table(config['enron_entities_table']).count()
+print(f"After entity resolution: {resolved_entity_count:,} entities (was {entity_count:,}, merged {entity_count - resolved_entity_count:,})")
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ## Step 4: Relationship Extraction
 # MAGIC
 # MAGIC Two relationship sources:
@@ -339,7 +540,39 @@ semantic_rels = (
     )
 )
 
-all_rels = sent_to_rels.unionByName(semantic_rels)
+all_rels_raw = sent_to_rels.unionByName(semantic_rels)
+
+# Apply entity resolution aliases to relationship source/target
+aliases_df = spark.table(f"{config['catalog']}.{enron_schema}.entity_aliases")
+all_rels_resolved = (
+    all_rels_raw
+    .join(
+        aliases_df.select(F.col("alias_id").alias("src_alias"), F.col("canonical_id").alias("src_canonical")),
+        F.col("source_entity") == F.col("src_alias"),
+        "left",
+    )
+    .withColumn("source_entity", F.coalesce(F.col("src_canonical"), F.col("source_entity")))
+    .drop("src_alias", "src_canonical")
+    .join(
+        aliases_df.select(F.col("alias_id").alias("tgt_alias"), F.col("canonical_id").alias("tgt_canonical")),
+        F.col("target_entity") == F.col("tgt_alias"),
+        "left",
+    )
+    .withColumn("target_entity", F.coalesce(F.col("tgt_canonical"), F.col("target_entity")))
+    .drop("tgt_alias", "tgt_canonical")
+    .filter(F.col("source_entity") != F.col("target_entity"))
+)
+
+# Deduplicate: collapse (source, target, type) triples into one edge with count
+all_rels = (
+    all_rels_resolved
+    .groupBy("source_entity", "target_entity", "relationship_type")
+    .agg(
+        F.first("description").alias("description"),
+        F.first("thread_id").alias("thread_id"),
+        F.count("*").alias("edge_count"),
+    )
+)
 
 (
     all_rels.write
@@ -350,7 +583,8 @@ all_rels = sent_to_rels.unionByName(semantic_rels)
 )
 
 rel_count = spark.table(config['enron_relationships_table']).count()
-print(f"Wrote {rel_count:,} relationships (structural + semantic) to {config['enron_relationships_table']}")
+raw_count = all_rels_raw.count()
+print(f"Wrote {rel_count:,} deduplicated relationships (from {raw_count:,} raw) to {config['enron_relationships_table']}")
 
 # COMMAND ----------
 

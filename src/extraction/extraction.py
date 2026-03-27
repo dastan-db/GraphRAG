@@ -76,6 +76,10 @@ For each entity, provide:
 Rules:
 - Be comprehensive but only include entities actually mentioned in the text
 - Use full canonical names for people (first and last name when available)
+- NEVER use title prefixes (Dr., Mr., Mrs., Ms., Prof., Rev.) in entity names — use the bare name only (e.g., "Kenneth Lay" not "Dr. Kenneth Lay")
+- NEVER abbreviate first names (e.g., "Kenneth Lay" not "Ken Lay", "Robert Smith" not "Bob Smith")
+- If only an email address is visible, use the display name from the From/X-From header instead
+- Use the EXACT SAME canonical name for the same person across all extractions
 - Normalize company names consistently (e.g., "Enron Corp", "Arthur Andersen LLP")
 - Classify internal business units as Division (e.g., "Enron Broadband Services", "Enron Energy Trading")
 - Classify deals, initiatives, and ventures as Project (e.g., "Project Raptor", "Dabhol Power")
