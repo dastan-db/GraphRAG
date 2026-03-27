@@ -11,7 +11,7 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import ALL, Input, Output, State, callback, dcc, html, no_update
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from bible_registry import BIBLE_BOOKS_ALL
 
 USE_MOCK = os.getenv("USE_MOCK_BACKEND", "false").lower() == "true"
