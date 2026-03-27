@@ -88,17 +88,27 @@ def _extract_entities(text: str) -> list[str]:
     return result
 
 
-def query_agent(question: str) -> AgentResponse:
-    """Send a question to the GraphRAG agent endpoint and return parsed result."""
+def query_agent(question: str, permitted_books: list[str] | None = None) -> AgentResponse:
+    """Send a question to the GraphRAG agent endpoint and return parsed result.
+
+    Args:
+        permitted_books: Optional list of book names the user is permitted to
+            access. When set, the agent restricts graph traversal to these books
+            via Lakebase RLS (``app.permitted_books`` session variable).
+    """
     from backend.graph_client import lookup_verses
 
     endpoint = os.getenv("GRAPHRAG_ENDPOINT_NAME", "graphrag-bible-agent")
     w = _get_client()
 
+    body: dict = {"input": [{"role": "user", "content": question}]}
+    if permitted_books is not None:
+        body["context"] = {"permitted_books": ",".join(permitted_books)}
+
     resp = w.api_client.do(
         "POST",
         f"/serving-endpoints/{endpoint}/invocations",
-        body={"input": [{"role": "user", "content": question}]},
+        body=body,
     )
 
     texts = []
@@ -238,15 +248,25 @@ def _match_mock(question: str) -> str:
     return _MOCK_RESPONSES["ruth"]
 
 
-def query_agent_enron(question: str) -> AgentResponse:
-    """Send a question to the Enron GraphRAG agent endpoint and return parsed result."""
+def query_agent_enron(question: str, tier: str = "") -> AgentResponse:
+    """Send a question to the Enron GraphRAG agent endpoint and return parsed result.
+
+    Args:
+        tier: Access tier (legal_team, executive_team, analyst_team).  When set,
+            the agent restricts graph visibility via Lakebase RLS
+            (``app.user_tier`` session variable).
+    """
     endpoint = os.getenv("GRAPHRAG_ENRON_ENDPOINT_NAME", "graphrag-enron-agent")
     w = _get_client()
+
+    body: dict = {"input": [{"role": "user", "content": question}]}
+    if tier:
+        body["context"] = {"user_tier": tier}
 
     resp = w.api_client.do(
         "POST",
         f"/serving-endpoints/{endpoint}/invocations",
-        body={"input": [{"role": "user", "content": question}]},
+        body=body,
     )
 
     texts = []

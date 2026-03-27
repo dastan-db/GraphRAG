@@ -19,6 +19,7 @@ log = logging.getLogger(__name__)
 LAKEBASE_ENDPOINT = os.environ.get("LAKEBASE_ENDPOINT", "")
 LAKEBASE_HOST = os.environ.get("LAKEBASE_HOST", "")
 LAKEBASE_DBNAME = os.environ.get("LAKEBASE_DBNAME", "databricks_postgres")
+PERMITTED_BOOKS = os.environ.get("LAKEBASE_PERMITTED_BOOKS", "")
 
 mcp = FastMCP("GraphRAG Graph Analytics")
 
@@ -55,10 +56,24 @@ def _get_connection():
         conn.close()
 
 
-def _query(sql: str, params: tuple = ()) -> list[dict]:
-    """Execute a SQL query and return rows as dicts."""
+def _query(sql: str, params: tuple = (), context: dict | None = None) -> list[dict]:
+    """Execute a SQL query and return rows as dicts.
+
+    Args:
+        context: Optional session variables to set before executing.
+                 e.g. ``{"permitted_books": "Genesis,Exodus"}`` sets
+                 ``app.permitted_books`` for the duration of this transaction.
+    """
     with _get_connection() as conn:
         with conn.cursor() as cursor:
+            rls_context = context or {}
+            if not rls_context and PERMITTED_BOOKS:
+                rls_context["permitted_books"] = PERMITTED_BOOKS
+            for key, value in rls_context.items():
+                cursor.execute(
+                    "SELECT set_config(%s, %s, true)",
+                    (f"app.{key}", str(value)),
+                )
             cursor.execute(sql, params)
             columns = [desc[0] for desc in cursor.description]
             return [dict(zip(columns, row)) for row in cursor.fetchall()]

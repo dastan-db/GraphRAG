@@ -9,6 +9,8 @@ from backend.agent_client import AgentResponse, query_agent, query_agent_mock
 
 USE_MOCK = os.getenv("USE_MOCK_BACKEND", "false").lower() == "true"
 
+BIBLE_BOOKS = ["Genesis", "Exodus", "Ruth", "Matthew", "Acts"]
+
 EXAMPLE_QUESTIONS = [
     "How is Ruth connected to Jesus?",
     "Which people appear in both Genesis and Exodus?",
@@ -34,7 +36,29 @@ def demo_layout():
 
         html.Hr(),
 
-        # Example question buttons
+        dbc.Card([
+            dbc.CardBody([
+                html.Div([
+                    html.I(className="fas fa-book me-2 text-danger"),
+                    html.H6("Permitted Books (Lakebase RLS)", className="d-inline mb-0"),
+                ], className="mb-2"),
+                html.P(
+                    "Deselect books to see how Row-Level Security restricts the "
+                    "knowledge graph. Entities, relationships, and verses from "
+                    "excluded books become invisible to the agent.",
+                    className="small text-muted mb-2",
+                ),
+                dbc.Checklist(
+                    id="book-selector",
+                    options=[{"label": b, "value": b} for b in BIBLE_BOOKS],
+                    value=list(BIBLE_BOOKS),
+                    inline=True,
+                    input_class_name="me-1",
+                    label_class_name="me-3",
+                ),
+            ]),
+        ], className="mb-3", color="dark", outline=True),
+
         html.P("Try one of these questions:", className="fw-bold mb-2"),
         html.Div([
             dbc.Button(q, id={"type": "example-btn", "index": i}, color="outline-secondary",
@@ -200,9 +224,10 @@ def register_demo_callbacks(app):
         Input({"type": "example-btn", "index": ALL}, "n_clicks"),
         State("chat-input", "value"),
         State("chat-store", "data"),
+        State("book-selector", "value"),
         prevent_initial_call=True,
     )
-    def handle_send(send_clicks, n_submit, example_clicks, user_input, chat_data):
+    def handle_send(send_clicks, n_submit, example_clicks, user_input, chat_data, selected_books):
         ctx = dash.callback_context
         if not ctx.triggered:
             return no_update, no_update, no_update, no_update
@@ -224,6 +249,8 @@ def register_demo_callbacks(app):
         if not question or not question.strip():
             return no_update, no_update, no_update, no_update
 
+        permitted_books = selected_books if selected_books and len(selected_books) < len(BIBLE_BOOKS) else None
+
         messages = chat_data.get("messages", [])
         messages.append({"role": "user", "content": question})
 
@@ -231,7 +258,7 @@ def register_demo_callbacks(app):
             if USE_MOCK:
                 resp = query_agent_mock(question)
             else:
-                resp = query_agent(question)
+                resp = query_agent(question, permitted_books=permitted_books)
         except Exception as e:
             from backend.agent_client import AgentResponse
             resp = AgentResponse(

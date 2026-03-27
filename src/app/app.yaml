@@ -17,5 +17,9 @@ env:
     value: "graphrag_bible"
   - name: USE_MOCK_BACKEND
     value: "false"
+  - name: LAKEBASE_ENDPOINT
+    value: "projects/graphrag/branches/production/endpoints/primary"
+  - name: GRAPHRAG_DATA_BACKEND
+    value: "lakebase"
   - name: GRAPHRAG_NOTEBOOK_PATH
     value: "/Workspace/Users/dastan.aitzhanov@databricks.com/.bundle/graphrag-solution-accelerator/dev/files/notebooks"

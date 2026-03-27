@@ -158,9 +158,85 @@ class LocalBackend:
         return [dict(zip(columns, row)) for row in result.fetchall()]
 
 
+class LakebaseBackend:
+    """Lakebase Autoscaling (Postgres) — low-latency OLTP with RLS.
+
+    Connects via psycopg with Databricks OAuth tokens.  Supports session-level
+    RLS context: call ``set_rls_context({"permitted_books": "Genesis,Exodus"})``
+    to scope all subsequent queries via Postgres RLS policies.
+    """
+
+    _FQN_BIBLE = f"{CATALOG}.{SCHEMA}."
+    _FQN_ENRON = f"{CATALOG}.{ENRON_SCHEMA}."
+
+    def __init__(self):
+        self._endpoint = os.environ.get(
+            "LAKEBASE_ENDPOINT",
+            "projects/graphrag/branches/production/endpoints/primary",
+        )
+        self._host: str | None = os.environ.get("LAKEBASE_HOST") or None
+        self._dbname = os.environ.get("LAKEBASE_DBNAME", "databricks_postgres")
+        self._rls_context: dict[str, str] = {}
+
+    def set_rls_context(self, context: dict[str, str]):
+        """Set session-level RLS variables applied on every new connection."""
+        self._rls_context = dict(context)
+
+    def _connect(self):
+        import psycopg as pg
+        from databricks.sdk import WorkspaceClient
+
+        w = WorkspaceClient()
+        host = self._host
+        if not host:
+            ep = w.postgres.get_endpoint(name=self._endpoint)
+            host = ep.status.hosts.host
+            self._host = host
+
+        cred = w.postgres.generate_database_credential(endpoint=self._endpoint)
+        username = w.current_user.me().user_name
+
+        return pg.connect(
+            host=host,
+            dbname=self._dbname,
+            user=username,
+            password=cred.token,
+            sslmode="require",
+        )
+
+    def execute_sql(self, query: str, params: dict[str, str] | None = None) -> list[dict]:
+        query = query.replace(self._FQN_BIBLE, "")
+        query = query.replace(self._FQN_ENRON, "enron.")
+
+        conn = self._connect()
+        try:
+            with conn.cursor() as cur:
+                for key, value in self._rls_context.items():
+                    if value:
+                        cur.execute(
+                            "SELECT set_config(%s, %s, true)",
+                            (f"app.{key}", str(value)),
+                        )
+
+                if params:
+                    pg_query = re.sub(r":(\w+)", r"%(\1)s", query)
+                    cur.execute(pg_query, params)
+                else:
+                    cur.execute(query)
+
+                if cur.description is None:
+                    return []
+                columns = [desc[0] for desc in cur.description]
+                return [dict(zip(columns, row)) for row in cur.fetchall()]
+        finally:
+            conn.close()
+
+
 def _get_backend() -> DataBackend:
     if BACKEND_TYPE == "local":
         return LocalBackend()
+    if BACKEND_TYPE == "lakebase":
+        return LakebaseBackend()
     return DatabricksBackend()
 
 
@@ -1399,32 +1475,65 @@ Before you received this message, entities from the user's question were automat
 - Do NOT bridge graph entities to external knowledge (e.g., public news about Enron's collapse) without stating this is outside the graph."""
 
 
+def _apply_rls_context(tier: str = "", permitted_books: str = ""):
+    """Push RLS session variables to the Lakebase backend if active."""
+    if not isinstance(_backend, LakebaseBackend):
+        return
+    ctx: dict[str, str] = {}
+    if tier:
+        ctx["user_tier"] = tier
+    if permitted_books:
+        ctx["permitted_books"] = permitted_books
+    _backend.set_rls_context(ctx)
+
+
 def _get_corpus_config() -> dict:
     """Return table references and system prompt for the active corpus.
 
-    When GRAPHRAG_ACCESS_TIER is set and corpus is enron, returns ABAC view
-    names instead of base table names.  The UC row filter on the emails table
-    cascades into the views automatically.
+    On a Lakebase backend, RLS policies handle access control via session
+    variables — no ABAC views needed.  On a Databricks backend with
+    ACCESS_TIER set, falls back to the UC ABAC views.
     """
     if CORPUS == "enron":
         if ACCESS_TIER:
-            log.info("ABAC mode: tier=%s — using ABAC views", ACCESS_TIER)
+            _apply_rls_context(tier=ACCESS_TIER)
+
+            if isinstance(_backend, LakebaseBackend):
+                log.info("ABAC mode (Lakebase RLS): tier=%s", ACCESS_TIER)
+            else:
+                log.info("ABAC mode (UC views): tier=%s", ACCESS_TIER)
+
             abac_note = (
                 f"\n\n**Access tier: {ACCESS_TIER}** — Your view of the knowledge "
                 f"graph is restricted based on your access level. Some entities, "
                 f"relationships, or email sources may not be visible."
             )
+
+            if not isinstance(_backend, LakebaseBackend):
+                return {
+                    "entities": ENRON_ABAC_ENTITIES_VIEW,
+                    "relationships": ENRON_ABAC_RELATIONSHIPS_VIEW,
+                    "source_table": ENRON_ABAC_EMAILS_VIEW,
+                    "entity_analytics": ENRON_ABAC_ENTITY_ANALYTICS_VIEW,
+                    "entity_paths": ENRON_ABAC_ENTITY_PATHS_VIEW,
+                    "entity_mentions": ENRON_ABAC_ENTITY_MENTIONS_VIEW,
+                    "system_prompt": ENRON_SYSTEM_PROMPT + abac_note,
+                    "source_type": "email",
+                    "access_tier": ACCESS_TIER,
+                }
+
             return {
-                "entities": ENRON_ABAC_ENTITIES_VIEW,
-                "relationships": ENRON_ABAC_RELATIONSHIPS_VIEW,
-                "source_table": ENRON_ABAC_EMAILS_VIEW,
-                "entity_analytics": ENRON_ABAC_ENTITY_ANALYTICS_VIEW,
-                "entity_paths": ENRON_ABAC_ENTITY_PATHS_VIEW,
-                "entity_mentions": ENRON_ABAC_ENTITY_MENTIONS_VIEW,
+                "entities": ENRON_ENTITIES_TABLE,
+                "relationships": ENRON_RELATIONSHIPS_TABLE,
+                "source_table": ENRON_EMAILS_TABLE,
+                "entity_analytics": ENRON_ENTITY_ANALYTICS_TABLE,
+                "entity_paths": ENRON_ENTITY_PATHS_TABLE,
+                "entity_mentions": ENRON_ENTITY_MENTIONS_TABLE,
                 "system_prompt": ENRON_SYSTEM_PROMPT + abac_note,
                 "source_type": "email",
                 "access_tier": ACCESS_TIER,
             }
+
         return {
             "entities": ENRON_ENTITIES_TABLE,
             "relationships": ENRON_RELATIONSHIPS_TABLE,

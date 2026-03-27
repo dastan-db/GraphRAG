@@ -10,7 +10,8 @@
 
 .PHONY: export test test-unit test-app validate parity \
        bundle-validate bundle-deploy local-all \
-       deploy deploy-force deploy-all test-endpoint help
+       deploy deploy-force deploy-all test-endpoint help \
+       preflight preflight-full deploy-confident
 
 PYTHON ?= python
 
@@ -54,6 +55,16 @@ bundle-deploy: validate bundle-validate ## Validate locally + bundle validate, t
 	databricks bundle deploy --target dev
 
 deploy-all: local-all bundle-validate ## Full local validation + Model Serving deploy + bundle deploy
+	$(PYTHON) scripts/redeploy_agent.py --no-validate
+	databricks bundle deploy --target dev
+
+preflight: ## Full deployment confidence check (all 8 layers)
+	$(PYTHON) scripts/preflight.py
+
+preflight-full: ## Full preflight including parity check (all 9 layers)
+	$(PYTHON) scripts/preflight.py --parity
+
+deploy-confident: preflight bundle-validate ## Preflight + Model Serving deploy + bundle deploy
 	$(PYTHON) scripts/redeploy_agent.py --no-validate
 	databricks bundle deploy --target dev
 

@@ -1,9 +1,15 @@
-"""Query the knowledge graph Delta tables via SQL Warehouse for visualization."""
+"""Query the knowledge graph tables for visualization.
+
+Routes to either SQL Warehouse (default) or Lakebase (psycopg + RLS) based on
+the ``GRAPHRAG_DATA_BACKEND`` environment variable.
+"""
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+
+_USE_LAKEBASE = os.getenv("GRAPHRAG_DATA_BACKEND", "warehouse").lower() == "lakebase"
 from typing import Any
 
 from databricks import sql as dbsql
@@ -490,3 +496,45 @@ def get_entity_neighborhood_mock(entity_name: str) -> GraphData:
         GraphEdge(source="david", target="jesus", label="ANCESTOR_OF", book="Matthew"),
     ]
     return GraphData(nodes=nodes, edges=edges)
+
+
+# ---------------------------------------------------------------------------
+# Lakebase routing — override live functions when GRAPHRAG_DATA_BACKEND=lakebase
+# ---------------------------------------------------------------------------
+
+if _USE_LAKEBASE:
+    from backend import lakebase_client as _lb
+
+    def get_entity_neighborhood(entity_name: str, limit: int = 30,  # noqa: F811
+                                context: dict | None = None) -> GraphData:
+        lb_data = _lb.get_entity_neighborhood(entity_name, limit=limit, context=context)
+        nodes = [GraphNode(id=n.id, label=n.label, entity_type=n.entity_type) for n in lb_data.nodes]
+        edges = [GraphEdge(source=e.source, target=e.target, label=e.label,
+                           description=e.description, book=e.book) for e in lb_data.edges]
+        return GraphData(nodes=nodes, edges=edges)
+
+    def lookup_verses(references: list[str],  # noqa: F811
+                      context: dict | None = None) -> dict[str, str]:
+        return _lb.lookup_verses(references, context=context)
+
+    def get_book_statuses() -> list[BookStatus]:  # noqa: F811
+        lb_list = _lb.get_book_statuses()
+        return [
+            BookStatus(book_name=b.book_name, testament=b.testament,
+                       total_chapters=b.total_chapters, status=b.status,
+                       entity_count=b.entity_count, relationship_count=b.relationship_count,
+                       verse_count=b.verse_count)
+            for b in lb_list
+        ]
+
+    def get_graph_stats() -> GraphStats:  # noqa: F811
+        lb_stats = _lb.get_graph_stats()
+        return GraphStats(
+            total_entities=lb_stats.total_entities,
+            total_relationships=lb_stats.total_relationships,
+            total_verses=lb_stats.total_verses,
+            active_books=lb_stats.active_books,
+            cross_book_entities=lb_stats.cross_book_entities,
+            entity_type_counts=lb_stats.entity_type_counts,
+            relationship_type_counts=lb_stats.relationship_type_counts,
+        )

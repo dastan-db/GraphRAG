@@ -265,13 +265,12 @@ class TestGetEntitySummary:
         result = mod.get_entity_summary("Abraham")
         assert "Abraham" in result
         assert "Person" in result
-        assert "Genesis" in result
-        assert "relationships" in result.lower() or "PARENT_OF" in result
+        assert "relationships" in result.lower() or "--[" in result
 
-    def test_includes_books_appeared_in(self, _patch_backend):
+    def test_includes_relationships(self, _patch_backend):
         mod = _patch_backend
         result = mod.get_entity_summary("Abraham")
-        assert "Appears in:" in result
+        assert "Key relationships" in result or "--[" in result
 
     def test_entity_not_found(self, _patch_backend):
         mod = _patch_backend

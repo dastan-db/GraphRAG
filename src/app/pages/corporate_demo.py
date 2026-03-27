@@ -46,6 +46,30 @@ def corporate_demo_layout():
 
         html.Hr(),
 
+        dbc.Card([
+            dbc.CardBody([
+                html.Div([
+                    html.I(className="fas fa-shield-alt me-2 text-warning"),
+                    html.H6("Access Tier (Lakebase RLS)", className="d-inline mb-0"),
+                ], className="mb-2"),
+                html.P(
+                    "Switch tiers to see how Row-Level Security policies restrict "
+                    "the knowledge graph. Each tier sees a different subgraph.",
+                    className="small text-muted mb-2",
+                ),
+                dbc.RadioItems(
+                    id="tier-selector",
+                    options=[
+                        {"label": "Legal Team (full access)", "value": "legal_team"},
+                        {"label": "Executive Team", "value": "executive_team"},
+                        {"label": "Analyst Team (restricted)", "value": "analyst_team"},
+                    ],
+                    value="legal_team",
+                    inline=True,
+                ),
+            ]),
+        ], className="mb-3", color="dark", outline=True),
+
         html.P("Try one of these investigation questions:", className="fw-bold mb-2"),
         html.Div([
             dbc.Button(
@@ -214,9 +238,10 @@ def register_corporate_demo_callbacks(app):
         Input({"type": "corp-example-btn", "index": ALL}, "n_clicks"),
         State("corp-chat-input", "value"),
         State("corp-chat-store", "data"),
+        State("tier-selector", "value"),
         prevent_initial_call=True,
     )
-    def handle_send(send_clicks, n_submit, example_clicks, user_input, chat_data):
+    def handle_send(send_clicks, n_submit, example_clicks, user_input, chat_data, tier):
         ctx = dash.callback_context
         if not ctx.triggered:
             return no_update, no_update, no_update, no_update
@@ -245,7 +270,7 @@ def register_corporate_demo_callbacks(app):
             if USE_MOCK:
                 resp = query_agent_enron_mock(question)
             else:
-                resp = query_agent_enron(question)
+                resp = query_agent_enron(question, tier=tier or "")
         except Exception as e:
             resp = AgentResponse(
                 answer=f"**Error querying agent endpoint:** {e}\n\n"
