@@ -180,6 +180,11 @@ def _get_llm(endpoint: str = LLM_ENDPOINT, **kwargs):
         from langchain_ollama import ChatOllama
         model = os.environ.get("OLLAMA_MODEL", "llama3.1")
         return ChatOllama(model=model, **kwargs)
+    if LLM_PROVIDER == "gateway":
+        from langchain_openai import ChatOpenAI
+        base_url = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000/v1")
+        model = os.environ.get("GATEWAY_MODEL", "gpt-4o-mini")
+        return ChatOpenAI(base_url=base_url, model=model, **kwargs)
     from databricks_langchain import ChatDatabricks
     return ChatDatabricks(endpoint=endpoint, **kwargs)
 

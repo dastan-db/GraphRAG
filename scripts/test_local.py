@@ -46,7 +46,7 @@ def main():
     )
     parser.add_argument(
         "--llm",
-        choices=["databricks", "openai", "ollama"],
+        choices=["databricks", "openai", "ollama", "gateway"],
         help="Override GRAPHRAG_LLM_PROVIDER",
     )
     args = parser.parse_args()

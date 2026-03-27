@@ -8,7 +8,9 @@
 #   make deploy        — validate + log + smoke-test + deploy
 #   make deploy-force  — skip validation, deploy immediately
 
-.PHONY: export test validate parity deploy deploy-force test-endpoint help
+.PHONY: export test test-unit test-app validate parity \
+       bundle-validate bundle-deploy local-all \
+       deploy deploy-force deploy-all test-endpoint help
 
 PYTHON ?= python
 
@@ -22,17 +24,38 @@ export: ## Export Delta tables to local DuckDB (data/graphrag.duckdb)
 test: ## Quick single-question agent test (local backend)
 	$(PYTHON) scripts/test_local.py "Who is Abraham?"
 
+test-unit: ## Run pytest Layer 1 (graph engine, no LLM)
+	$(PYTHON) -m pytest tests/test_graph_engine.py -m "not integration and not baseline" -v
+
+test-app: ## Start local Dash app and run Playwright E2E (mock mode)
+	USE_MOCK_BACKEND=true $(PYTHON) tests/test_local_app.py
+
 validate: ## Run full test suite locally with quality gates
 	$(PYTHON) scripts/validate_local.py
 
 parity: ## Compare local vs Databricks backend responses
 	$(PYTHON) scripts/validate_parity.py
 
+bundle-validate: ## Validate Databricks bundle config (no deploy)
+	databricks bundle validate --target dev
+
+local-all: test-unit validate test-app ## Full local validation pipeline
+	@echo ""
+	@echo "  ALL LOCAL VALIDATIONS PASSED — safe to deploy"
+	@echo ""
+
 deploy: ## Validate locally, then log + deploy to Model Serving
 	$(PYTHON) scripts/redeploy_agent.py --validate
 
 deploy-force: ## Deploy without local validation
 	$(PYTHON) scripts/redeploy_agent.py --no-validate
+
+bundle-deploy: validate bundle-validate ## Validate locally + bundle validate, then deploy bundle
+	databricks bundle deploy --target dev
+
+deploy-all: local-all bundle-validate ## Full local validation + Model Serving deploy + bundle deploy
+	$(PYTHON) scripts/redeploy_agent.py --no-validate
+	databricks bundle deploy --target dev
 
 test-endpoint: ## Test the deployed endpoint
 	$(PYTHON) scripts/test_endpoint.py

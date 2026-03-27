@@ -61,7 +61,7 @@ def _run_agent(agent, question: str) -> tuple:
 def main():
     parser = argparse.ArgumentParser(description="Local quality gate for GraphRAG agent")
     parser.add_argument("--backend", choices=["local", "databricks"], help="Override GRAPHRAG_BACKEND")
-    parser.add_argument("--llm", choices=["databricks", "openai", "ollama"], help="Override GRAPHRAG_LLM_PROVIDER")
+    parser.add_argument("--llm", choices=["databricks", "openai", "ollama", "gateway"], help="Override GRAPHRAG_LLM_PROVIDER")
     parser.add_argument("--output", "-o", default="data/validation_results.json", help="JSON output path")
     parser.add_argument("--verbose", "-v", action="store_true", help="Print full response text")
     args = parser.parse_args()
