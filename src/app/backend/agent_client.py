@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from dataclasses import dataclass, field
@@ -24,6 +25,13 @@ def _get_client() -> WorkspaceClient:
 
 
 @dataclass
+class ToolCall:
+    name: str
+    arguments: dict
+    output: str = ""
+
+
+@dataclass
 class AgentResponse:
     answer: str
     provenance_raw: str
@@ -33,6 +41,28 @@ class AgentResponse:
     full_text: str
     entities_mentioned: list[str] = field(default_factory=list)
     verse_texts: dict[str, str] = field(default_factory=dict)
+    tool_calls: list[ToolCall] = field(default_factory=list)
+
+
+def _extract_tool_calls(output_items: list[dict]) -> list[ToolCall]:
+    """Extract tool call name/args/output from Responses API output items."""
+    calls: dict[str, ToolCall] = {}
+    for item in output_items:
+        itype = item.get("type", "")
+        if itype == "function_call":
+            call_id = item.get("call_id", item.get("id", ""))
+            args_raw = item.get("arguments", "{}")
+            try:
+                args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
+            except (json.JSONDecodeError, TypeError):
+                args = {"raw": args_raw}
+            calls[call_id] = ToolCall(name=item.get("name", "unknown"), arguments=args)
+        elif itype == "function_call_output":
+            call_id = item.get("call_id", "")
+            if call_id in calls:
+                out = item.get("output", "")
+                calls[call_id].output = out[:2000] if len(out) > 2000 else out
+    return list(calls.values())
 
 
 def _parse_provenance(text: str) -> tuple[str, str, str, list[str], str]:
@@ -103,7 +133,7 @@ def query_agent(question: str, permitted_books: list[str] | None = None) -> Agen
 
     body: dict = {"input": [{"role": "user", "content": question}]}
     if permitted_books is not None:
-        body["context"] = {"permitted_books": ",".join(permitted_books)}
+        body.setdefault("custom_inputs", {})["permitted_books"] = ",".join(permitted_books)
 
     resp = w.api_client.do(
         "POST",
@@ -261,7 +291,7 @@ def query_agent_enron(question: str, tier: str = "") -> AgentResponse:
 
     body: dict = {"input": [{"role": "user", "content": question}]}
     if tier:
-        body["context"] = {"user_tier": tier}
+        body.setdefault("custom_inputs", {})["user_tier"] = tier
 
     resp = w.api_client.do(
         "POST",
@@ -269,8 +299,11 @@ def query_agent_enron(question: str, tier: str = "") -> AgentResponse:
         body=body,
     )
 
+    output_items = resp.get("output", [])
+    tool_calls = _extract_tool_calls(output_items)
+
     texts = []
-    for item in resp.get("output", []):
+    for item in output_items:
         if item.get("type") == "message":
             for part in item.get("content", []):
                 if part.get("type") == "output_text":
@@ -290,6 +323,7 @@ def query_agent_enron(question: str, tier: str = "") -> AgentResponse:
         grounding=grounding,
         full_text=text,
         entities_mentioned=entities,
+        tool_calls=tool_calls,
     )
 
 
@@ -409,6 +443,95 @@ def _match_enron_mock(question: str) -> str:
     return _ENRON_MOCK_RESPONSES["california"]
 
 
+_MOCK_TOOL_CALLS: dict[str, list[ToolCall]] = {
+    "california": [
+        ToolCall(
+            name="find_entity",
+            arguments={"name": "California energy trading"},
+            output=json.dumps([
+                {"entity_id": "ent_california_energy", "name": "California Energy Trading",
+                 "entity_type": "ORGANIZATION", "sensitivity": "executive_confidential",
+                 "description": "West coast power trading desk"},
+            ]),
+        ),
+        ToolCall(
+            name="find_entity",
+            arguments={"name": "Enron California"},
+            output=json.dumps([
+                {"entity_id": "ent_enron_ca", "name": "Enron California",
+                 "entity_type": "ORGANIZATION", "sensitivity": "general",
+                 "description": "Enron's California operations"},
+            ]),
+        ),
+        ToolCall(
+            name="find_connections",
+            arguments={"entity_name": "Enron California"},
+            output=json.dumps([
+                {"source": "Tim Belden", "target": "California Energy Trading",
+                 "relationship_type": "MANAGES", "sensitivity": "executive_confidential",
+                 "bcc": "legal-review@enron.com"},
+                {"source": "Kenneth Lay", "target": "California Energy Trading",
+                 "relationship_type": "BRIEFED_ON", "sensitivity": "general"},
+                {"source": "David Delainey", "target": "Tim Belden",
+                 "relationship_type": "SUPERVISES", "sensitivity": "general"},
+                {"source": "Jeff Skilling", "target": "David Delainey",
+                 "relationship_type": "SUPERVISES", "sensitivity": "attorney_client_privileged",
+                 "bcc": "vkaminski@enron.com"},
+            ]),
+        ),
+        ToolCall(
+            name="get_source_emails",
+            arguments={"entity_name": "Enron California"},
+            output=json.dumps([
+                {"email_id": "em_2000_11_15_01", "from": "belden-t", "to": "delainey-d",
+                 "subject": "California Update", "date": "2000-11-15",
+                 "sensitivity": "executive_confidential",
+                 "bcc": "legal-review@enron.com",
+                 "snippet": "Attached is the weekly California trading summary..."},
+                {"email_id": "em_2000_12_03_01", "from": "skilling-j", "to": "lay-k",
+                 "subject": "Energy Trading Summary", "date": "2000-12-03",
+                 "sensitivity": "attorney_client_privileged",
+                 "bcc": "derrick-j@enron.com",
+                 "snippet": "Per counsel's advice, the following trading positions..."},
+            ]),
+        ),
+    ],
+    "skilling": [
+        ToolCall(
+            name="find_entity",
+            arguments={"name": "Jeffrey Skilling"},
+            output=json.dumps([
+                {"entity_id": "ent_skilling", "name": "Jeffrey Skilling",
+                 "entity_type": "PERSON", "sensitivity": "general",
+                 "description": "COO/CEO of Enron (2001)"},
+            ]),
+        ),
+        ToolCall(
+            name="find_connections",
+            arguments={"entity_name": "Jeffrey Skilling"},
+            output=json.dumps([
+                {"source": "Jeffrey Skilling", "target": "Enron Broadband Services",
+                 "relationship_type": "MANAGES", "sensitivity": "general"},
+                {"source": "Jeffrey Skilling", "target": "Kenneth Rice",
+                 "relationship_type": "SUPERVISES", "sensitivity": "executive_confidential"},
+                {"source": "Jeffrey Skilling", "target": "Project Raptor",
+                 "relationship_type": "INVOLVED_IN", "sensitivity": "attorney_client_privileged",
+                 "bcc": "causey-r@enron.com"},
+            ]),
+        ),
+    ],
+}
+
+
+def _get_mock_tool_calls(question: str) -> list[ToolCall]:
+    q = question.lower()
+    if "california" in q or "energy trading decision" in q:
+        return _MOCK_TOOL_CALLS["california"]
+    if "skilling" in q:
+        return _MOCK_TOOL_CALLS["skilling"]
+    return _MOCK_TOOL_CALLS.get("california", [])
+
+
 def query_agent_enron_mock(question: str) -> AgentResponse:
     """Return a canned Enron response for demo/testing without a live endpoint."""
     text = _match_enron_mock(question)
@@ -423,6 +546,7 @@ def query_agent_enron_mock(question: str) -> AgentResponse:
         grounding=grounding,
         full_text=text,
         entities_mentioned=entities,
+        tool_calls=_get_mock_tool_calls(question),
     )
 
 

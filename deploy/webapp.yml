@@ -9,6 +9,10 @@ resources:
           serving_endpoint:
             name: graphrag-bible-agent
             permission: CAN_QUERY
+        - name: enron-serving-endpoint
+          serving_endpoint:
+            name: graphrag-enron-agent
+            permission: CAN_QUERY
         - name: sql-warehouse
           sql_warehouse:
             id: ${var.warehouse_id}

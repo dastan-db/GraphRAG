@@ -11,6 +11,8 @@ env:
     valueFrom: sql-warehouse
   - name: GRAPHRAG_ENDPOINT_NAME
     valueFrom: serving-endpoint
+  - name: GRAPHRAG_ENRON_ENDPOINT_NAME
+    valueFrom: enron-serving-endpoint
   - name: DATABRICKS_CATALOG
     value: "serverless_8e8gyh_catalog"
   - name: DATABRICKS_SCHEMA

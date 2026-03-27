@@ -7,7 +7,7 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import ALL, Input, Output, State, callback, dcc, html, no_update
 
-from backend.agent_client import AgentResponse, query_agent_enron, query_agent_enron_mock
+from backend.agent_client import AgentResponse, ToolCall, query_agent_enron, query_agent_enron_mock
 
 USE_MOCK = os.getenv("USE_MOCK_BACKEND", "false").lower() == "true"
 
@@ -108,20 +108,19 @@ def corporate_demo_layout():
             ], md=7),
 
             dbc.Col([
-                html.H5("Provenance", className="mb-3"),
+                html.H5("Audit Trail", className="mb-3"),
                 html.Div(id="corp-provenance-panel", style={
                     "minHeight": "400px", "maxHeight": "600px", "overflowY": "auto",
                     "padding": "1rem",
                     "backgroundColor": "#1a1f2b", "borderRadius": "8px",
                     "border": "1px solid #333",
                 }, children=[
-                    html.Div([
-                        html.P(
-                            "Ask a question to see the traced path and email provenance here",
-                            className="text-muted text-center",
-                            style={"paddingTop": "8rem"},
-                        ),
-                    ])
+                    html.P(
+                        "Ask a question to see which graph queries, "
+                        "entities, and data sources the agent used.",
+                        className="text-muted text-center",
+                        style={"paddingTop": "8rem"},
+                    ),
                 ]),
             ], md=5),
         ], className="g-4"),
@@ -130,8 +129,8 @@ def corporate_demo_layout():
 
         html.Hr(className="mt-4"),
         html.P(
-            "Every answer above is auditable: the provenance section shows the entity path, "
-            "source email citations, and grounding indicator.",
+            "Every answer above is auditable: the audit trail shows which graph queries "
+            "the agent ran, what entities were discovered, and which data sources were consulted.",
             className="text-center text-muted small",
         ),
     ])
@@ -157,73 +156,235 @@ def _render_message(role, content):
         ])
 
 
+_TOOL_ICONS = {
+    "find_entity": "fas fa-search",
+    "find_connections": "fas fa-project-diagram",
+    "get_source_emails": "fas fa-envelope-open-text",
+    "get_entity_summary": "fas fa-id-card",
+    "trace_path": "fas fa-route",
+    "list_entities_by_book": "fas fa-list",
+    "compare_entity_sets": "fas fa-not-equal",
+    "get_context_verses": "fas fa-book-open",
+}
+
+_TOOL_DESCRIPTIONS = {
+    "find_entity": "Entity lookup",
+    "find_connections": "Relationship traversal",
+    "get_source_emails": "Email source retrieval",
+    "get_entity_summary": "Entity profile",
+    "trace_path": "Path discovery",
+    "list_entities_by_book": "Entity listing",
+    "compare_entity_sets": "Set comparison",
+    "get_context_verses": "Source text retrieval",
+}
+
+
+_TIER_VISIBLE_SENSITIVITY = {
+    "legal_team": {"general", "executive_confidential", "attorney_client_privileged"},
+    "executive_team": {"general", "executive_confidential"},
+    "analyst_team": {"general"},
+}
+
+_REDACTED_FIELDS = {"bcc", "bcc_addresses"}
+
+_TIER_RANK = {"legal_team": 3, "executive_team": 2, "analyst_team": 1}
+
+
+def _redact_for_tier(output_raw: str, tier: str) -> tuple[object, int]:
+    """Parse tool output JSON and redact fields based on ABAC tier.
+
+    Returns (redacted_obj, redaction_count).
+    """
+    if not output_raw:
+        return None, 0
+
+    try:
+        data = json.loads(output_raw)
+    except (json.JSONDecodeError, TypeError):
+        return output_raw, 0
+
+    allowed_sens = _TIER_VISIBLE_SENSITIVITY.get(tier, {"general"})
+    rank = _TIER_RANK.get(tier, 1)
+    redacted = 0
+
+    def _redact_obj(obj):
+        nonlocal redacted
+        if isinstance(obj, dict):
+            result = {}
+            sens = obj.get("sensitivity", "general")
+            if isinstance(sens, str) and sens not in allowed_sens:
+                redacted += 1
+                return f"[REDACTED — requires {sens} clearance]"
+            for k, v in obj.items():
+                if k in _REDACTED_FIELDS and rank < 3:
+                    result[k] = "[MASKED]"
+                    redacted += 1
+                else:
+                    result[k] = _redact_obj(v)
+            return result
+        if isinstance(obj, list):
+            return [_redact_obj(item) for item in obj]
+        return obj
+
+    return _redact_obj(data), redacted
+
+
 def _render_provenance(resp_data):
     if not resp_data:
         return html.P(
-            "No response yet.", className="text-muted text-center",
+            "Ask a question to see which graph queries, "
+            "entities, and data sources the agent used.",
+            className="text-muted text-center",
             style={"paddingTop": "8rem"},
         )
 
     elements = []
 
+    tier = resp_data.get("tier", "")
+    if tier:
+        tier_labels = {
+            "legal_team": ("Legal Team — full access", "success"),
+            "executive_team": ("Executive Team — partial access", "warning"),
+            "analyst_team": ("Analyst Team — restricted", "danger"),
+        }
+        label, color = tier_labels.get(tier, (tier, "info"))
+        elements.append(html.Div([
+            html.I(className="fas fa-shield-alt me-2"),
+            html.Span("Access Tier: ", className="small fw-bold"),
+            dbc.Badge(label, color=color, className="ms-1"),
+        ], className="mb-3"))
+
+    tool_calls = resp_data.get("tool_calls", [])
+    if tool_calls:
+        elements.append(html.H6([
+            html.I(className="fas fa-database me-2"),
+            "Graph Queries",
+            dbc.Badge(str(len(tool_calls)), color="primary", className="ms-2",
+                      pill=True, style={"fontSize": "0.7rem"}),
+        ], className="text-info mb-2"))
+
+        for idx, tc in enumerate(tool_calls):
+            icon = _TOOL_ICONS.get(tc["name"], "fas fa-cog")
+            desc = _TOOL_DESCRIPTIONS.get(tc["name"], tc["name"])
+            args = tc.get("arguments", {})
+            arg_str = ", ".join(f"{k}={v!r}" for k, v in args.items()) if args else ""
+
+            card_children = [
+                html.Div([
+                    html.I(className=f"{icon} me-2 text-info", style={"width": "16px"}),
+                    html.Span(desc, className="small fw-bold"),
+                ], className="d-flex align-items-center"),
+                html.Code(
+                    f"{tc['name']}({arg_str})",
+                    className="d-block mt-1",
+                    style={"fontSize": "0.75rem", "color": "#8be9fd",
+                           "whiteSpace": "pre-wrap", "wordBreak": "break-all"},
+                ),
+            ]
+
+            output_raw = tc.get("output", "")
+            if output_raw:
+                redacted_obj, redaction_count = _redact_for_tier(output_raw, tier)
+                if redacted_obj is not None:
+                    pretty = json.dumps(
+                        redacted_obj, indent=2, ensure_ascii=False, default=str,
+                    )
+                    if len(pretty) > 1200:
+                        pretty = pretty[:1200] + "\n  …"
+
+                    output_children = [
+                        html.Pre(
+                            pretty,
+                            style={
+                                "fontSize": "0.7rem", "color": "#c9d1d9",
+                                "backgroundColor": "#010409",
+                                "padding": "0.5rem", "borderRadius": "4px",
+                                "maxHeight": "200px", "overflowY": "auto",
+                                "marginBottom": "0", "whiteSpace": "pre-wrap",
+                                "wordBreak": "break-word",
+                            },
+                        ),
+                    ]
+                    if redaction_count > 0:
+                        output_children.append(html.Div([
+                            html.I(className="fas fa-lock me-1"),
+                            html.Span(
+                                f"{redaction_count} field{'s' if redaction_count != 1 else ''} "
+                                f"redacted for {tier.replace('_', ' ')}",
+                                className="small",
+                            ),
+                        ], className="text-warning mt-1",
+                           style={"fontSize": "0.7rem"}))
+
+                    card_children.append(
+                        html.Details([
+                            html.Summary(
+                                "Output",
+                                className="small text-muted mt-1",
+                                style={"cursor": "pointer", "fontSize": "0.7rem"},
+                            ),
+                            html.Div(output_children, className="mt-1"),
+                        ])
+                    )
+
+            elements.append(html.Div(
+                card_children,
+                className="mb-2 p-2 rounded",
+                style={"backgroundColor": "#0d1117", "border": "1px solid #21262d"},
+            ))
+
+        elements.append(html.Hr(className="my-2", style={"borderColor": "#333"}))
+
+    entities = resp_data.get("entities", [])
+    if entities:
+        elements.append(html.H6([
+            html.I(className="fas fa-tags me-2"),
+            "Entities Mentioned",
+        ], className="text-info mb-2"))
+        elements.append(html.Div([
+            dbc.Badge(e, color="secondary", className="me-1 mb-1 p-2",
+                      style={"fontSize": "0.75rem"})
+            for e in entities[:20]
+        ], className="mb-3", style={"lineHeight": "2"}))
+
     path = resp_data.get("path", "")
     if path:
-        elements.append(html.H6("Communication Path", className="text-primary mb-2"))
+        elements.append(html.H6([
+            html.I(className="fas fa-route me-2"),
+            "Communication Path",
+        ], className="text-info mb-2"))
         parts = [p.strip() for p in path.split("\u2192")]
         path_badges = []
         for i, part in enumerate(parts):
             color = "primary" if i == 0 or i == len(parts) - 1 else "secondary"
-            path_badges.append(
-                dbc.Badge(
-                    part.split("(")[0].strip(),
-                    color=color,
-                    className="me-1 mb-1 p-2",
-                )
-            )
+            path_badges.append(dbc.Badge(
+                part.split("(")[0].strip(), color=color,
+                className="me-1 mb-1 p-2",
+            ))
             if i < len(parts) - 1:
                 path_badges.append(html.Span(" \u2192 ", className="text-muted"))
         elements.append(html.Div(path_badges, className="mb-3"))
 
     sources = resp_data.get("sources", [])
     if sources:
-        elements.append(html.H6("Email Sources", className="text-primary mb-2"))
+        elements.append(html.H6([
+            html.I(className="fas fa-envelope me-2"),
+            "Email Sources",
+        ], className="text-info mb-2"))
         for src in sources:
             elements.append(html.Div([
-                html.I(className="fas fa-envelope me-2 text-muted"),
+                html.I(className="fas fa-envelope-open me-2 text-muted"),
                 html.Span(src, className="small"),
             ], className="mb-1"))
         elements.append(html.Div(className="mb-3"))
 
-    grounding = resp_data.get("grounding", "")
-    if grounding:
-        elements.append(html.H6("Grounding", className="text-primary mb-2"))
-        if "all claims grounded" in grounding.lower():
-            elements.append(
-                dbc.Alert(f"  {grounding}", color="success", className="py-2 small")
-            )
-        elif "partially" in grounding.lower():
-            elements.append(
-                dbc.Alert(f"  {grounding}", color="warning", className="py-2 small")
-            )
-        else:
-            elements.append(
-                dbc.Alert(grounding, color="info", className="py-2 small")
-            )
+    if not tool_calls and not entities and not path and not sources:
+        elements.append(html.P(
+            "No structured provenance available for this response.",
+            className="text-muted small",
+        ))
 
-    full_text = resp_data.get("full_text", "")
-    if full_text:
-        elements.append(html.Details([
-            html.Summary(
-                "Show raw agent response",
-                className="text-muted small mb-2 mt-3",
-                style={"cursor": "pointer"},
-            ),
-            dcc.Markdown(f"```\n{full_text}\n```", style={"fontSize": "0.75rem"}),
-        ]))
-
-    return html.Div(elements) if elements else html.P(
-        "No provenance data.", className="text-muted",
-    )
+    return html.Div(elements)
 
 
 def register_corporate_demo_callbacks(app):
@@ -287,7 +448,12 @@ def register_corporate_demo_callbacks(app):
             "path": resp.path,
             "sources": resp.sources,
             "grounding": resp.grounding,
-            "full_text": resp.full_text,
+            "entities": resp.entities_mentioned,
+            "tier": tier or "",
+            "tool_calls": [
+                {"name": tc.name, "arguments": tc.arguments, "output": tc.output}
+                for tc in resp.tool_calls
+            ],
         }
         prov = _render_provenance(resp_data)
 

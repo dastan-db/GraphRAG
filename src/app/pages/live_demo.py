@@ -206,7 +206,18 @@ def _render_provenance(resp_data):
     if full_text:
         elements.append(html.Details([
             html.Summary("Show raw agent response", className="text-muted small mb-2 mt-3", style={"cursor": "pointer"}),
-            dcc.Markdown(f"```\n{full_text}\n```", style={"fontSize": "0.75rem"}),
+            html.Div(
+                dcc.Markdown(full_text, style={"fontSize": "0.8rem", "color": "#c5e1a5"}),
+                style={
+                    "backgroundColor": "#0d1117",
+                    "borderRadius": "6px",
+                    "padding": "0.75rem",
+                    "overflowY": "auto",
+                    "maxHeight": "350px",
+                    "whiteSpace": "pre-wrap",
+                    "wordBreak": "break-word",
+                },
+            ),
         ]))
 
     return html.Div(elements) if elements else html.P("No provenance data.", className="text-muted")

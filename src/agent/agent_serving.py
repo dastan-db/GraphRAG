@@ -1487,24 +1487,31 @@ def _apply_rls_context(tier: str = "", permitted_books: str = ""):
     _backend.set_rls_context(ctx)
 
 
-def _get_corpus_config() -> dict:
+def _get_corpus_config(*, tier_override: str = "", permitted_books_override: str = "") -> dict:
     """Return table references and system prompt for the active corpus.
 
     On a Lakebase backend, RLS policies handle access control via session
     variables — no ABAC views needed.  On a Databricks backend with
     ACCESS_TIER set, falls back to the UC ABAC views.
+
+    Args:
+        tier_override: Per-request tier from custom_inputs; falls back to ACCESS_TIER env var.
+        permitted_books_override: Per-request permitted_books from custom_inputs.
     """
+    effective_tier = tier_override or ACCESS_TIER
+    if permitted_books_override:
+        _apply_rls_context(permitted_books=permitted_books_override)
     if CORPUS == "enron":
-        if ACCESS_TIER:
-            _apply_rls_context(tier=ACCESS_TIER)
+        if effective_tier:
+            _apply_rls_context(tier=effective_tier)
 
             if isinstance(_backend, LakebaseBackend):
-                log.info("ABAC mode (Lakebase RLS): tier=%s", ACCESS_TIER)
+                log.info("ABAC mode (Lakebase RLS): tier=%s", effective_tier)
             else:
-                log.info("ABAC mode (UC views): tier=%s", ACCESS_TIER)
+                log.info("ABAC mode (UC views): tier=%s", effective_tier)
 
             abac_note = (
-                f"\n\n**Access tier: {ACCESS_TIER}** — Your view of the knowledge "
+                f"\n\n**Access tier: {effective_tier}** — Your view of the knowledge "
                 f"graph is restricted based on your access level. Some entities, "
                 f"relationships, or email sources may not be visible."
             )
@@ -1519,7 +1526,7 @@ def _get_corpus_config() -> dict:
                     "entity_mentions": ENRON_ABAC_ENTITY_MENTIONS_VIEW,
                     "system_prompt": ENRON_SYSTEM_PROMPT + abac_note,
                     "source_type": "email",
-                    "access_tier": ACCESS_TIER,
+                    "access_tier": effective_tier,
                 }
 
             return {
@@ -1531,7 +1538,7 @@ def _get_corpus_config() -> dict:
                 "entity_mentions": ENRON_ENTITY_MENTIONS_TABLE,
                 "system_prompt": ENRON_SYSTEM_PROMPT + abac_note,
                 "source_type": "email",
-                "access_tier": ACCESS_TIER,
+                "access_tier": effective_tier,
             }
 
         return {
@@ -1569,8 +1576,8 @@ class GraphRAGAgent(ResponsesAgent):
         self.tools = tools or GRAPH_TOOLS
         self.llm_with_tools = self.llm.bind_tools(self.tools)
 
-    def _build_graph(self, prelookup_context: str = ""):
-        corpus_cfg = _get_corpus_config()
+    def _build_graph(self, prelookup_context: str = "", *, tier: str = "", permitted_books: str = ""):
+        corpus_cfg = _get_corpus_config(tier_override=tier, permitted_books_override=permitted_books)
         base_prompt = _get_system_prompt() if CORPUS == "bible" else corpus_cfg["system_prompt"]
         system_prompt = base_prompt + prelookup_context
 
@@ -1606,13 +1613,17 @@ class GraphRAGAgent(ResponsesAgent):
     ) -> Generator[ResponsesAgentStreamEvent, None, None]:
         messages = to_chat_completions_input([m.model_dump() for m in request.input])
 
+        ci = getattr(request, "custom_inputs", None) or {}
+        req_tier = ci.get("user_tier", "")
+        req_books = ci.get("permitted_books", "")
+
         last_user = next(
             (m for m in reversed(messages) if m.get("role") == "user"), None
         )
         question = last_user["content"] if last_user and last_user.get("content") else ""
         prelookup_context = build_prelookup_context(question) if question else ""
 
-        graph = self._build_graph(prelookup_context)
+        graph = self._build_graph(prelookup_context, tier=req_tier, permitted_books=req_books)
         for event in graph.stream({"messages": messages}, stream_mode=["updates"]):
             if event[0] == "updates":
                 for node_data in event[1].values():
