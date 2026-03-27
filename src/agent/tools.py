@@ -761,3 +761,211 @@ def build_corpus_tools(corpus: str = "bible"):
         return "\n".join(lines)
 
     return [find_entity, find_connections, trace_path, get_source_context, get_entity_summary]
+
+# COMMAND ----------
+
+# DBTITLE 1,ABAC Table Config
+def _get_abac_tables(tier: str = "legal_team") -> dict:
+    """Return the ABAC view config dict for the Enron corpus.
+
+    When Unity Catalog row filters are active, the ABAC views transparently
+    restrict results based on the calling user's group.  The tier parameter
+    is recorded for logging but does not change the SQL — the UC row filter
+    handles enforcement.
+    """
+    return {
+        "entities": config['enron_abac_entities_view'],
+        "relationships": config['enron_abac_relationships_view'],
+        "entity_mentions": config['enron_abac_entity_mentions_view'],
+        "entity_analytics": config['enron_abac_entity_analytics_view'],
+        "entity_paths": config['enron_abac_entity_paths_view'],
+        "source_table": config['enron_abac_emails_view'],
+        "source_type": "email",
+        "tier": tier,
+    }
+
+# COMMAND ----------
+
+# DBTITLE 1,ABAC-Aware Tool Factory
+def build_abac_tools(tier: str = "legal_team"):
+    """Create Enron graph tools that query through ABAC views.
+
+    The UC row filter on the emails table cascades into the views, so
+    no application-level sensitivity filtering is needed.  The tier
+    argument is metadata for logging; actual enforcement is at the
+    SQL engine level via is_account_group_member().
+
+    Args:
+        tier: Access tier name (legal_team, executive_team, analyst_team).
+              Included in tool output for audit trail.
+
+    Returns:
+        List of 5 LangChain tools targeting the ABAC views.
+    """
+    tables = _get_abac_tables(tier)
+
+    @tool
+    def find_entity(name: str) -> str:
+        """Search for an entity by name in the access-controlled knowledge graph.
+
+        Args:
+            name: The name to search for (e.g., "Kenneth Lay", "Enron")
+        """
+        from pyspark.sql import SparkSession
+        spark = SparkSession.builder.getOrCreate()
+        results = spark.sql(f"""
+            SELECT name, entity_type, description
+            FROM {tables['entities']}
+            WHERE LOWER(name) LIKE LOWER('%{name}%')
+            ORDER BY name
+            LIMIT 10
+        """).collect()
+        if not results:
+            return f"No entity found matching '{name}' at your access level."
+        lines = [f"[Access tier: {tier}]"]
+        for r in results:
+            lines.append(f"- **{r['name']}** ({r['entity_type']}): {r['description']}")
+        return "\n".join(lines)
+
+    @tool
+    def find_connections(entity_name: str) -> str:
+        """Find relationships involving an entity in the access-controlled graph.
+
+        Args:
+            entity_name: The entity name to find connections for
+        """
+        from pyspark.sql import SparkSession
+        spark = SparkSession.builder.getOrCreate()
+        entity_id = "_".join(entity_name.lower().split())
+        results = spark.sql(f"""
+            SELECT
+                COALESCE(e1.name, r.source_entity) as source_name,
+                r.relationship_type,
+                COALESCE(e2.name, r.target_entity) as target_name,
+                r.description
+            FROM {tables['relationships']} r
+            LEFT JOIN {tables['entities']} e1 ON r.source_entity = e1.entity_id
+            LEFT JOIN {tables['entities']} e2 ON r.target_entity = e2.entity_id
+            WHERE r.source_entity LIKE '%{entity_id}%'
+               OR r.target_entity LIKE '%{entity_id}%'
+            LIMIT 30
+        """).collect()
+        if not results:
+            return f"No connections found for '{entity_name}' at your access level."
+        lines = [f"[Access tier: {tier}] Connections for '{entity_name}' ({len(results)} found):"]
+        for r in results:
+            lines.append(
+                f"- {r['source_name']} --[{r['relationship_type']}]--> {r['target_name']}: "
+                f"{r['description']}"
+            )
+        return "\n".join(lines)
+
+    @tool
+    def trace_path(entity_a: str, entity_b: str) -> str:
+        """Find the shortest path between two entities in the access-controlled graph.
+
+        Args:
+            entity_a: Starting entity name
+            entity_b: Ending entity name
+        """
+        import re as _re
+        from pyspark.sql import SparkSession
+        spark = SparkSession.builder.getOrCreate()
+        def _slug(n):
+            return _re.sub(r'[^a-z0-9]+', '_', n.lower()).strip('_')
+        id_a, id_b = _slug(entity_a), _slug(entity_b)
+        paths = spark.sql(f"""
+            SELECT p.source_id, p.target_id, p.distance, p.path_names,
+                   e1.name as source_name, e2.name as target_name
+            FROM {tables['entity_paths']} p
+            LEFT JOIN {tables['entities']} e1 ON p.source_id = e1.entity_id
+            LEFT JOIN {tables['entities']} e2 ON p.target_id = e2.entity_id
+            WHERE (p.source_id LIKE '%{id_a}%' AND p.target_id LIKE '%{id_b}%')
+               OR (p.source_id LIKE '%{id_b}%' AND p.target_id LIKE '%{id_a}%')
+            ORDER BY p.distance
+            LIMIT 5
+        """).collect()
+        if not paths:
+            return (
+                f"No path found between '{entity_a}' and '{entity_b}' "
+                f"at your access level ({tier}). The path may exist in the full "
+                f"graph but passes through restricted entities."
+            )
+        lines = [f"[Access tier: {tier}] Shortest paths between {entity_a} and {entity_b}:"]
+        for r in paths:
+            lines.append(
+                f"  {r['source_name']} -> {r['target_name']}: "
+                f"distance={r['distance']}, path: {r['path_names']}"
+            )
+        return "\n".join(lines)
+
+    @tool
+    def get_source_context(entity_name: str, thread_id: str = "") -> str:
+        """Get Enron emails mentioning an entity (filtered by access tier).
+
+        Args:
+            entity_name: The entity name to find emails for
+            thread_id: Optional thread filter
+        """
+        from pyspark.sql import SparkSession
+        spark = SparkSession.builder.getOrCreate()
+        thread_filter = f"AND e.thread_id = '{thread_id}'" if thread_id else ""
+        results = spark.sql(f"""
+            SELECT e.date, e.sender, e.subject, SUBSTRING(e.body, 1, 500) as body_preview
+            FROM {tables['source_table']} e
+            WHERE e.body LIKE '%{entity_name}%'
+            {thread_filter}
+            ORDER BY e.date DESC
+            LIMIT 10
+        """).collect()
+        if not results:
+            return f"No emails found mentioning '{entity_name}' at your access level."
+        lines = [f"[Access tier: {tier}] Emails mentioning '{entity_name}' ({len(results)} found):"]
+        for r in results:
+            date_str = str(r['date'])[:10] if r['date'] else "unknown date"
+            lines.append(f"  [{date_str}] From: {r['sender']} | Subject: {r['subject']}")
+            lines.append(f"    {r['body_preview']}...")
+        return "\n".join(lines)
+
+    @tool
+    def get_entity_summary(entity_name: str) -> str:
+        """Get a profile of an entity from the access-controlled graph.
+
+        Args:
+            entity_name: The entity to summarize
+        """
+        from pyspark.sql import SparkSession
+        spark = SparkSession.builder.getOrCreate()
+        entity_id = "_".join(entity_name.lower().split())
+        entity_rows = spark.sql(f"""
+            SELECT name, entity_type, description
+            FROM {tables['entities']}
+            WHERE entity_id LIKE '%{entity_id}%'
+            LIMIT 1
+        """).collect()
+        if not entity_rows:
+            return f"Entity '{entity_name}' not found at your access level ({tier})."
+        ent = entity_rows[0]
+        lines = [
+            f"[Access tier: {tier}]",
+            f"**{ent['name']}** ({ent['entity_type']})",
+            f"Description: {ent['description']}",
+        ]
+        rels = spark.sql(f"""
+            SELECT COALESCE(e1.name, r.source_entity) as src,
+                   r.relationship_type,
+                   COALESCE(e2.name, r.target_entity) as tgt,
+                   r.description
+            FROM {tables['relationships']} r
+            LEFT JOIN {tables['entities']} e1 ON r.source_entity = e1.entity_id
+            LEFT JOIN {tables['entities']} e2 ON r.target_entity = e2.entity_id
+            WHERE r.source_entity LIKE '%{entity_id}%' OR r.target_entity LIKE '%{entity_id}%'
+            LIMIT 20
+        """).collect()
+        if rels:
+            lines.append(f"\nKey relationships ({len(rels)}):")
+            for r in rels:
+                lines.append(f"  {r['src']} --[{r['relationship_type']}]--> {r['tgt']}: {r['description']}")
+        return "\n".join(lines)
+
+    return [find_entity, find_connections, trace_path, get_source_context, get_entity_summary]

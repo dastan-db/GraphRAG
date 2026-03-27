@@ -62,6 +62,15 @@ ENRON_ENTITY_ANALYTICS_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.entity_analytics"
 ENRON_ENTITY_PATHS_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.entity_paths"
 ENRON_ENTITY_MENTIONS_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.entity_mentions"
 
+ACCESS_TIER = os.environ.get("GRAPHRAG_ACCESS_TIER", "")
+
+ENRON_ABAC_ENTITIES_VIEW = f"{CATALOG}.{ENRON_SCHEMA}.entities_abac"
+ENRON_ABAC_RELATIONSHIPS_VIEW = f"{CATALOG}.{ENRON_SCHEMA}.relationships_abac"
+ENRON_ABAC_EMAILS_VIEW = f"{CATALOG}.{ENRON_SCHEMA}.emails_abac"
+ENRON_ABAC_ENTITY_ANALYTICS_VIEW = f"{CATALOG}.{ENRON_SCHEMA}.entity_analytics_abac"
+ENRON_ABAC_ENTITY_PATHS_VIEW = f"{CATALOG}.{ENRON_SCHEMA}.entity_paths_abac"
+ENRON_ABAC_ENTITY_MENTIONS_VIEW = f"{CATALOG}.{ENRON_SCHEMA}.entity_mentions_abac"
+
 BACKEND_TYPE = os.environ.get("GRAPHRAG_BACKEND", "databricks")
 LLM_PROVIDER = os.environ.get("GRAPHRAG_LLM_PROVIDER", "databricks")
 
@@ -361,15 +370,19 @@ def _get_alias_names(name: str) -> list[str]:
 # ---------------------------------------------------------------------------
 @tool
 def find_entity(name: str) -> str:
-    """Search for a biblical entity by name. Returns matching entities with their type, description, and first mention.
+    """Search for an entity by name. Returns matching entities with their type, description, and first mention.
     Use this when the user asks about a specific person, place, event, or concept.
 
     Args:
-        name: The name to search for (e.g., "Moses", "Jerusalem", "covenant")
+        name: The name to search for (e.g., "Moses", "Kenneth Lay", "Enron")
     """
+    if CORPUS == "enron":
+        cols = "name, entity_type, description, first_mention_thread, first_mention_subject"
+    else:
+        cols = "name, entity_type, description, first_mention_book, first_mention_chapter"
+
     results = _backend.execute_sql(
-        f"SELECT name, entity_type, description, first_mention_book, first_mention_chapter"
-        f" FROM {ENTITIES_TABLE}"
+        f"SELECT {cols} FROM {ENTITIES_TABLE}"
         " WHERE LOWER(name) LIKE LOWER(:name_pattern)"
         " ORDER BY name LIMIT 10",
         params={"name_pattern": f"%{name}%"},
@@ -378,8 +391,7 @@ def find_entity(name: str) -> str:
     if not results:
         for alias in _get_alias_names(name):
             results = _backend.execute_sql(
-                f"SELECT name, entity_type, description, first_mention_book, first_mention_chapter"
-                f" FROM {ENTITIES_TABLE}"
+                f"SELECT {cols} FROM {ENTITIES_TABLE}"
                 " WHERE LOWER(name) LIKE LOWER(:name_pattern)"
                 " ORDER BY name LIMIT 10",
                 params={"name_pattern": f"%{alias}%"},
@@ -396,9 +408,13 @@ def find_entity(name: str) -> str:
 
     lines = []
     for r in results:
+        if CORPUS == "enron":
+            mention = f"Thread: {r.get('first_mention_subject', 'N/A')}"
+        else:
+            mention = f"{r['first_mention_book']} ch.{r['first_mention_chapter']}"
         lines.append(
             f"- **{r['name']}** ({r['entity_type']}): {r['description']} "
-            f"[First mentioned: {r['first_mention_book']} ch.{r['first_mention_chapter']}]"
+            f"[First mentioned: {mention}]"
         )
     return "\n".join(lines)
 
@@ -406,16 +422,39 @@ def find_entity(name: str) -> str:
 @tool
 def find_connections(entity_name: str, book: str = "") -> str:
     """Find all relationships involving a given entity — both as source and target.
-    Use this to understand how a person, place, or concept is connected to others in the biblical narrative.
+    Use this to understand how a person, place, or concept is connected to others.
 
     Args:
-        entity_name: The entity name to find connections for (e.g., "Abraham", "Egypt")
-        book: Optional — filter to a specific book (e.g., "Exodus"). Leave empty for all books.
+        entity_name: The entity name to find connections for (e.g., "Abraham", "Kenneth Lay")
+        book: Optional — filter to a specific book (Bible) or leave empty.
     """
     entity_id = "_".join(entity_name.lower().split())
 
     eid_pattern = f"%{entity_id}%"
     sql_params = {"eid_pattern": eid_pattern}
+
+    if CORPUS == "enron":
+        results = _backend.execute_sql(
+            f"SELECT COALESCE(e1.name, r.source_entity) as source_name,"
+            f" r.relationship_type, COALESCE(e2.name, r.target_entity) as target_name,"
+            f" r.description, r.thread_id"
+            f" FROM {RELATIONSHIPS_TABLE} r"
+            f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
+            f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
+            f" WHERE (r.source_entity LIKE :eid_pattern OR r.target_entity LIKE :eid_pattern)"
+            " LIMIT 100",
+            params=sql_params,
+        )
+        if not results:
+            return f"No connections found for '{entity_name}'."
+        lines = [f"Connections for '{entity_name}' ({len(results)} found):"]
+        for r in results:
+            lines.append(
+                f"- {r['source_name']} --[{r['relationship_type']}]--> {r['target_name']}: "
+                f"{r['description']}"
+            )
+        return "\n".join(lines)
+
     book_filter = ""
     if book:
         book_filter = " AND r.book = :book"
@@ -448,13 +487,30 @@ def find_connections(entity_name: str, book: str = "") -> str:
 
 @tool
 def get_context_verses(entity_name: str, book: str = "") -> str:
-    """Get actual Bible verses that mention a specific entity. Provides source text for grounding answers.
+    """Get source text that mentions a specific entity. For Bible: returns verses. For Enron: returns emails.
 
     Args:
-        entity_name: The entity name to find verses for (e.g., "Moses")
-        book: Optional — filter to a specific book (e.g., "Genesis"). Leave empty for all books.
+        entity_name: The entity name to find source text for (e.g., "Moses", "Kenneth Lay")
+        book: Optional — filter to a specific book (Bible) or thread subject (Enron).
     """
     sql_params = {"name_pattern": f"%{entity_name}%"}
+
+    if CORPUS == "enron":
+        src_table = _get_corpus_config()["source_table"]
+        results = _backend.execute_sql(
+            f"SELECT sender, subject, date, SUBSTRING(body, 1, 500) AS body_preview"
+            f" FROM {src_table}"
+            f" WHERE body LIKE :name_pattern"
+            " ORDER BY date DESC LIMIT 20",
+            params=sql_params,
+        )
+        if not results:
+            return f"No emails found mentioning '{entity_name}'."
+        lines = [f"Emails mentioning '{entity_name}' ({len(results)} found):"]
+        for r in results:
+            lines.append(f"  [{r.get('date', '')}] From: {r.get('sender', '')} | Subject: {r.get('subject', '')} — {r.get('body_preview', '')[:200]}")
+        return "\n".join(lines)
+
     book_filter = ""
     if book:
         book_filter = " AND v.book = :book"
@@ -478,18 +534,22 @@ def get_context_verses(entity_name: str, book: str = "") -> str:
 
 @tool
 def get_entity_summary(entity_name: str) -> str:
-    """Get a comprehensive profile of a biblical entity: type, description, all relationships, and all books it appears in.
+    """Get a comprehensive profile of an entity: type, description, all relationships, and context.
     Use this for broad questions about who someone is or what role they play.
 
     Args:
-        entity_name: The entity to summarize (e.g., "Abraham", "Jerusalem")
+        entity_name: The entity to summarize (e.g., "Abraham", "Kenneth Lay")
     """
     entity_id = "_".join(entity_name.lower().split())
     eid_params = {"eid_pattern": f"%{entity_id}%"}
 
+    if CORPUS == "enron":
+        cols = "name, entity_type, description, first_mention_thread, first_mention_subject"
+    else:
+        cols = "name, entity_type, description, first_mention_book, first_mention_chapter"
+
     entity_rows = _backend.execute_sql(
-        f"SELECT name, entity_type, description, first_mention_book, first_mention_chapter"
-        f" FROM {ENTITIES_TABLE} WHERE entity_id LIKE :eid_pattern LIMIT 1",
+        f"SELECT {cols} FROM {ENTITIES_TABLE} WHERE entity_id LIKE :eid_pattern LIMIT 1",
         params=eid_params,
     )
 
@@ -497,20 +557,16 @@ def get_entity_summary(entity_name: str) -> str:
         return f"Entity '{entity_name}' not found in the knowledge graph."
 
     ent = entity_rows[0]
+    if CORPUS == "enron":
+        mention = f"Thread: {ent.get('first_mention_subject', 'N/A')}"
+    else:
+        mention = f"{ent['first_mention_book']} ch.{ent['first_mention_chapter']}"
+
     lines = [
         f"**{ent['name']}** ({ent['entity_type']})",
         f"Description: {ent['description']}",
-        f"First mentioned: {ent['first_mention_book']} ch.{ent['first_mention_chapter']}",
+        f"First mentioned: {mention}",
     ]
-
-    books = _backend.execute_sql(
-        f"SELECT DISTINCT book FROM {RELATIONSHIPS_TABLE}"
-        " WHERE source_entity LIKE :eid_pattern OR target_entity LIKE :eid_pattern"
-        " ORDER BY book",
-        params=eid_params,
-    )
-    if books:
-        lines.append(f"Appears in: {', '.join(r['book'] for r in books)}")
 
     rels = _backend.execute_sql(
         f"SELECT COALESCE(e1.name, r.source_entity) as src,"
@@ -534,13 +590,36 @@ def get_entity_summary(entity_name: str) -> str:
 
 @tool
 def list_entities_by_book(book: str, entity_type: str = "") -> str:
-    """List all named entities that appear in a specific book of the Bible.
-    Use this when the user asks to enumerate all people, places, or entities in a particular book.
+    """List all named entities that appear in a specific book or by type.
+    For Bible: filter by book name. For Enron: use entity_type to filter.
 
     Args:
-        book: The book name (e.g., "Ruth", "Genesis", "Exodus", "Matthew", "Acts")
-        entity_type: Optional — filter by type (e.g., "Person", "Place", "Group"). Leave empty for all types.
+        book: The book name (Bible: "Ruth", "Genesis"). For Enron, leave empty.
+        entity_type: Optional — filter by type (e.g., "Person", "Place", "Group", "Organization").
     """
+    if CORPUS == "enron":
+        sql_params = {}
+        type_filter = ""
+        if entity_type:
+            type_filter = " WHERE e.entity_type = :entity_type"
+            sql_params["entity_type"] = entity_type
+        results = _backend.execute_sql(
+            f"SELECT DISTINCT e.name, e.entity_type, e.description"
+            f" FROM {ENTITIES_TABLE} e{type_filter}"
+            " ORDER BY e.entity_type, e.name LIMIT 200",
+            params=sql_params,
+        )
+        if not results:
+            return f"No entities found" + (f" of type '{entity_type}'" if entity_type else "") + "."
+        lines = [f"Entities ({len(results)} found):"]
+        current_type = None
+        for r in results:
+            if r["entity_type"] != current_type:
+                current_type = r["entity_type"]
+                lines.append(f"\n  [{current_type}]")
+            lines.append(f"  - {r['name']}: {r['description'][:100]}")
+        return "\n".join(lines)
+
     sql_params = {"book": book}
     type_filter = ""
     if entity_type:
@@ -572,12 +651,12 @@ def list_entities_by_book(book: str, entity_type: str = "") -> str:
 
 @tool
 def find_cross_book_entities(min_books: int = 2, entity_type: str = "") -> str:
-    """Find entities that appear across multiple books — useful for cross-book analysis.
-    Use this when the user asks which people or entities appear in more than one book.
+    """Find entities that appear across multiple books/threads — useful for cross-context analysis.
+    For Bible: entities appearing in multiple books. For Enron: entities in multiple threads.
 
     Args:
-        min_books: Minimum number of distinct books an entity must appear in (default: 2)
-        entity_type: Optional — filter by type (e.g., "Person", "Place", "Group"). Leave empty for all types.
+        min_books: Minimum number of distinct books/threads (default: 2)
+        entity_type: Optional — filter by type (e.g., "Person", "Place", "Organization").
     """
     from collections import defaultdict
 
@@ -586,6 +665,30 @@ def find_cross_book_entities(min_books: int = 2, entity_type: str = "") -> str:
     if entity_type:
         type_filter = " AND e.entity_type = :entity_type"
         sql_params["entity_type"] = entity_type
+
+    if CORPUS == "enron":
+        rows = _backend.execute_sql(
+            f"SELECT DISTINCT e.name, e.entity_type, r.thread_id"
+            f" FROM {ENTITIES_TABLE} e"
+            f" JOIN {RELATIONSHIPS_TABLE} r"
+            f"   ON (e.entity_id = r.source_entity OR e.entity_id = r.target_entity)"
+            f" WHERE 1=1{type_filter}"
+            " ORDER BY e.name",
+            params=sql_params,
+        )
+        grouped: dict[tuple[str, str], set] = defaultdict(set)
+        for r in rows:
+            key = (r["name"], r["entity_type"])
+            grouped[key].add(r["thread_id"])
+        min_t = int(min_books)
+        filtered = [(name, etype, len(threads)) for (name, etype), threads in grouped.items() if len(threads) >= min_t]
+        filtered.sort(key=lambda x: (-x[2], x[0]))
+        if not filtered:
+            return f"No entities found appearing in {min_t}+ email threads."
+        lines = [f"Entities appearing in {min_t}+ threads ({len(filtered)} found):"]
+        for name, etype, count in filtered[:50]:
+            lines.append(f"- {name} ({etype}): {count} threads")
+        return "\n".join(lines)
 
     rows = _backend.execute_sql(
         f"SELECT DISTINCT e.name, e.entity_type, r.book"
@@ -597,22 +700,22 @@ def find_cross_book_entities(min_books: int = 2, entity_type: str = "") -> str:
         params=sql_params,
     )
 
-    grouped: dict[tuple[str, str], list[str]] = defaultdict(list)
+    grouped_books: dict[tuple[str, str], list[str]] = defaultdict(list)
     for r in rows:
         key = (r["name"], r["entity_type"])
-        if r["book"] not in grouped[key]:
-            grouped[key].append(r["book"])
+        if r["book"] not in grouped_books[key]:
+            grouped_books[key].append(r["book"])
 
     min_b = int(min_books)
-    filtered = [(name, etype, books) for (name, etype), books in grouped.items() if len(books) >= min_b]
-    filtered.sort(key=lambda x: (-len(x[2]), x[0]))
+    filtered_b = [(name, etype, books) for (name, etype), books in grouped_books.items() if len(books) >= min_b]
+    filtered_b.sort(key=lambda x: (-len(x[2]), x[0]))
 
-    if not filtered:
+    if not filtered_b:
         type_hint = f" of type '{entity_type}'" if entity_type else ""
         return f"No entities{type_hint} found appearing in {min_b}+ books."
 
-    lines = [f"Entities appearing in {min_b}+ books ({len(filtered)} found):"]
-    for name, etype, books in filtered:
+    lines = [f"Entities appearing in {min_b}+ books ({len(filtered_b)} found):"]
+    for name, etype, books in filtered_b:
         lines.append(f"- {name} ({etype}): {', '.join(sorted(books))} [{len(books)} books]")
     return "\n".join(lines)
 
@@ -665,17 +768,29 @@ def trace_path(entity_a: str, entity_b: str, max_hops: int = 5) -> str:
         if len(path) >= max_h:
             continue
 
-        neighbors = _backend.execute_sql(
-            f"SELECT r.source_entity, r.target_entity, r.relationship_type,"
-            f" r.book, r.chapter,"
-            f" COALESCE(e1.name, r.source_entity) AS src_name,"
-            f" COALESCE(e2.name, r.target_entity) AS tgt_name"
-            f" FROM {RELATIONSHIPS_TABLE} r"
-            f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
-            f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
-            " WHERE r.source_entity = :eid OR r.target_entity = :eid",
-            params={"eid": current_id},
-        )
+        if CORPUS == "enron":
+            neighbors = _backend.execute_sql(
+                f"SELECT r.source_entity, r.target_entity, r.relationship_type,"
+                f" COALESCE(e1.name, r.source_entity) AS src_name,"
+                f" COALESCE(e2.name, r.target_entity) AS tgt_name"
+                f" FROM {RELATIONSHIPS_TABLE} r"
+                f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
+                f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
+                " WHERE r.source_entity = :eid OR r.target_entity = :eid",
+                params={"eid": current_id},
+            )
+        else:
+            neighbors = _backend.execute_sql(
+                f"SELECT r.source_entity, r.target_entity, r.relationship_type,"
+                f" r.book, r.chapter,"
+                f" COALESCE(e1.name, r.source_entity) AS src_name,"
+                f" COALESCE(e2.name, r.target_entity) AS tgt_name"
+                f" FROM {RELATIONSHIPS_TABLE} r"
+                f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
+                f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
+                " WHERE r.source_entity = :eid OR r.target_entity = :eid",
+                params={"eid": current_id},
+            )
 
         for row in neighbors:
             next_id = row["target_entity"] if row["source_entity"] == current_id else row["source_entity"]
@@ -707,10 +822,13 @@ def trace_path(entity_a: str, entity_b: str, max_hops: int = 5) -> str:
     for src, rel, tgt in found_path:
         lines.append(f"  {src} --[{rel}]--> {tgt}")
 
+    if CORPUS == "enron":
+        detail_cols = "COALESCE(e1.name, r.source_entity) AS src, r.relationship_type, COALESCE(e2.name, r.target_entity) AS tgt, r.description"
+    else:
+        detail_cols = "COALESCE(e1.name, r.source_entity) AS src, r.relationship_type, COALESCE(e2.name, r.target_entity) AS tgt, r.description, r.book, r.chapter"
+
     rels = _backend.execute_sql(
-        f"SELECT COALESCE(e1.name, r.source_entity) AS src,"
-        f" r.relationship_type, COALESCE(e2.name, r.target_entity) AS tgt,"
-        f" r.description, r.book, r.chapter"
+        f"SELECT {detail_cols}"
         f" FROM {RELATIONSHIPS_TABLE} r"
         f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
         f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
@@ -722,9 +840,10 @@ def trace_path(entity_a: str, entity_b: str, max_hops: int = 5) -> str:
     if rels:
         lines.append("\nDirect relationships:")
         for r in rels:
+            ctx = f" ({r['book']} ch.{r['chapter']})" if CORPUS != "enron" else ""
             lines.append(
                 f"  {r['src']} --[{r['relationship_type']}]--> {r['tgt']}: "
-                f"{r['description']} ({r['book']} ch.{r['chapter']})"
+                f"{r['description']}{ctx}"
             )
 
     return "\n".join(lines)
@@ -755,7 +874,7 @@ def compare_entity_sets(
         rel_type_b: Optional relationship type filter for set B (e.g., "SPOKE_TO").
         operation: One of "difference" (A-B), "intersection" (A&B), or "union" (A|B). Default: "difference".
     """
-    def _build_set_query(book: str, rel_type: str, alias: str) -> tuple[str, dict]:
+    def _build_set_conditions(rel_type: str, alias: str, book: str = "") -> tuple[str, dict]:
         conditions = []
         params = {}
         if entity_name:
@@ -765,7 +884,7 @@ def compare_entity_sets(
                 f"(r.source_entity LIKE :{eid_key} OR r.target_entity LIKE :{eid_key})"
             )
             params[eid_key] = f"%{eid}%"
-        if book:
+        if book and CORPUS != "enron":
             bk_key = f"book_{alias}"
             conditions.append(f"r.book = :{bk_key}")
             params[bk_key] = book
@@ -774,66 +893,31 @@ def compare_entity_sets(
             conditions.append(f"r.relationship_type = :{rt_key}")
             params[rt_key] = rel_type
         where = " AND ".join(conditions) if conditions else "1=1"
-        sql = (
-            f"SELECT DISTINCT CASE"
-            f"  WHEN r.source_entity LIKE COALESCE(:{f'eid_{alias}'}, '%%') THEN COALESCE(e2.name, r.target_entity)"
-            f"  ELSE COALESCE(e1.name, r.source_entity) END AS neighbor"
-            f" FROM {RELATIONSHIPS_TABLE} r"
-            f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
-            f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
-            f" WHERE {where}"
-        ) if entity_name else (
-            f"SELECT DISTINCT COALESCE(e1.name, r.source_entity) AS neighbor"
-            f" FROM {RELATIONSHIPS_TABLE} r"
-            f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
-            f" WHERE {where}"
-            f" UNION"
-            f" SELECT DISTINCT COALESCE(e2.name, r.target_entity) AS neighbor"
-            f" FROM {RELATIONSHIPS_TABLE} r"
-            f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
-            f" WHERE {where}"
-        )
-        return sql, params
+        return where, params
 
-    if not entity_name and not book_a and not book_b:
-        return "Please provide at least entity_name, or book_a and book_b to compare."
+    if not entity_name and not book_a and not book_b and not rel_type_a and not rel_type_b:
+        return "Please provide at least entity_name, or relationship type filters to compare."
 
+    where_a, params_a = _build_set_conditions(rel_type_a, "a", book_a)
     set_a_rows = _backend.execute_sql(
         f"SELECT DISTINCT COALESCE(e2.name, r.target_entity) AS neighbor,"
-        f" r.relationship_type, r.book"
+        f" r.relationship_type"
         f" FROM {RELATIONSHIPS_TABLE} r"
         f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
         f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
-        f" WHERE " + " AND ".join(filter(None, [
-            f"(r.source_entity LIKE :eid_a OR r.target_entity LIKE :eid_a)" if entity_name else None,
-            f"r.book = :book_a" if book_a else None,
-            f"r.relationship_type = :rt_a" if rel_type_a else None,
-            "1=1",
-        ])),
-        params={
-            **({"eid_a": f"%{'_'.join(entity_name.lower().split())}%"} if entity_name else {}),
-            **({"book_a": book_a} if book_a else {}),
-            **({"rt_a": rel_type_a} if rel_type_a else {}),
-        },
+        f" WHERE {where_a}",
+        params=params_a,
     )
 
+    where_b, params_b = _build_set_conditions(rel_type_b, "b", book_b)
     set_b_rows = _backend.execute_sql(
         f"SELECT DISTINCT COALESCE(e2.name, r.target_entity) AS neighbor,"
-        f" r.relationship_type, r.book"
+        f" r.relationship_type"
         f" FROM {RELATIONSHIPS_TABLE} r"
         f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
         f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
-        f" WHERE " + " AND ".join(filter(None, [
-            f"(r.source_entity LIKE :eid_b OR r.target_entity LIKE :eid_b)" if entity_name else None,
-            f"r.book = :book_b" if book_b else None,
-            f"r.relationship_type = :rt_b" if rel_type_b else None,
-            "1=1",
-        ])),
-        params={
-            **({"eid_b": f"%{'_'.join(entity_name.lower().split())}%"} if entity_name else {}),
-            **({"book_b": book_b} if book_b else {}),
-            **({"rt_b": rel_type_b} if rel_type_b else {}),
-        },
+        f" WHERE {where_b}",
+        params=params_b,
     )
 
     names_a = {r["neighbor"] for r in set_a_rows if r["neighbor"]}
@@ -1311,8 +1395,31 @@ Before you received this message, entities from the user's question were automat
 
 
 def _get_corpus_config() -> dict:
-    """Return table references and system prompt for the active corpus."""
+    """Return table references and system prompt for the active corpus.
+
+    When GRAPHRAG_ACCESS_TIER is set and corpus is enron, returns ABAC view
+    names instead of base table names.  The UC row filter on the emails table
+    cascades into the views automatically.
+    """
     if CORPUS == "enron":
+        if ACCESS_TIER:
+            log.info("ABAC mode: tier=%s — using ABAC views", ACCESS_TIER)
+            abac_note = (
+                f"\n\n**Access tier: {ACCESS_TIER}** — Your view of the knowledge "
+                f"graph is restricted based on your access level. Some entities, "
+                f"relationships, or email sources may not be visible."
+            )
+            return {
+                "entities": ENRON_ABAC_ENTITIES_VIEW,
+                "relationships": ENRON_ABAC_RELATIONSHIPS_VIEW,
+                "source_table": ENRON_ABAC_EMAILS_VIEW,
+                "entity_analytics": ENRON_ABAC_ENTITY_ANALYTICS_VIEW,
+                "entity_paths": ENRON_ABAC_ENTITY_PATHS_VIEW,
+                "entity_mentions": ENRON_ABAC_ENTITY_MENTIONS_VIEW,
+                "system_prompt": ENRON_SYSTEM_PROMPT + abac_note,
+                "source_type": "email",
+                "access_tier": ACCESS_TIER,
+            }
         return {
             "entities": ENRON_ENTITIES_TABLE,
             "relationships": ENRON_RELATIONSHIPS_TABLE,

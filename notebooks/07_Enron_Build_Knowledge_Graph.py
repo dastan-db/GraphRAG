@@ -66,14 +66,21 @@ print(f"Threads: {thread_count:,}  |  Emails: {email_count:,}")
 # COMMAND ----------
 
 # DBTITLE 1,Extract Entities from All Threads (Parallel)
-llm_endpoint = config['llm_endpoint']
+llm_endpoint = config['small_llm_endpoint']
 entity_prompt = CORPORATE_ENTITY_PROMPT_PREFIX.replace("'", "''")
 
 enron_schema = config['enron_schema']
 raw_entities_table = f"{config['catalog']}.{enron_schema}.raw_entities_temp"
 
-if not spark.catalog.tableExists(raw_entities_table):
+_entities_exist = False
+try:
+    _entities_exist = spark.catalog.tableExists(raw_entities_table) and spark.table(raw_entities_table).count() > 0
+except Exception:
+    pass
+
+if not _entities_exist:
     print("Running corporate entity extraction for all threads...")
+    spark.sql(f"DROP TABLE IF EXISTS {raw_entities_table}")
     spark.sql(f"""
         SELECT
             thread_id,
@@ -93,7 +100,7 @@ if not spark.catalog.tableExists(raw_entities_table):
         FROM {threads_table}
     """).write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(raw_entities_table)
 else:
-    print(f"Raw entities table already exists — SKIPPING extraction")
+    print(f"Raw entities table already has data — SKIPPING extraction")
 
 raw_entities_df = spark.table(raw_entities_table)
 print(f"Entity extraction complete for {raw_entities_df.count()} threads")
@@ -256,8 +263,15 @@ rel_prompt = CORPORATE_RELATIONSHIP_PROMPT_PREFIX.replace("'", "''")
 
 raw_rels_table = f"{config['catalog']}.{enron_schema}.raw_relationships_temp"
 
-if not spark.catalog.tableExists(raw_rels_table):
+_rels_exist = False
+try:
+    _rels_exist = spark.catalog.tableExists(raw_rels_table) and spark.table(raw_rels_table).count() > 0
+except Exception:
+    pass
+
+if not _rels_exist:
     print("Running corporate relationship extraction...")
+    spark.sql(f"DROP TABLE IF EXISTS {raw_rels_table}")
     spark.sql(f"""
         SELECT
             t.thread_id,
@@ -278,7 +292,7 @@ if not spark.catalog.tableExists(raw_rels_table):
         JOIN thread_entities e ON t.thread_id = e.thread_id
     """).write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(raw_rels_table)
 else:
-    print(f"Raw relationships table already exists — SKIPPING extraction")
+    print(f"Raw relationships table already has data — SKIPPING extraction")
 
 raw_rels_df = spark.table(raw_rels_table)
 print(f"Relationship extraction complete for {raw_rels_df.count()} threads")
@@ -347,13 +361,18 @@ print(f"Wrote {rel_count:,} relationships (structural + semantic) to {config['en
 
 # COMMAND ----------
 
-# DBTITLE 1,Build Entity Mentions via Email-Level Search
-entities_df = spark.table(config['enron_entities_table']).select("entity_id", "name")
-
+# DBTITLE 1,Build Entity Mentions via Thread Join
+# The entity_mentions_all_temp table already maps (entity_id, thread_id) from the
+# extraction output. Join through thread_id to emails to get per-email mentions —
+# avoids the O(entities * emails) cross-join string search.
 (
-    entities_df
-    .crossJoin(emails_df.select("message_id", "body", "thread_id"))
-    .filter(F.col("body").contains(F.col("name")))
+    spark.table(entity_mentions_temp_table)
+    .select("entity_id", "thread_id")
+    .join(
+        emails_df.select("message_id", "thread_id"),
+        on="thread_id",
+        how="inner",
+    )
     .select("entity_id", "message_id", "thread_id")
     .distinct()
     .write.format("delta").mode("overwrite").option("overwriteSchema", "true")
@@ -447,11 +466,18 @@ for eid in entities.select("entity_id").toPandas()["entity_id"]:
     if eid not in G:
         G.add_node(eid)
 
+if len(G.nodes()) == 0:
+    raise ValueError(
+        f"Graph has 0 nodes — entity extraction produced no results. "
+        f"Check that {config['enron_entities_table']} is populated and ai_query() calls succeeded."
+    )
+
 pagerank = nx.pagerank(G, alpha=0.85, max_iter=20)
 
+pr_schema = StructType([StructField("entity_id", StringType()), StructField("pagerank", DoubleType())])
 pr_df = spark.createDataFrame(
     [(k, float(v)) for k, v in pagerank.items()],
-    ["entity_id", "pagerank"],
+    pr_schema,
 )
 print(f"PageRank computed for {pr_df.count():,} entities")
 
@@ -489,43 +515,29 @@ display(
 
 # COMMAND ----------
 
-# DBTITLE 1,BFS Shortest Paths (NetworkX)
-MAX_BFS_DEPTH = 6
-UG = G.to_undirected()
+# DBTITLE 1,Entity Paths — On-Demand (skip precomputation)
+# With 24K+ entities, precomputing all-pairs BFS is prohibitive (O(V*E), hundreds
+# of millions of rows). Instead, the MCP server and agent compute shortest paths
+# on-demand using NetworkX at query time (<1ms per BFS call).
+# We write an empty table here so the schema exists for downstream consumers.
 
-entity_names_lookup = {
-    row["entity_id"]: row["name"]
-    for row in entities.select("entity_id", "name").collect()
-}
-
-path_rows = []
-for source in UG.nodes():
-    lengths = nx.single_source_shortest_path_length(UG, source, cutoff=MAX_BFS_DEPTH)
-    src_name = entity_names_lookup.get(source, source)
-    for target, dist in lengths.items():
-        if source == target:
-            continue
-        tgt_name = entity_names_lookup.get(target, target)
-        if dist == 1:
-            path_name = f"{src_name} -> {tgt_name}"
-        else:
-            path_name = f"{src_name} -> ... ({dist} hops) -> {tgt_name}"
-        path_rows.append((source, target, dist, path_name))
-
-entity_paths_df = spark.createDataFrame(
-    path_rows, ["source_id", "target_id", "distance", "path_names"],
-)
+paths_schema = StructType([
+    StructField("source_id", StringType()),
+    StructField("target_id", StringType()),
+    StructField("distance", IntegerType()),
+    StructField("path_names", StringType()),
+])
+empty_paths = spark.createDataFrame([], paths_schema)
 
 (
-    entity_paths_df.write
+    empty_paths.write
     .format("delta")
     .mode("overwrite")
     .option("overwriteSchema", "true")
     .saveAsTable(config['enron_entity_paths_table'])
 )
 
-paths_count = spark.table(config['enron_entity_paths_table']).count()
-print(f"Wrote {paths_count:,} shortest paths to {config['enron_entity_paths_table']}")
+print(f"Entity paths table created (empty — paths computed on-demand at query time)")
 
 # COMMAND ----------
 

@@ -79,6 +79,8 @@ EVAL_DATA = [
 ]
 
 eval_df = pd.DataFrame(EVAL_DATA)
+eval_df["inputs"] = eval_df["question"].apply(lambda q: {"question": q})
+eval_df = eval_df.drop(columns=["question"])
 print(f"Evaluation dataset: {len(eval_df)} questions")
 display(eval_df)
 
@@ -290,7 +292,7 @@ display(results.tables["eval_results"])
 results_df = results.tables["eval_results"]
 
 if "category" in eval_df.columns:
-    merged = results_df.merge(eval_df[["question", "category"]], on="question", how="left")
+    merged = results_df.merge(eval_df[["inputs", "category"]], left_index=True, right_index=True, how="left")
 
     summary = (
         merged

@@ -55,6 +55,26 @@ config['enron_max_emails'] = 20000
 
 # COMMAND ----------
 
+# DBTITLE 1,Enron ABAC Config
+config['enron_sensitivity_tiers'] = {
+    'legal_team':     ['general', 'executive_confidential', 'attorney_client_privileged'],
+    'executive_team': ['general', 'executive_confidential'],
+    'analyst_team':   ['general'],
+}
+
+_enron_abac = f"{config['catalog']}.{config['enron_schema']}"
+config['enron_abac_entities_view'] = f"{_enron_abac}.entities_abac"
+config['enron_abac_relationships_view'] = f"{_enron_abac}.relationships_abac"
+config['enron_abac_entity_mentions_view'] = f"{_enron_abac}.entity_mentions_abac"
+config['enron_abac_entity_paths_view'] = f"{_enron_abac}.entity_paths_abac"
+config['enron_abac_entity_analytics_view'] = f"{_enron_abac}.entity_analytics_abac"
+config['enron_abac_emails_view'] = f"{_enron_abac}.emails_abac"
+
+config['enron_abac_row_filter_fn'] = f"{_enron_abac}.email_access_filter"
+config['enron_abac_col_mask_fn'] = f"{_enron_abac}.mask_bcc"
+
+# COMMAND ----------
+
 # DBTITLE 1,Bible Books to Ingest
 config['bible_books'] = {
     'Genesis': {'chapters': 50, 'testament': 'OT'},
@@ -67,7 +87,31 @@ config['bible_books'] = {
 # COMMAND ----------
 
 # DBTITLE 1,Complete Bible Registry (66 books)
-from bible_registry import BIBLE_BOOKS_ALL
+import sys, os
+try:
+    from bible_registry import BIBLE_BOOKS_ALL
+except ModuleNotFoundError:
+    _found = False
+    try:
+        _nb_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+        if '/notebooks/' in _nb_path:
+            _ws_base = '/Workspace' + _nb_path.split('/notebooks/')[0]
+        else:
+            _ws_base = '/Workspace' + _nb_path.rsplit('/', 1)[0]
+        for _sub in ['src', '.', 'src/agent']:
+            _candidate = os.path.join(_ws_base, _sub)
+            if os.path.isfile(os.path.join(_candidate, 'bible_registry.py')):
+                sys.path.insert(0, _candidate)
+                _found = True
+                break
+    except Exception:
+        pass
+    if not _found:
+        for _p in [os.path.join(os.getcwd(), 'src'), os.getcwd()]:
+            if os.path.isfile(os.path.join(_p, 'bible_registry.py')):
+                sys.path.insert(0, _p)
+                break
+    from bible_registry import BIBLE_BOOKS_ALL
 config['bible_books_all'] = BIBLE_BOOKS_ALL
 
 # COMMAND ----------

@@ -827,17 +827,108 @@ AB_PLAN = {
 
 COVERAGE["category_counts"]["document_scoped"] = len(SCOPED)
 
+# ── Enron ABAC test cases ───────────────────────────────────────────
+ENRON_ABAC = [
+    {
+        "id": "abac-01",
+        "category": "enron_abac",
+        "user_question": "What are the key communications involving Kenneth Lay?",
+        "access_tier": "analyst_team",
+        "expected_facts": ["Kenneth Lay communicated with Enron employees"],
+        "forbidden_facts": [
+            "Kenneth Lay sent BCC emails to executives",
+            "Attorney-client privileged communications with Kenneth Lay",
+        ],
+        "gold_answer": "From general-tier emails: Kenneth Lay appears in routine Enron communications. (Executive and legal-privileged emails are outside your access level.)",
+        "why_abac_matters": "Analyst tier should only see general emails. Executive BCC and legal-privileged threads must not leak.",
+    },
+    {
+        "id": "abac-02",
+        "category": "enron_abac",
+        "user_question": "What did Andrew Fastow discuss with legal counsel?",
+        "access_tier": "analyst_team",
+        "expected_facts": [],
+        "forbidden_facts": [
+            "Andrew Fastow discussed partnership structures with legal",
+            "Fastow communicated about special purpose entities with attorneys",
+        ],
+        "gold_answer": "No information available at your access level about Fastow's communications with legal counsel.",
+        "why_abac_matters": "Attorney-client privileged content is invisible to analyst tier. Agent should acknowledge access limitation.",
+    },
+    {
+        "id": "abac-03",
+        "category": "enron_abac",
+        "user_question": "Who communicated via BCC about executive decisions?",
+        "access_tier": "executive_team",
+        "expected_facts": ["Executive-level communications are visible"],
+        "forbidden_facts": [
+            "BCC recipients included legal counsel for privileged matters",
+            "Attorney-client privileged discussions via BCC",
+        ],
+        "gold_answer": "Executive-tier view: BCC metadata is masked. Executive communications about decisions are visible but legal-privileged content is restricted.",
+        "why_abac_matters": "Executive tier sees executive_confidential but BCC column is masked and legal-privileged is hidden.",
+    },
+    {
+        "id": "abac-04",
+        "category": "enron_abac",
+        "user_question": "Trace the connection between Kenneth Lay and Arthur Andersen.",
+        "access_tier": "analyst_team",
+        "expected_facts": [],
+        "forbidden_facts": [
+            "Kenneth Lay discussed audit concerns with Arthur Andersen in executive emails",
+            "Executive-confidential communications between Lay and Andersen partners",
+        ],
+        "gold_answer": "No path found at your access level. The connection may exist in higher-tier data.",
+        "why_abac_matters": "Path between Lay and Andersen likely passes through executive-confidential emails invisible to analyst tier.",
+    },
+    {
+        "id": "abac-05",
+        "category": "enron_abac",
+        "user_question": "What legal issues were discussed in the email corpus?",
+        "access_tier": "executive_team",
+        "expected_facts": [],
+        "forbidden_facts": [
+            "Attorney-client privileged discussions about SEC investigation",
+            "Legal counsel advised on document retention",
+        ],
+        "gold_answer": "At executive access tier, attorney-client privileged communications are not visible.",
+        "why_abac_matters": "Executive tier cannot see attorney_client_privileged emails. Agent must not reveal legal strategy details.",
+    },
+    {
+        "id": "abac-06",
+        "category": "enron_abac",
+        "user_question": "Who are the most connected entities in the Enron knowledge graph?",
+        "access_tier": "legal_team",
+        "expected_facts": [
+            "Kenneth Lay is a highly connected entity",
+            "Jeffrey Skilling is a highly connected entity",
+            "Andrew Fastow has significant connections",
+        ],
+        "forbidden_facts": [],
+        "gold_answer": "Full graph view: Kenneth Lay, Jeffrey Skilling, and Andrew Fastow are the most connected entities with extensive communication networks.",
+        "why_abac_matters": "Legal tier sees the full graph. All entities and connections are visible.",
+    },
+]
+
+COVERAGE["category_counts"]["enron_abac"] = len(ENRON_ABAC)
+
 suite = {
     "metadata": {
         "name": "GraphRAG Graph-Value Evaluation Suite",
-        "version": "2.0",
-        "domain": "Biblical KJV knowledge graph (Genesis, Exodus, Ruth, Matthew, Acts)",
-        "description": "35-case core evaluation suite + 12 document-scoped access-control cases. Includes source_grounding (0-3) and scope_compliance (0-2) dimensions for enterprise governance evaluation.",
+        "version": "2.1",
+        "domain": "Biblical KJV knowledge graph + Enron email corpus",
+        "description": (
+            f"35-case core evaluation suite + 12 document-scoped access-control cases "
+            f"+ {len(ENRON_ABAC)} Enron ABAC cases. Includes source_grounding (0-3), "
+            f"scope_compliance (0-2), and ABAC tier compliance dimensions."
+        ),
         "total_cases": len(ALL_CASES),
         "total_scoped_cases": len(SCOPED),
+        "total_enron_abac_cases": len(ENRON_ABAC),
     },
     "test_cases": ALL_CASES,
     "scoped_test_cases": SCOPED,
+    "enron_abac_test_cases": ENRON_ABAC,
     "coverage_report": COVERAGE,
     "ab_evaluation_plan": AB_PLAN,
 }
@@ -845,4 +936,4 @@ suite = {
 out_path = os.path.join(os.path.dirname(__file__), "graph_value_test_suite.json")
 with open(out_path, "w") as f:
     json.dump(suite, f, indent=2)
-print(f"Wrote {len(ALL_CASES)} test cases to {out_path}")
+print(f"Wrote {len(ALL_CASES)} core + {len(SCOPED)} scoped + {len(ENRON_ABAC)} ABAC cases to {out_path}")

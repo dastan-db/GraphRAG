@@ -132,4 +132,6 @@ Question:
 # DBTITLE 1,Slugify Entity Names
 def slugify(name):
     """Convert an entity name to a stable ID."""
+    if name is None:
+        return None
     return re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')
