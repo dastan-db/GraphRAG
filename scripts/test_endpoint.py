@@ -1,47 +1,18 @@
-"""Quick inference quality test for the graphrag-bible-agent endpoint."""
+"""Quick inference quality test for the graphrag-bible-agent endpoint.
 
+Uses the same test cases and scoring as the local validation pipeline.
+"""
 import json
-import re
+import os
 import sys
 import time
 
 from databricks.sdk import WorkspaceClient
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from test_cases import TEST_CASES, score_response, check_quality_gates
+
 ENDPOINT = "graphrag-bible-agent"
-
-TEST_QUESTIONS = [
-    {
-        "question": "How is Ruth connected to Jesus? Trace the lineage step by step.",
-        "expected_entities": ["Ruth", "Boaz", "Obed", "Jesse", "David", "Jesus"],
-        "category": "multi-hop lineage",
-    },
-    {
-        "question": "What happened on the road to Damascus in Acts?",
-        "expected_entities": ["Saul", "Paul", "Damascus"],
-        "category": "single-book event",
-    },
-    {
-        "question": "What significant events happened in Egypt across all the books in our knowledge graph?",
-        "expected_entities": ["Egypt", "Joseph", "Moses"],
-        "category": "cross-book synthesis",
-    },
-    {
-        "question": "Who was Abraham and what covenant did God make with him?",
-        "expected_entities": ["Abraham", "God"],
-        "category": "entity profile",
-    },
-    {
-        "question": "Compare the leadership styles of Moses and Paul based on their actions and relationships.",
-        "expected_entities": ["Moses", "Paul"],
-        "category": "comparative analysis",
-    },
-]
-
-VERSE_PATTERN = re.compile(r"(Genesis|Exodus|Ruth|Matthew|Acts)\s+\d+:\d+")
-PROVENANCE_HEADING = re.compile(r"#{1,3}\s*Provenance", re.IGNORECASE)
-PATH_INDICATOR = re.compile(r"(→|-->|—\[)")
-SOURCES_LINE = re.compile(r"\*?\*?Sources\*?\*?\s*:", re.IGNORECASE)
-GROUNDING_LINE = re.compile(r"\*?\*?Grounding\*?\*?\s*:", re.IGNORECASE)
 
 
 def query_endpoint(w: WorkspaceClient, question: str) -> tuple[str, float]:
@@ -56,7 +27,6 @@ def query_endpoint(w: WorkspaceClient, question: str) -> tuple[str, float]:
         )
         elapsed = time.time() - start
 
-        # ResponsesAgent output format
         texts = []
         for item in resp.get("output", []):
             if item.get("type") == "message":
@@ -73,52 +43,18 @@ def query_endpoint(w: WorkspaceClient, question: str) -> tuple[str, float]:
         return f"ERROR: {e}", elapsed
 
 
-def score_response(response: str, expected_entities: list[str]) -> dict:
-    citations = VERSE_PATTERN.findall(response)
-    has_provenance = bool(PROVENANCE_HEADING.search(response))
-    has_path = bool(PATH_INDICATOR.search(response))
-    has_sources = bool(SOURCES_LINE.search(response))
-    has_grounding = bool(GROUNDING_LINE.search(response))
-    provenance_score = sum([has_provenance, has_path, has_sources, has_grounding]) / 4
-
-    response_lower = response.lower()
-    entity_hits = [e for e in expected_entities if e.lower() in response_lower]
-    entity_recall = len(entity_hits) / len(expected_entities) if expected_entities else 1.0
-
-    answer_section = response.split("### Provenance")[0] if "### Provenance" in response else response
-    sentences = [s.strip() for s in re.split(r"[.!?\n]", answer_section) if len(s.strip()) > 20]
-    cited_sentences = sum(1 for s in sentences if VERSE_PATTERN.search(s))
-    citation_completeness = cited_sentences / len(sentences) if sentences else 0
-
-    return {
-        "citations": len(citations),
-        "citation_completeness": round(citation_completeness, 2),
-        "provenance_score": provenance_score,
-        "provenance_components": {
-            "heading": has_provenance,
-            "path": has_path,
-            "sources": has_sources,
-            "grounding": has_grounding,
-        },
-        "entity_recall": round(entity_recall, 2),
-        "entity_hits": entity_hits,
-        "entity_misses": [e for e in expected_entities if e not in entity_hits],
-        "response_length": len(response),
-    }
-
-
 def main():
     w = WorkspaceClient(profile="DEFAULT")
     print(f"Connected to: {w.config.host}")
 
     print("=" * 80)
     print(f"  INFERENCE QUALITY TEST — endpoint: {ENDPOINT}")
-    print(f"  {len(TEST_QUESTIONS)} questions across diverse categories")
+    print(f"  {len(TEST_CASES)} questions across diverse categories")
     print("=" * 80)
 
     results = []
 
-    for i, test in enumerate(TEST_QUESTIONS, 1):
+    for i, test in enumerate(TEST_CASES, 1):
         q = test["question"]
         print(f"\n{'─' * 80}")
         print(f"  Q{i} [{test['category']}]")
@@ -133,7 +69,10 @@ def main():
             continue
 
         scores = score_response(response, test["expected_entities"])
-        results.append({**scores, "question": q[:60], "category": test["category"], "latency": round(latency, 1)})
+        scores["question"] = q[:60]
+        scores["category"] = test["category"]
+        scores["latency"] = round(latency, 1)
+        results.append(scores)
 
         print(f"  Latency:               {latency:.1f}s")
         print(f"  Response length:       {scores['response_length']} chars")
@@ -177,24 +116,15 @@ def main():
     print(f"  Avg provenance score:  {avg_prov:.0%}")
     print(f"  Avg entity recall:     {avg_entity:.0%}")
 
-    thresholds = {
-        "provenance": (avg_prov, 0.75, "Provenance structure >= 75%"),
-        "entity_recall": (avg_entity, 0.60, "Entity recall >= 60%"),
-        "citations": (avg_citations, 1.0, "Avg citations >= 1"),
-        "success_rate": (len(valid) / len(results), 0.80, "Success rate >= 80%"),
-    }
+    all_passed, gates = check_quality_gates(results)
 
     print(f"\n  QUALITY GATES:")
-    gate_pass = True
-    for key, (value, threshold, label) in thresholds.items():
-        passed = value >= threshold
-        status = "PASS" if passed else "FAIL"
-        print(f"    [{status}] {label}: {value:.2f} (threshold: {threshold})")
-        if not passed:
-            gate_pass = False
+    for g in gates:
+        status = "PASS" if g["passed"] else "FAIL"
+        print(f"    [{status}] {g['label']}: {g['value']:.2f} (threshold: {g['threshold']})")
 
-    print(f"\n  {'ALL GATES PASSED' if gate_pass else 'SOME GATES FAILED'}")
-    sys.exit(0 if gate_pass else 1)
+    print(f"\n  {'ALL GATES PASSED' if all_passed else 'SOME GATES FAILED'}")
+    sys.exit(0 if all_passed else 1)
 
 
 if __name__ == "__main__":

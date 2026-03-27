@@ -1,0 +1,145 @@
+"""Shared test cases and scoring utilities for GraphRAG agent validation.
+
+Used by:
+    - scripts/validate_local.py  (local quality gate)
+    - scripts/validate_parity.py (local-vs-Databricks parity)
+    - scripts/test_endpoint.py   (deployed endpoint test)
+"""
+import re
+
+TEST_CASES = [
+    {
+        "question": "How is Ruth connected to Jesus? Trace the lineage step by step.",
+        "expected_entities": ["Ruth", "Boaz", "Obed", "Jesse", "David", "Jesus"],
+        "category": "multi-hop lineage",
+    },
+    {
+        "question": "What happened on the road to Damascus in Acts?",
+        "expected_entities": ["Saul", "Paul", "Damascus"],
+        "category": "single-book event",
+    },
+    {
+        "question": "What significant events happened in Egypt across all the books in our knowledge graph?",
+        "expected_entities": ["Egypt", "Joseph", "Moses"],
+        "category": "cross-book synthesis",
+    },
+    {
+        "question": "Who was Abraham and what covenant did God make with him?",
+        "expected_entities": ["Abraham", "God"],
+        "category": "entity profile",
+    },
+    {
+        "question": "Compare the leadership styles of Moses and Paul based on their actions and relationships.",
+        "expected_entities": ["Moses", "Paul"],
+        "category": "comparative analysis",
+    },
+]
+
+QUALITY_THRESHOLDS = {
+    "entity_recall": 0.60,
+    "citations": 1.0,
+    "success_rate": 0.80,
+}
+
+VERSE_PATTERN = re.compile(r"(Genesis|Exodus|Ruth|Matthew|Acts)\s+\d+:\d+")
+PROVENANCE_HEADING = re.compile(r"#{1,3}\s*Provenance", re.IGNORECASE)
+PATH_INDICATOR = re.compile(r"(→|-->|—\[)")
+SOURCES_LINE = re.compile(r"\*?\*?Sources\*?\*?\s*:", re.IGNORECASE)
+GROUNDING_LINE = re.compile(r"\*?\*?Grounding\*?\*?\s*:", re.IGNORECASE)
+
+
+def score_response(response: str, expected_entities: list[str]) -> dict:
+    """Score an agent response against expected entities and structural quality."""
+    citations = VERSE_PATTERN.findall(response)
+    has_provenance = bool(PROVENANCE_HEADING.search(response))
+    has_path = bool(PATH_INDICATOR.search(response))
+    has_sources = bool(SOURCES_LINE.search(response))
+    has_grounding = bool(GROUNDING_LINE.search(response))
+    provenance_score = sum([has_provenance, has_path, has_sources, has_grounding]) / 4
+
+    response_lower = response.lower()
+    entity_hits = [e for e in expected_entities if e.lower() in response_lower]
+    entity_recall = len(entity_hits) / len(expected_entities) if expected_entities else 1.0
+
+    answer_section = response.split("### Provenance")[0] if "### Provenance" in response else response
+    sentences = [s.strip() for s in re.split(r"[.!?\n]", answer_section) if len(s.strip()) > 20]
+    cited_sentences = sum(1 for s in sentences if VERSE_PATTERN.search(s))
+    citation_completeness = cited_sentences / len(sentences) if sentences else 0
+
+    return {
+        "citations": len(citations),
+        "citation_completeness": round(citation_completeness, 2),
+        "provenance_score": provenance_score,
+        "provenance_components": {
+            "heading": has_provenance,
+            "path": has_path,
+            "sources": has_sources,
+            "grounding": has_grounding,
+        },
+        "entity_recall": round(entity_recall, 2),
+        "entity_hits": entity_hits,
+        "entity_misses": [e for e in expected_entities if e not in entity_hits],
+        "response_length": len(response),
+    }
+
+
+def extract_answer_text(response) -> str:
+    """Extract plain text from a ResponsesAgentResponse."""
+    parts = []
+    for item in response.output:
+        item_type = getattr(item, "type", "")
+        if item_type == "message":
+            for block in getattr(item, "content", []):
+                text = None
+                if isinstance(block, dict) and block.get("text"):
+                    text = block["text"]
+                elif hasattr(block, "text"):
+                    text = block.text
+                if text:
+                    parts.append(text)
+        elif hasattr(item, "text"):
+            parts.append(item.text)
+    return "\n".join(parts)
+
+
+def extract_tool_calls(response) -> list[str]:
+    """Extract tool call names from a ResponsesAgentResponse."""
+    calls = []
+    for item in response.output:
+        if getattr(item, "type", "") == "function_call":
+            calls.append(getattr(item, "name", "unknown"))
+    return calls
+
+
+def check_quality_gates(results: list[dict], thresholds: dict | None = None) -> tuple[bool, list[dict]]:
+    """Evaluate quality gates against aggregated results.
+
+    Returns (all_passed, gate_details) where gate_details is a list of
+    {name, value, threshold, label, passed} dicts.
+    """
+    thresholds = thresholds or QUALITY_THRESHOLDS
+
+    valid = [r for r in results if "entity_recall" in r]
+    if not valid:
+        return False, [{"name": "success_rate", "value": 0, "threshold": thresholds.get("success_rate", 0.80),
+                        "label": "Success rate", "passed": False}]
+
+    avg_entity = sum(r["entity_recall"] for r in valid) / len(valid)
+    avg_citations = sum(r["citations"] for r in valid) / len(valid)
+    success_rate = len(valid) / len(results) if results else 0
+
+    gates = [
+        {"name": "entity_recall", "value": avg_entity,
+         "threshold": thresholds.get("entity_recall", 0.60),
+         "label": "Avg entity recall"},
+        {"name": "citations", "value": avg_citations,
+         "threshold": thresholds.get("citations", 1.0),
+         "label": "Avg citations"},
+        {"name": "success_rate", "value": success_rate,
+         "threshold": thresholds.get("success_rate", 0.80),
+         "label": "Success rate"},
+    ]
+    for g in gates:
+        g["passed"] = g["value"] >= g["threshold"]
+
+    return all(g["passed"] for g in gates), gates

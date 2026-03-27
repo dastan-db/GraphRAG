@@ -3,11 +3,20 @@
 Equivalent to Steps 3 + 4 + 5 of notebooks/03_Build_Agent.py.
 Run locally — only makes API calls (no Spark needed).
 
+Step 0: (optional) Run local validation gate before deploying
 Step 3: Log agent_serving.py as a new MLflow model version
+Step 3.5: Smoke-test the logged model locally via mlflow.pyfunc.load_model
 Step 4: Deploy to Model Serving and wait for READY
 Step 5: Configure AI Gateway (usage tracking, inference tables, rate limits, guardrails)
+
+Usage:
+    python scripts/redeploy_agent.py              # validate + deploy
+    python scripts/redeploy_agent.py --no-validate # skip validation
+    python scripts/redeploy_agent.py 3             # just log model
 """
+import argparse
 import os
+import subprocess
 import sys
 import time
 
@@ -25,6 +34,26 @@ INFERENCE_TABLE_PREFIX = "graphrag_gw"
 AGENT_SERVING_PATH = os.path.join(
     os.path.dirname(__file__), "..", "src", "agent", "agent_serving.py"
 )
+
+VALIDATE_SCRIPT = os.path.join(os.path.dirname(__file__), "validate_local.py")
+
+
+def step0_validate() -> bool:
+    """Step 0: Run local validation gate. Returns True if all gates pass."""
+    print("\n" + "=" * 60)
+    print("  STEP 0: Local Validation Gate")
+    print("=" * 60)
+
+    result = subprocess.run(
+        [sys.executable, VALIDATE_SCRIPT, "--backend", "local"],
+        cwd=os.path.join(os.path.dirname(__file__), ".."),
+    )
+    if result.returncode != 0:
+        print("\nERROR: Local validation failed. Fix issues before deploying.")
+        return False
+    print("\nLocal validation passed.")
+    return True
+
 
 def step3_log_model():
     """Step 3: Log agent_serving.py as a new MLflow model version."""
@@ -57,6 +86,32 @@ def step3_log_model():
     print(f"Model logged: {model_info.model_uri}")
     print(f"Registered version: {model_info.registered_model_version}")
     return model_info
+
+
+def step3_5_smoke_test(model_info) -> bool:
+    """Step 3.5: Load the logged model locally and run a smoke query.
+
+    Catches packaging/dependency issues before the 15-40 min deploy.
+    """
+    print("\n" + "=" * 60)
+    print("  STEP 3.5: Post-Log Smoke Test")
+    print("=" * 60)
+
+    try:
+        loaded = mlflow.pyfunc.load_model(model_info.model_uri)
+        result = loaded.predict(
+            {"input": [{"role": "user", "content": "Who is Abraham?"}]}
+        )
+        has_output = bool(result.get("output")) if isinstance(result, dict) else bool(result)
+        if has_output:
+            print("  Smoke test PASSED — model loads and produces output.")
+            return True
+        print("  WARNING: Model loaded but returned empty output.")
+        return True
+    except Exception as e:
+        print(f"  Smoke test FAILED: {e}")
+        print("  The logged model has packaging issues. Fix before deploying.")
+        return False
 
 
 def step4_deploy(model_info):
@@ -194,14 +249,41 @@ def step5_configure_ai_gateway():
 
 
 if __name__ == "__main__":
-    step = sys.argv[1] if len(sys.argv) > 1 else "all"
+    parser = argparse.ArgumentParser(description="Redeploy GraphRAG agent to Model Serving")
+    parser.add_argument("step", nargs="?", default="all",
+                        choices=["all", "3", "log", "3.5", "smoke", "4", "deploy", "5", "gateway"],
+                        help="Which step(s) to run (default: all)")
+    parser.add_argument("--validate", dest="validate", action="store_true", default=True,
+                        help="Run local validation before deploying (default)")
+    parser.add_argument("--no-validate", dest="validate", action="store_false",
+                        help="Skip local validation")
+    parser.add_argument("version", nargs="?", default=None,
+                        help="Model version (for step 4 standalone)")
+    args = parser.parse_args()
+
+    step = args.step
+
+    if step == "all" and args.validate:
+        if not step0_validate():
+            sys.exit(1)
+
+    model_info = None
     if step in ("3", "log", "all"):
         model_info = step3_log_model()
+
+    if step in ("3.5", "smoke", "all"):
+        if model_info:
+            if not step3_5_smoke_test(model_info):
+                print("\nAborting deployment due to smoke test failure.")
+                sys.exit(1)
+        else:
+            print("No model_info available for smoke test. Run step 3 first.")
+
     if step in ("4", "deploy", "all"):
-        if step == "all":
+        if model_info:
             step4_deploy(model_info)
         else:
-            version = sys.argv[2] if len(sys.argv) > 2 else None
+            version = args.version
             if not version:
                 print("Usage: redeploy_agent.py 4 <version>")
                 sys.exit(1)
@@ -209,5 +291,6 @@ if __name__ == "__main__":
             class _Info:
                 registered_model_version = version
             step4_deploy(_Info())
+
     if step in ("5", "gateway", "all"):
         step5_configure_ai_gateway()
