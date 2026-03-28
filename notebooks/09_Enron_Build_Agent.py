@@ -83,6 +83,7 @@ with mlflow.start_run(run_name="graphrag_enron_agent"):
     model_info = mlflow.pyfunc.log_model(
         name="agent",
         python_model="../src/agent/agent_serving.py",
+        code_paths=["../src/agent/pattern_registry.py"],
         resources=resources,
         pip_requirements=[
             "mlflow>=3.0",
