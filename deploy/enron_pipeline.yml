@@ -31,6 +31,12 @@ resources:
           depends_on:
             - task_key: "07_Enron_Build_Knowledge_Graph"
 
+        - task_key: "09_Enron_Genie_Spaces"
+          notebook_task:
+            notebook_path: ../notebooks/09_Enron_Genie_Spaces.py
+          depends_on:
+            - task_key: "07_Enron_Build_Knowledge_Graph"
+
       permissions:
         - level: CAN_VIEW
           group_name: "users"

@@ -127,6 +127,9 @@ try:
         environment_vars={
             "GRAPHRAG_CORPUS": "enron",
             "GRAPHRAG_SCHEMA": "graphrag_enron",
+            "GENIE_COMM_SPACE_ID": "01f12b3ef5121d88be4f23d2dfe2d770",
+            "GENIE_ORG_SPACE_ID": "01f12b3ef5521f078ba8438cc94e108b",
+            "GENIE_INVEST_SPACE_ID": "01f12b3ef56e198e828cd8b59f646430",
         },
         tags={"source": "graphrag_solacc", "corpus": "enron"},
     )

@@ -398,7 +398,7 @@ _CORPORATE_CLASSIFY_AND_EXTRACT_PROMPT = """You are a corporate communications a
    - topic: questions about what ONE specific person discussed, topics for a single entity, what deals or projects someone was involved in
    - topic_pair: questions about what TWO specific named people discussed together, topics between a specific pair of people (requires two person names)
    - path: questions about how two specific entities are connected, degrees of separation
-   - genie_analytics: questions requiring arbitrary SQL aggregation, statistical analysis, percentage calculations, or complex filtering that don't match simpler patterns — e.g. "what percentage of emails were internal?", "average reply depth", "distribution of email types", "compare department sizes"
+   - genie_analytics: questions requiring arbitrary SQL aggregation, statistical analysis, percentage calculations, time-of-day or business-hours filtering, or complex filtering that don't match simpler patterns — e.g. "what percentage of emails were internal?", "who emailed most outside business hours?", "emails sent on weekends", "average reply depth", "distribution of email types by hour", "compare department sizes". IMPORTANT: if a prior question used a simpler pattern (like corpus_ranking_pairs) but the follow-up adds a temporal filter (e.g. "outside business hours", "after 6pm", "on weekends"), classify the follow-up as genie_analytics.
    - general: anything that doesn't clearly fit the above categories
 
 2. EXTRACT all significant entities mentioned in the question.
@@ -3025,14 +3025,15 @@ def search_emails(
 
 
 @tool
-def query_and_enrich(question: str, space_name: str = "communication_analytics") -> str:
+def query_and_enrich(question: str, space_name: str = "auto") -> str:
     """Query a Genie Space for analytical answers, then enrich with graph context.
     Phase 1: Sends the question to the specified Genie Space for SQL-based analysis.
     Phase 2: Enriches the result with entity context and data quality caveats from the knowledge graph.
 
     Args:
         question: The analytical question to ask (e.g., "What percentage of emails were internal?").
-        space_name: Which Genie Space to query — communication_analytics, organizational_intelligence, or email_investigation.
+        space_name: Which Genie Space to query — auto (recommended), communication_analytics, organizational_intelligence, or email_investigation.
+                    When "auto", selects the best space based on question keywords.
     """
     if CORPUS != "enron":
         return "query_and_enrich is only available for the Enron corpus."
@@ -3042,6 +3043,20 @@ def query_and_enrich(question: str, space_name: str = "communication_analytics")
         "organizational_intelligence": os.environ.get("GENIE_ORG_SPACE_ID", ""),
         "email_investigation": os.environ.get("GENIE_INVEST_SPACE_ID", ""),
     }
+
+    if space_name == "auto":
+        q_lower = question.lower()
+        _time_kw = ("business hours", "after hours", "weekend", "time of day",
+                     "hour", "morning", "evening", "night", "sent_date",
+                     "before 9", "after 5", "after 6", "outside of")
+        _org_kw = ("report to", "department", "role", "title", "hierarchy",
+                    "manager", "direct report", "c-suite", "executive")
+        if any(kw in q_lower for kw in _time_kw):
+            space_name = "email_investigation"
+        elif any(kw in q_lower for kw in _org_kw):
+            space_name = "organizational_intelligence"
+        else:
+            space_name = "communication_analytics"
 
     space_id = genie_space_ids.get(space_name, "")
     if not space_id:
