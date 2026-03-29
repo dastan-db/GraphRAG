@@ -9,6 +9,7 @@ import os
 import re
 import uuid as _uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
 
 import mlflow
 from mlflow.pyfunc import ResponsesAgent
@@ -69,6 +70,7 @@ ENRON_COMMUNICATION_DYADS_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.communication_dyads
 ENRON_PARTICIPANTS_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.participants"
 ENRON_THREADS_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.threads"
 ENRON_PERSON_ACTIVITY_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.person_activity"
+ENRON_ORG_HIERARCHY_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.org_hierarchy"
 
 ACCESS_TIER = os.environ.get("GRAPHRAG_ACCESS_TIER", "")
 
@@ -389,20 +391,12 @@ Question:
 _CORPORATE_CLASSIFY_AND_EXTRACT_PROMPT = """You are a corporate communications analyst. Given a user question about the Enron email corpus, do TWO things:
 
 1. CLASSIFY the question into one of these patterns:
-   - entity_profile: questions about who someone IS, their identity, role, email address, department, background — "who is X?", "what is X's email?", "tell me about X", "what department is X in?"
-   - org_hierarchy: questions about reporting lines, authority, roles, org structure, who managed whom, who reported to whom, job titles
-   - communication: questions about who communicated with ONE specific person, top contacts for a single person, email frequency for one person
-   - communication_comparison: questions COMPARING two named people's email volumes, who sent more emails, side-by-side communication stats (requires two specific person names)
-   - corpus_ranking_pairs: questions about which PAIRS of people emailed each other the most — "which two people exchanged the most emails?", "top communication pairs", "most emails between two people"
-   - individual_ranking: questions about which INDIVIDUAL people sent or received the most emails — "who sent the most emails?", "top emailers", "busiest communicators", "most active people", "who received the most emails?"
-   - temporal: questions about changes over time, before/after events, anomalies, spikes, timeline
-   - topic: questions about what ONE specific person discussed, topics for a single entity, what deals or projects someone was involved in
-   - topic_pair: questions about what TWO specific named people discussed together, topics between a specific pair of people (requires two person names)
-   - path: questions about how two specific entities are connected, degrees of separation
-   - genie_analytics: questions requiring arbitrary SQL aggregation, statistical analysis, percentage calculations, time-of-day or business-hours filtering, or complex filtering that don't match simpler patterns — e.g. "what percentage of emails were internal?", "who emailed most outside business hours?", "emails sent on weekends", "average reply depth", "distribution of email types by hour", "compare department sizes". IMPORTANT: if a prior question used a simpler pattern (like corpus_ranking_pairs) but the follow-up adds a temporal filter (e.g. "outside business hours", "after 6pm", "on weekends"), classify the follow-up as genie_analytics.
-   - lineage_query: questions about data provenance, where data comes from, how tables were derived, pipeline steps — e.g. "where does the communication_dyads data come from?", "how was this table created?", "what's the data pipeline?"
-   - topic_browse: questions about what topics were discussed, topic categories, thematic analysis across the corpus — e.g. "what topics did Kenneth Lay discuss?", "what were the main themes?", "show me the topic hierarchy"
-   - data_quality: questions about data reliability, extraction quality, coverage, confidence, how trustworthy the data is — e.g. "how reliable is the data about Jeff Skilling?", "what's the extraction quality?", "are there coverage gaps?"
+   - entity_structure: questions about reporting lines, org chart, roles, titles, who managed whom, who reported to whom, department structure, authority — "who reported to Jeff Skilling?", "what was Andrew Fastow's title?", "who is Kenneth Lay?"
+   - entity_explore: questions about one person's activities, contacts, discussions, involvement, communications — "who did Jeff Skilling email most?", "what did Kenneth Lay discuss?", "what projects was Andrew Fastow involved in?"
+   - entity_pair: questions about the relationship between TWO specific people — "how are Kenneth Lay and Tim Belden connected?", "what did Jeff Skilling and Andrew Fastow discuss?", "did they email each other?"
+   - timeline: questions about events over time, what happened when, sequences, before/after, anomalies — "what happened in August 2001?", "timeline of the investigation", "when did Jeff Skilling resign?"
+   - keyword_search: questions about a topic, project, deal, concept without a specific person anchor — "what was Project Raptor?", "California energy crisis", "special purpose entities", "document destruction"
+   - genie_analytics: questions requiring SQL aggregation, statistical analysis, rankings, percentage calculations — "who sent the most emails?", "top email pairs", "what percentage of emails were internal?", "busiest communicators"
    - general: anything that doesn't clearly fit the above categories
 
 2. EXTRACT all significant entities mentioned in the question.
@@ -410,10 +404,10 @@ _CORPORATE_CLASSIFY_AND_EXTRACT_PROMPT = """You are a corporate communications a
    - name: The canonical name (e.g., "Kenneth Lay" not "Ken")
    - entity_type: One of: Person, Organization, Division, Project, Meeting, Document, Location, Financial_Event
 
-IMPORTANT: Only extract REAL named entities. Generic phrases like "two individuals", "someone", "the person", "each other" are NOT entities — return an empty entities list for those. For corpus_ranking questions there may be no specific entities to extract.
+IMPORTANT: Only extract REAL named entities. Generic phrases like "two individuals", "someone", "the person", "each other" are NOT entities — return an empty entities list for those.
 
 Return a JSON object with exactly this structure:
-{"pattern": "<one of the 15 pattern names>", "confidence": <0.0 to 1.0>, "entities": [{"name": "...", "entity_type": "..."}]}
+{"pattern": "<one of the 7 pattern names>", "confidence": <0.0 to 1.0>, "entities": [{"name": "...", "entity_type": "..."}]}
 
 Return ONLY the JSON object, no other text.
 
@@ -2252,6 +2246,8 @@ def trace_path(entity_a: str, entity_b: str, max_hops: int = 5) -> str:
 
     start_ids = {r["entity_id"] for r in start_rows}
     end_ids = {r["entity_id"] for r in end_rows}
+    eid_a = next(iter(start_ids))
+    eid_b = next(iter(end_ids))
     max_h = min(int(max_hops), 6)
 
     # Slugified IDs contain only [a-z0-9_], safe for inline SQL values
@@ -2472,8 +2468,11 @@ def query_timeline(person_name: str = "", date_from: str = "", date_to: str = ""
     params = {}
 
     if person_name:
-        conditions.append("ARRAY_CONTAINS(key_persons, :person_name)")
-        params["person_name"] = person_name
+        conditions.append(
+            "EXISTS(SELECT 1 FROM EXPLODE(key_persons) AS t(p) "
+            "WHERE LOWER(t.p) LIKE :person_pattern)"
+        )
+        params["person_pattern"] = f"%{person_name.lower()}%"
     if date_from:
         conditions.append("event_date >= :date_from")
         params["date_from"] = date_from
@@ -3773,11 +3772,70 @@ def find_emails(
     }, ensure_ascii=False)
 
 
+@tool
+def query_org_hierarchy(entity_name: str) -> str:
+    """Query the curated Enron organizational hierarchy for reporting relationships.
+    Returns who the person reports to AND who reports to them, with titles, departments,
+    and temporal validity.
+
+    This table contains verified data from SEC filings, DOJ prosecution records,
+    and congressional testimony — it is more reliable than LLM-extracted relationships.
+
+    Args:
+        entity_name: Person name to look up (e.g., "Jeff Skilling", "Andrew Fastow")
+    """
+    if CORPUS != "enron":
+        return "Org hierarchy is only available for the Enron corpus."
+
+    pattern = f"%{entity_name.lower().replace(' ', '_')}%"
+
+    try:
+        reports_to = _backend.execute_sql(
+            f"SELECT person_id, name, title, department, reports_to_id, "
+            f"effective_from, effective_to, source "
+            f"FROM {ENRON_ORG_HIERARCHY_TABLE} "
+            f"WHERE LOWER(person_id) LIKE :pattern OR LOWER(name) LIKE :name_pattern "
+            f"ORDER BY effective_from",
+            params={"pattern": pattern, "name_pattern": f"%{entity_name.lower()}%"},
+        )
+
+        subordinates = _backend.execute_sql(
+            f"SELECT person_id, name, title, department, reports_to_id, "
+            f"effective_from, effective_to, source "
+            f"FROM {ENRON_ORG_HIERARCHY_TABLE} "
+            f"WHERE LOWER(reports_to_id) LIKE :pattern "
+            f"ORDER BY effective_from",
+            params={"pattern": pattern},
+        )
+    except Exception as exc:
+        log.warning("Org hierarchy query failed: %s", exc)
+        return "Org hierarchy table is not available."
+
+    def _fmt(row):
+        return {
+            "person_id": row["person_id"],
+            "name": row["name"],
+            "title": row["title"],
+            "department": row["department"],
+            "reports_to_id": row.get("reports_to_id"),
+            "effective_from": str(row.get("effective_from", "")),
+            "effective_to": str(row.get("effective_to", "")),
+            "source": row.get("source", "curated"),
+        }
+
+    return json.dumps({
+        "entity": entity_name,
+        "source": "curated_org_hierarchy",
+        "roles": [_fmt(r) for r in reports_to],
+        "direct_reports": [_fmt(r) for r in subordinates],
+    }, ensure_ascii=False)
+
+
 LOCAL_TOOLS = [find_entity, find_connections, find_top_contacts, get_top_email_pairs,
                get_top_individuals, get_emails_between, get_dyad_topics,
                get_relationship_evidence, get_context_verses, get_entity_summary,
                list_entities_by_book, find_cross_book_entities, trace_path, compare_entity_sets,
-               query_timeline,
+               query_timeline, query_org_hierarchy,
                detect_self_emails, get_external_contacts, get_communication_timeline,
                get_activity_anomalies, search_emails, find_emails, query_and_enrich,
                get_extraction_provenance, trace_data_lineage, browse_topics,
@@ -4399,44 +4457,61 @@ except ImportError:
             steps: list
             min_confidence: float = 0.8
 
-        _ORG_SYNTH = (
+        _ENTITY_STRUCT_SYNTH = (
             "You are a corporate communications analyst answering about organizational "
-            "hierarchy at Enron.\n\nYou have pre-fetched data: REPORTS_TO, MANAGES relationships, "
-            "entity summary, and email evidence. Use ALL data for a comprehensive, well-cited answer.\n\n"
-            "Guidelines:\n- List ALL people found with roles/titles.\n"
+            "hierarchy at Enron.\n\nYou have curated org hierarchy data (from SEC filings/DOJ records), "
+            "graph relationships, and an entity summary. The curated data is the PRIMARY source of truth.\n\n"
+            "Guidelines:\n- PRIORITIZE curated org_hierarchy results over LLM-extracted relationships.\n"
+            "- List ALL people found with roles/titles and effective date ranges.\n"
             "- Edge direction: in REPORTS_TO source reports to target; in MANAGES source manages target.\n"
-            "- Cite email evidence [YYYY-MM-DD, From: sender, Subject: topic] when available.\n"
-            "- Show org paths with → notation. Include REPORTS_TO/MANAGES labels.\n"
+            "- Show org paths with → notation. Note temporal changes in reporting structure.\n"
+            "- Only cite emails that DIRECTLY support a specific claim.\n"
             "- Do NOT fabricate relationships not in the data."
         )
-        _COMM_SYNTH = (
-            "You are a corporate communications analyst answering about communication "
-            "patterns at Enron.\n\nYou have pre-fetched data: ranked contacts with sent/received "
-            "counts, entity profile, and sample emails. Use ALL data for a comprehensive answer.\n\n"
-            "Guidelines:\n- Present ranked contacts with volumes.\n"
-            "- Note directional patterns. Cite email evidence when available.\n"
-            "- Do NOT fabricate communication patterns not in the data."
+        _ENTITY_EXPLORE_SYNTH = (
+            "You are a corporate communications analyst answering about an Enron employee's "
+            "activities and connections.\n\nYou have a ranked contact list, discussion topics, "
+            "an entity profile, and sample emails.\n\n"
+            "Guidelines:\n- Present role and key relationships.\n"
+            "- Rank top contacts with communication volumes.\n"
+            "- Identify main discussion topics from relationship and email data.\n"
+            "- Cite email evidence [YYYY-MM-DD, From: sender, Subject: topic] when available.\n"
+            "- Do NOT fabricate activities or contacts not in the data."
         )
-        _PATH_SYNTH = (
-            "You are a corporate communications analyst answering how entities are connected "
-            "at Enron.\n\nYou have pre-fetched path data and email evidence between endpoints.\n\n"
-            "Guidelines:\n- Walk through each path hop with → notation and relationship types.\n"
-            "- Cite email evidence when available.\n"
+        _ENTITY_PAIR_SYNTH = (
+            "You are a corporate communications analyst answering about the relationship "
+            "between two people at Enron.\n\nYou have path data, direct emails, shared topics, "
+            "and relationship data.\n\n"
+            "Guidelines:\n- Walk through connection path hops with → notation.\n"
+            "- Quantify direct communication (email count, direction).\n"
+            "- List shared discussion topics with evidence.\n"
+            "- Cite specific emails [YYYY-MM-DD, From: sender, Subject: topic].\n"
             "- Do NOT fabricate connections not in the data."
         )
-        _TEMP_SYNTH = (
+        _TIMELINE_SYNTH = (
             "You are a corporate communications analyst answering about events and timelines "
-            "at Enron.\n\nYou have pre-fetched timeline events and emails from the relevant period.\n\n"
-            "Guidelines:\n- Present events chronologically. Cite sources: timeline or email evidence.\n"
-            "- Distinguish timeline facts from email-derived evidence.\n"
+            "at Enron.\n\nYou have curated investigation timeline events, communication timeline data, "
+            "and email evidence.\n\n"
+            "Guidelines:\n- Present events in strict chronological order.\n"
+            "- Cite source: curated timeline (verified) or email (derived).\n"
+            "- Distinguish curated facts from email-derived observations.\n"
             "- Do NOT fabricate dates or events."
         )
-        _TOPIC_SYNTH = (
-            "You are a corporate communications analyst answering about discussion topics "
-            "at Enron.\n\nYou have pre-fetched entity profile, DISCUSSES relationships, and emails.\n\n"
-            "Guidelines:\n- Identify discussion themes from email subjects/body.\n"
-            "- Group by topic. Cite email evidence.\n"
-            "- Do NOT fabricate topics not in the data."
+        _KEYWORD_SYNTH = (
+            "You are a corporate communications analyst answering about a topic, project, or "
+            "theme at Enron.\n\nYou have email search results, entity mentions, and entity context.\n\n"
+            "Guidelines:\n- Identify key people involved from email evidence.\n"
+            "- Group related emails by sub-theme where possible.\n"
+            "- Cite specific email evidence: dates, senders, subjects, body previews.\n"
+            "- Note the volume of evidence.\n"
+            "- Do NOT fabricate discussion content not in the data."
+        )
+        _GENIE_SYNTH = (
+            "You are a corporate communications analyst presenting Genie Space analytical results about Enron.\n\n"
+            "You have data from a Genie Space SQL query and optional data quality enrichment.\n\n"
+            "Guidelines:\n- Present the analytical results with context.\n"
+            "- Note any data quality caveats from the enrichment.\n"
+            "- Do NOT fabricate analytical results not present in the data."
         )
         _PROV = (
             "\n\n## Response Format (MANDATORY)\nEnd EVERY response with:\n\n"
@@ -4447,140 +4522,39 @@ except ImportError:
             "- **Coverage caveats**: [data quality or coverage limitations]"
         )
 
-        _COMP_SYNTH = (
-            "You are a corporate communications analyst comparing two people's communication "
-            "patterns at Enron.\n\nYou have pre-fetched ranked contacts for EACH person and emails "
-            "between them. Use ALL data for a direct, quantitative comparison.\n\n"
-            "Guidelines:\n- Sum totals for each person. State who sent more.\n"
-            "- Note top contacts and overlap. Cite email counts.\n"
-            "- Do NOT fabricate volumes not in the data."
-        )
-        _PAIR_RANK_SYNTH = (
-            "You are a corporate communications analyst answering about the top email pairs "
-            "at Enron.\n\nYou have pre-fetched data: top communication pairs ranked by volume.\n\n"
-            "Guidelines:\n- Present top pairs with counts. Include display names.\n"
-            "- Note these are from pre-aggregated sender/recipient header data.\n"
-            "- Do NOT fabricate rankings not in the data."
-        )
-        _INDIV_RANK_SYNTH = (
-            "You are a corporate communications analyst answering about the most active email "
-            "users at Enron.\n\nYou have pre-fetched data: individuals ranked by email volume.\n\n"
-            "Guidelines:\n- Present top individuals with sent, received, total counts.\n"
-            "- Focus on sent/received per the question. Include display names.\n"
-            "- Note these are from pre-aggregated person_activity data.\n"
-            "- Do NOT fabricate rankings not in the data."
-        )
-        _GENIE_SYNTH = (
-            "You are a corporate communications analyst presenting Genie Space analytical results about Enron.\n\n"
-            "You have been given pre-fetched data from a Genie Space SQL query and optional data quality enrichment. "
-            "Present the results clearly.\n\n"
-            "Guidelines:\n- Present the analytical results with context.\n"
-            "- Note any data quality caveats from the enrichment.\n"
-            "- If the Genie query failed, explain the limitation.\n"
-            "- Do NOT fabricate analytical results not present in the data."
-        )
-        _LINEAGE_SYNTH = (
-            "You are a data governance specialist explaining data provenance for the Enron corpus.\n\n"
-            "You have pre-fetched pipeline lineage data and corpus coverage statistics.\n\n"
-            "Guidelines:\n- Walk through the transformation chain from source to target.\n"
-            "- Explain each pipeline step in plain language.\n"
-            "- Note coverage rates and any quality limitations.\n"
-            "- Use → notation for lineage chains (e.g., emails → threads → entities).\n"
-            "- Do NOT fabricate pipeline steps not in the data."
-        )
-        _TOPIC_BROWSE_SYNTH = (
-            "You are a corporate communications analyst presenting topic analysis for Enron.\n\n"
-            "You have pre-fetched topic taxonomy data and entity context.\n\n"
-            "Guidelines:\n- Present topics in a structured hierarchy (parent → sub-topics).\n"
-            "- Include thread and entity counts for context.\n"
-            "- Highlight the most significant topic clusters.\n"
-            "- When showing entity-specific topics, explain the person's key discussion areas.\n"
-            "- Do NOT fabricate topic categories not in the data."
-        )
-        _DATA_QUALITY_SYNTH = (
-            "You are a data governance specialist assessing data reliability for the Enron corpus.\n\n"
-            "You have pre-fetched extraction provenance and corpus coverage data.\n\n"
-            "Guidelines:\n- Report extraction method, model, and any truncation issues.\n"
-            "- Show entity resolution confidence (method and merge audit trail).\n"
-            "- Present coverage metrics and flag any below 80%.\n"
-            "- Give an overall data reliability assessment (High/Medium/Low) with justification.\n"
-            "- Do NOT fabricate quality metrics not in the data."
-        )
-
-        _PROFILE_SYNTH = (
-            "You are a corporate communications analyst presenting a comprehensive profile of an Enron employee.\n\n"
-            "You have pre-fetched data: entity details with email addresses, title, department, graph centrality, "
-            "organizational relationships (REPORTS_TO), top communication contacts, and sample emails.\n\n"
-            "Guidelines:\n- Start with name, email, title/role, department if available.\n"
-            "- Include graph centrality to indicate network importance.\n"
-            "- List key organizational relationships.\n"
-            "- Summarize top communication partners.\n"
-            "- Cite email evidence [YYYY-MM-DD, From: sender, Subject: topic] when available.\n"
-            "- Do NOT fabricate details not in the data."
-        )
-
         PATTERN_REGISTRY = {
-            "entity_profile": _Pattern("entity_profile", _PROFILE_SYNTH + _PROV, [
-                _Step("get_entity_summary", {"entity_name": "$ENTITY"}),
-                _Step("find_top_contacts", {"entity_name": "$ENTITY", "direction": "both", "limit": 10}),
-                _Step("find_connections", {"entity_name": "$ENTITY", "relationship_type": "REPORTS_TO"}),
-                _Step("get_context_verses", {"entity_name": "$ENTITY"}),
-            ], 0.8),
-            "org_hierarchy": _Pattern("org_hierarchy", _ORG_SYNTH + _PROV, [
+            "entity_structure": _Pattern("entity_structure", _ENTITY_STRUCT_SYNTH + _PROV, [
+                _Step("query_org_hierarchy", {"entity_name": "$ENTITY"}),
                 _Step("find_connections", {"entity_name": "$ENTITY", "relationship_type": "REPORTS_TO"}),
                 _Step("find_connections", {"entity_name": "$ENTITY", "relationship_type": "MANAGES"}),
                 _Step("get_entity_summary", {"entity_name": "$ENTITY"}),
-                _Step("get_context_verses", {"entity_name": "$ENTITY"}),
-            ], 0.8),
-            "communication": _Pattern("communication", _COMM_SYNTH + _PROV, [
+            ]),
+            "entity_explore": _Pattern("entity_explore", _ENTITY_EXPLORE_SYNTH + _PROV, [
                 _Step("find_top_contacts", {"entity_name": "$ENTITY", "direction": "both", "limit": 15}),
-                _Step("get_entity_summary", {"entity_name": "$ENTITY"}),
-                _Step("get_context_verses", {"entity_name": "$ENTITY"}),
-            ], 0.8),
-            "communication_comparison": _Pattern("communication_comparison", _COMP_SYNTH + _PROV, [
-                _Step("find_top_contacts", {"entity_name": "$ENTITY", "direction": "both", "limit": 15}),
-                _Step("find_top_contacts", {"entity_name": "$ENTITY_B", "direction": "both", "limit": 15}),
-                _Step("get_emails_between", {"entity_a": "$ENTITY", "entity_b": "$ENTITY_B"}),
-            ], 0.8),
-            "path": _Pattern("path", _PATH_SYNTH + _PROV, [
-                _Step("trace_path", {"entity_a": "$ENTITY", "entity_b": "$ENTITY_B"}),
-                _Step("find_connections", {"entity_name": "$ENTITY"}),
-                _Step("get_emails_between", {"entity_a": "$ENTITY", "entity_b": "$ENTITY_B"}),
-            ], 0.85),
-            "temporal": _Pattern("temporal", _TEMP_SYNTH + _PROV, [
-                _Step("query_timeline", {"person_name": "$ENTITY", "date_from": "$DATE_FROM", "date_to": "$DATE_TO"}),
-                _Step("get_context_verses", {"entity_name": "$ENTITY"}),
-            ], 0.75),
-            "topic": _Pattern("topic", _TOPIC_SYNTH + _PROV, [
-                _Step("get_entity_summary", {"entity_name": "$ENTITY"}),
                 _Step("find_connections", {"entity_name": "$ENTITY", "relationship_type": "DISCUSSES"}),
+                _Step("get_entity_summary", {"entity_name": "$ENTITY"}),
                 _Step("get_context_verses", {"entity_name": "$ENTITY"}),
-            ], 0.75),
-            "topic_pair": _Pattern("topic_pair", _TOPIC_SYNTH + _PROV, [
+            ]),
+            "entity_pair": _Pattern("entity_pair", _ENTITY_PAIR_SYNTH + _PROV, [
+                _Step("trace_path", {"entity_a": "$ENTITY", "entity_b": "$ENTITY_B"}),
+                _Step("get_emails_between", {"entity_a": "$ENTITY", "entity_b": "$ENTITY_B"}),
                 _Step("get_dyad_topics", {"entity_a": "$ENTITY", "entity_b": "$ENTITY_B"}),
-                _Step("get_emails_between", {"entity_a": "$ENTITY", "entity_b": "$ENTITY_B", "limit": 20}),
-            ], 0.75),
-            "corpus_ranking_pairs": _Pattern("corpus_ranking_pairs", _PAIR_RANK_SYNTH + _PROV, [
-                _Step("get_top_email_pairs", {"limit": 20}),
-            ], 0.8),
-            "individual_ranking": _Pattern("individual_ranking", _INDIV_RANK_SYNTH + _PROV, [
-                _Step("get_top_individuals", {"limit": 20}),
-            ], 0.8),
+                _Step("find_connections", {"entity_name": "$ENTITY"}),
+            ]),
+            "timeline": _Pattern("timeline", _TIMELINE_SYNTH + _PROV, [
+                _Step("query_timeline", {"person_name": "$ENTITY", "date_from": "$DATE_FROM", "date_to": "$DATE_TO"}),
+                _Step("get_communication_timeline", {"entity_name": "$ENTITY", "date_from": "$DATE_FROM", "date_to": "$DATE_TO"}),
+                _Step("get_context_verses", {"entity_name": "$ENTITY"}),
+            ]),
+            "keyword_search": _Pattern("keyword_search", _KEYWORD_SYNTH + _PROV, [
+                _Step("search_emails", {"keywords": "$KEYWORDS"}),
+                _Step("get_context_verses", {"entity_name": "$ENTITY"}),
+                _Step("find_entity", {"name": "$ENTITY"}),
+            ]),
+            "general": _Pattern("general", "", []),
             "genie_analytics": _Pattern("genie_analytics", _GENIE_SYNTH + _PROV, [
                 _Step("query_and_enrich", {"question": "$QUESTION"}),
-            ], 0.75),
-            "lineage_query": _Pattern("lineage_query", _LINEAGE_SYNTH + _PROV, [
-                _Step("trace_data_lineage", {"table_name": "$QUESTION"}),
-                _Step("get_corpus_coverage", {}),
-            ], 0.8),
-            "topic_browse": _Pattern("topic_browse", _TOPIC_BROWSE_SYNTH + _PROV, [
-                _Step("browse_topics", {"entity_name": "$ENTITY"}),
-                _Step("get_entity_summary", {"entity_name": "$ENTITY"}),
-            ], 0.75),
-            "data_quality": _Pattern("data_quality", _DATA_QUALITY_SYNTH + _PROV, [
-                _Step("get_extraction_provenance", {"entity_name": "$ENTITY"}),
-                _Step("get_corpus_coverage", {"entity_name": "$ENTITY"}),
-            ], 0.8),
+            ]),
         }
 
         def resolve_params(params, entities, *, metadata=None, question=""):
@@ -4591,6 +4565,7 @@ except ImportError:
             for key, value in params.items():
                 if isinstance(value, str):
                     value = value.replace("$ENTITY_B", secondary)
+                    value = value.replace("$KEYWORDS", meta.get("keywords", primary))
                     value = value.replace("$ENTITY", primary)
                     value = value.replace("$DATE_FROM", meta.get("date_from", ""))
                     value = value.replace("$DATE_TO", meta.get("date_to", ""))
@@ -4622,6 +4597,225 @@ def _fast_path_invoke_tool(payload: tuple) -> tuple:
         log.exception("Fast path tool %s failed", step.tool_name)
         result = f"Error: {exc}"
     return step, resolved, call_id, result
+
+
+# ---------------------------------------------------------------------------
+# Query Planner — PDES architecture
+# ---------------------------------------------------------------------------
+PLANNER_ENDPOINT = os.environ.get("GRAPHRAG_PLANNER_ENDPOINT", SMALL_LLM_ENDPOINT)
+
+VALID_PATTERNS = {"entity_structure", "entity_explore", "entity_pair", "timeline", "keyword_search", "general", "genie_analytics"}
+
+QUERY_PLANNER_PROMPT = """You are a Query Planner for a knowledge-graph-backed corporate investigation system (Enron email corpus).
+
+Your job is to DECOMPOSE a user question into one or more atomic sub-questions, each tagged with a computational primitive.
+
+## Step 1: Coreference Resolution
+If the question contains pronouns ("he", "him", "they", "her", "it") or references like "that person" or "the same email", resolve them using the conversation history and entity memory provided below. Replace all pronouns with the actual entity name.
+
+## Step 2: Decomposition
+Break the resolved question into 1-N sub-questions. Each sub-question should be answerable by exactly ONE primitive.
+
+## Available Primitives
+
+- **entity_structure**: Answers "who reports to X?", "what is X's title?", "X's org chart position". Requires: entity name. Tools: query_org_hierarchy, find_connections(REPORTS_TO/MANAGES), get_entity_summary.
+- **entity_explore**: Answers "who did X email most?", "what did X discuss?", "X's activities". Requires: entity name. Tools: find_top_contacts, find_connections(DISCUSSES), get_entity_summary, get_context_verses.
+- **entity_pair**: Answers "how are A and B connected?", "did A and B email each other?", "what did A and B discuss?". Requires: two entity names. Tools: trace_path, get_emails_between, get_dyad_topics, find_connections.
+- **timeline**: Answers "what happened in August 2001?", "when did X resign?", "events between dates". Requires: optional entity name + date range. Tools: query_timeline, get_communication_timeline, get_context_verses.
+- **keyword_search**: Answers "what was Project Raptor?", "emails about California energy crisis". Requires: keywords. Tools: search_emails, get_context_verses, find_entity.
+- **general**: Complex questions that don't fit any primitive. Falls to the flexible ReAct agent loop.
+- **genie_analytics**: SQL aggregation questions like "who sent the most emails?", "top email pairs", statistics. Tools: query_and_enrich.
+
+## Step 3: Dependencies
+If sub-question B depends on the answer to sub-question A (e.g., "find X's reports, then check their emails"), mark B as depending on A.
+
+## Output Format
+Return a JSON object. ONLY output the JSON, no other text.
+
+```json
+{
+  "resolved_question": "the question with all pronouns resolved",
+  "sub_questions": [
+    {
+      "id": "sq1",
+      "question": "Who reported to Jeff Skilling?",
+      "pattern": "entity_structure",
+      "entities": [{"name": "Jeff Skilling", "entity_type": "Person"}],
+      "keywords": "",
+      "date_from": "",
+      "date_to": "",
+      "depends_on": []
+    }
+  ]
+}
+```
+
+Rules:
+- Each sub-question MUST have exactly one pattern from the list above.
+- Simple questions should have just 1 sub-question.
+- Compound questions (e.g., "Who reported to Skilling and what did they discuss?") need 2+ sub-questions.
+- For timeline questions, extract date_from/date_to in YYYY-MM-DD format when present.
+- For keyword_search, put the search terms in the "keywords" field.
+- Use "general" ONLY when no other primitive fits.
+"""
+
+
+@dataclass
+class SubQuestion:
+    id: str
+    question: str
+    pattern: str
+    entities: list[dict]
+    keywords: str = ""
+    date_from: str = ""
+    date_to: str = ""
+    depends_on: list[str] = field(default_factory=list)
+
+
+@dataclass
+class QueryPlan:
+    resolved_question: str
+    sub_questions: list[SubQuestion]
+
+
+def _resolve_coreference(question: str, conversation_history: list[dict], entity_memory_context: str) -> str:
+    """Resolve pronouns in the question using conversation history and entity memory."""
+    if not any(w in question.lower().split() for w in ("he", "him", "his", "she", "her", "they", "them", "their", "it", "its")):
+        return question
+
+    recent_names = []
+    if entity_memory_context:
+        for part in entity_memory_context.replace("Recent entities from prior conversation:", "").split(","):
+            name = part.strip()
+            if name and len(name) > 1:
+                recent_names.append(name)
+
+    if not recent_names:
+        return question
+
+    primary = recent_names[0]
+    resolved = question
+    for pronoun in ["him", "his", "he"]:
+        resolved = re.sub(rf'\b{pronoun}\b', primary, resolved, flags=re.IGNORECASE)
+    for pronoun in ["her", "she"]:
+        resolved = re.sub(rf'\b{pronoun}\b', primary, resolved, flags=re.IGNORECASE)
+    for pronoun in ["them", "their", "they"]:
+        resolved = re.sub(rf'\b{pronoun}\b', primary, resolved, flags=re.IGNORECASE)
+
+    if resolved != question:
+        log.info("Coreference resolved: %r -> %r", question, resolved)
+
+    return resolved
+
+
+def _plan_from_classification(question: str, classification: dict, entity_memory_context: str) -> QueryPlan:
+    """Build a QueryPlan from the classifier output (fast fallback when planner LLM fails)."""
+    resolved = _resolve_coreference(question, [], entity_memory_context)
+
+    pattern = classification.get("pattern", "general")
+    entities = classification.get("entities", [])
+
+    temporal_meta = _extract_temporal_metadata(resolved) if pattern == "timeline" else {}
+
+    return QueryPlan(
+        resolved_question=resolved,
+        sub_questions=[SubQuestion(
+            id="sq1",
+            question=resolved,
+            pattern=pattern,
+            entities=entities,
+            keywords="",
+            date_from=temporal_meta.get("date_from", ""),
+            date_to=temporal_meta.get("date_to", ""),
+            depends_on=[],
+        )],
+    )
+
+
+_JSON_BLOCK_RE = re.compile(r'\{[\s\S]*\}')
+
+
+def _plan_query(
+    question: str,
+    conversation_history: list[dict],
+    entity_memory_context: str,
+) -> QueryPlan:
+    """Decompose a user question into sub-questions with pattern tags.
+
+    Uses the planner LLM for complex decomposition. Falls back to
+    classifier-based single-pattern plan if the planner fails to return valid JSON.
+    """
+    resolved_question = _resolve_coreference(question, conversation_history, entity_memory_context)
+
+    history_lines = []
+    for msg in conversation_history[-6:]:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        if role in ("user", "assistant") and content:
+            history_lines.append(f"{role}: {content[:200]}")
+    history_str = "\n".join(history_lines) if history_lines else "(no prior conversation)"
+
+    user_block = (
+        f"## Conversation History\n{history_str}\n\n"
+        f"## Entity Memory\n{entity_memory_context or '(no entities yet)'}\n\n"
+        f"## Current Question\n{resolved_question}"
+    )
+
+    try:
+        llm = _get_llm(endpoint=PLANNER_ENDPOINT, temperature=0.0, max_tokens=1024)
+        response = llm.invoke([
+            {"role": "system", "content": QUERY_PLANNER_PROMPT},
+            {"role": "user", "content": user_block},
+        ])
+        text = response.content.strip()
+    except Exception as exc:
+        log.warning("Planner LLM call failed: %s; using classifier fallback", exc)
+        classification = classify_and_extract(resolved_question)
+        return _plan_from_classification(resolved_question, classification, entity_memory_context)
+
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+
+    plan_data = None
+    try:
+        plan_data = json.loads(text)
+    except json.JSONDecodeError:
+        m = _JSON_BLOCK_RE.search(text)
+        if m:
+            try:
+                plan_data = json.loads(m.group(0))
+            except json.JSONDecodeError:
+                pass
+
+    if not plan_data or not isinstance(plan_data, dict):
+        log.warning("Planner JSON parse failed; using classifier fallback. Response: %s", text[:300])
+        classification = classify_and_extract(resolved_question)
+        return _plan_from_classification(resolved_question, classification, entity_memory_context)
+
+    resolved_q = plan_data.get("resolved_question", resolved_question)
+    sqs = []
+    for sq_data in plan_data.get("sub_questions", []):
+        pattern = sq_data.get("pattern", "general")
+        if pattern not in VALID_PATTERNS:
+            log.warning("Planner returned invalid pattern %r, mapping to general", pattern)
+            pattern = "general"
+        sqs.append(SubQuestion(
+            id=sq_data.get("id", f"sq{len(sqs)+1}"),
+            question=sq_data.get("question", resolved_question),
+            pattern=pattern,
+            entities=sq_data.get("entities", []),
+            keywords=sq_data.get("keywords", ""),
+            date_from=sq_data.get("date_from", ""),
+            date_to=sq_data.get("date_to", ""),
+            depends_on=sq_data.get("depends_on", []),
+        ))
+
+    if not sqs:
+        classification = classify_and_extract(resolved_question)
+        return _plan_from_classification(resolved_question, classification, entity_memory_context)
+
+    return QueryPlan(resolved_question=resolved_q, sub_questions=sqs)
 
 
 # ---------------------------------------------------------------------------
@@ -4823,6 +5017,129 @@ class GraphRAGAgent(ResponsesAgent):
         except Exception:
             pass
 
+    def _plan_and_execute_stream(
+        self,
+        plan: QueryPlan,
+        question: str,
+        messages: list[dict],
+        *,
+        tier: str = "",
+        permitted_books: str = "",
+        tools_invoked_out: list[str] | None = None,
+    ) -> Generator[ResponsesAgentStreamEvent, None, None]:
+        """Execute a query plan: run each sub-question's primitive, then synthesize."""
+        all_sub_results: dict[str, str] = {}
+        completed_ids: set[str] = set()
+        general_sqs: list[SubQuestion] = []
+
+        independent = [sq for sq in plan.sub_questions if not sq.depends_on and sq.pattern != "general"]
+        dependent = [sq for sq in plan.sub_questions if sq.depends_on and sq.pattern != "general"]
+        general_sqs = [sq for sq in plan.sub_questions if sq.pattern == "general"]
+
+        def _execute_sub_question(sq: SubQuestion) -> str:
+            pattern = PATTERN_REGISTRY.get(sq.pattern)
+            if not pattern or not pattern.steps:
+                return ""
+            entities = sq.entities or []
+            metadata = {}
+            if sq.date_from:
+                metadata["date_from"] = sq.date_from
+            if sq.date_to:
+                metadata["date_to"] = sq.date_to
+            if sq.keywords:
+                metadata["keywords"] = sq.keywords
+
+            tool_results = {}
+            for step in pattern.steps:
+                resolved = resolve_params(step.params, entities, metadata=metadata, question=sq.question)
+                tool_fn = TOOL_MAP.get(step.tool_name)
+                if not tool_fn:
+                    continue
+                required_str_params = ["entity_name", "entity_a", "entity_b"]
+                if any(resolved.get(p) == "" for p in required_str_params if p in resolved):
+                    continue
+                try:
+                    result = tool_fn.invoke(resolved)
+                except Exception as exc:
+                    log.exception("PDES tool %s failed for sq %s", step.tool_name, sq.id)
+                    result = f"Error: {exc}"
+                tool_results[f"{step.tool_name}({json.dumps(resolved)})"] = result
+                if tools_invoked_out is not None:
+                    tools_invoked_out.append(step.tool_name)
+
+            for result_str in tool_results.values():
+                if isinstance(result_str, str):
+                    self.entity_memory.extract(result_str)
+
+            return json.dumps(tool_results, ensure_ascii=False) if tool_results else ""
+
+        if _PARALLEL_TOOLS and len(independent) > 1:
+            with ThreadPoolExecutor(max_workers=min(8, len(independent))) as pool:
+                futures = {pool.submit(_execute_sub_question, sq): sq for sq in independent}
+                for fut in as_completed(futures):
+                    sq = futures[fut]
+                    result = fut.result()
+                    if result:
+                        all_sub_results[sq.id] = f"[{sq.pattern}] {sq.question}\n{result}"
+                    completed_ids.add(sq.id)
+        else:
+            for sq in independent:
+                result = _execute_sub_question(sq)
+                if result:
+                    all_sub_results[sq.id] = f"[{sq.pattern}] {sq.question}\n{result}"
+                completed_ids.add(sq.id)
+
+        for sq in dependent:
+            deps_met = all(d in completed_ids for d in sq.depends_on)
+            if not deps_met:
+                log.warning("PDES: skipping sq %s — unmet dependencies %s", sq.id, sq.depends_on)
+                continue
+            result = _execute_sub_question(sq)
+            if result:
+                all_sub_results[sq.id] = f"[{sq.pattern}] {sq.question}\n{result}"
+            completed_ids.add(sq.id)
+
+        if not all_sub_results and not general_sqs:
+            return
+
+        if general_sqs and not all_sub_results:
+            return
+
+        sub_answers_block = "\n\n---\n\n".join(
+            f"### Sub-question: {v}" for v in all_sub_results.values()
+        )
+
+        synthesis_prompt = (
+            "You are a corporate communications analyst synthesizing answers from multiple data queries about Enron.\n\n"
+            "Below are the results from specialized sub-queries. Combine them into a single, coherent answer.\n\n"
+            "Guidelines:\n"
+            "- Integrate information from all sub-queries into a unified narrative.\n"
+            "- Prioritize curated data (source: curated_org_hierarchy) over LLM-extracted relationships.\n"
+            "- Cite specific evidence: emails [YYYY-MM-DD, From: sender, Subject: topic], timeline entries, relationship data.\n"
+            "- Only cite emails that DIRECTLY support a specific claim.\n"
+            "- If sub-queries returned conflicting information, note the discrepancy.\n"
+            "- Do NOT fabricate information not present in any sub-query result.\n"
+            + PROVENANCE_FORMAT
+            + f"\n\n## Sub-Query Results\n\n{sub_answers_block}"
+        )
+
+        response = self.llm.invoke([
+            {"role": "system", "content": synthesis_prompt},
+            {"role": "user", "content": plan.resolved_question},
+        ])
+
+        yield from output_to_responses_items_stream([response])
+
+        try:
+            pattern_summary = ",".join(sq.pattern for sq in plan.sub_questions)
+            mlflow.update_current_trace(tags={
+                "execution_path": "pdes",
+                "planner_patterns": pattern_summary,
+                "sub_question_count": str(len(plan.sub_questions)),
+            })
+        except Exception:
+            pass
+
     def predict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
         outputs = [
             event.item
@@ -4853,79 +5170,95 @@ class GraphRAGAgent(ResponsesAgent):
             )
             question = last_user["content"] if last_user and last_user.get("content") else ""
 
-            # --- Classify + extract (Enron fast path) ---
+            # --- PDES: Plan-Decompose-Execute-Synthesize ---
             em_context = self.entity_memory.context_for_classifier()
-            classify_question = question + em_context if em_context else question
-            h_found: list[str] = []
-            h_not_found: list[str] = []
-            hnames = _heuristic_entity_names(question) if question else []
-            if question and _CLASSIFY_PIPELINE and CORPUS == "enron":
-                with ThreadPoolExecutor(max_workers=2) as pool:
-                    fut_cls = pool.submit(classify_and_extract, classify_question)
-                    fut_pre = pool.submit(pre_lookup_entities, hnames) if hnames else None
-                    classification = fut_cls.result()
-                    if fut_pre is not None:
-                        h_found, h_not_found = fut_pre.result()
-            elif question:
-                classification = classify_and_extract(classify_question)
-            else:
-                classification = {
-                    "pattern": "general", "confidence": 0.0, "entities": [],
-                }
-            pattern_name = classification.get("pattern", "general")
-            confidence = classification.get("confidence", 0.0)
-            entities = classification.get("entities", [])
-            classified_intent = pattern_name
 
-            log.info(
-                "Classification: pattern=%s confidence=%.2f entities=%d",
-                pattern_name, confidence, len(entities),
-            )
+            if question and CORPUS == "enron" and TOOL_MAP:
+                log.info("PDES: planning query decomposition")
+                plan = _plan_query(question, messages, em_context)
+                classified_intent = ",".join(sq.pattern for sq in plan.sub_questions)
 
-            pattern = PATTERN_REGISTRY.get(pattern_name)
-            if (
-                pattern
-                and confidence >= pattern.min_confidence
-                and CORPUS == "enron"
-                and TOOL_MAP
-            ):
-                log.info("FAST_PATH: %s (confidence=%.2f)", pattern_name, confidence)
-                execution_path = "fast"
-                try:
-                    mlflow.update_current_trace(tags={
-                        "question_pattern": pattern_name,
-                        "pattern_confidence": str(round(confidence, 2)),
-                        "execution_path": "fast",
-                        "entities_found": ",".join(e.get("name", "") for e in entities),
-                    })
-                except Exception:
-                    pass
-                fp_metadata = _extract_temporal_metadata(question) if pattern_name == "temporal" else None
-                fp_events = list(self._execute_fast_path_stream(
-                    pattern, entities, question,
-                    tier=req_tier, permitted_books=req_books,
-                    metadata=fp_metadata,
-                    tools_invoked_out=tools_invoked,
-                ))
-                if fp_events:
-                    yield from fp_events
-                    return
-                log.info("Fast path produced no tool calls; falling back to slow path")
+                non_general = [sq for sq in plan.sub_questions if sq.pattern != "general"]
+                has_fast_primitives = len(non_general) > 0
+
+                if has_fast_primitives:
+                    log.info(
+                        "PDES: %d sub-questions (%s), executing primitives",
+                        len(plan.sub_questions),
+                        classified_intent,
+                    )
+                    execution_path = "pdes"
+                    try:
+                        mlflow.update_current_trace(tags={
+                            "execution_path": "pdes",
+                            "planner_patterns": classified_intent,
+                            "resolved_question": plan.resolved_question[:200],
+                            "sub_question_count": str(len(plan.sub_questions)),
+                        })
+                    except Exception:
+                        pass
+
+                    pdes_events = list(self._plan_and_execute_stream(
+                        plan, plan.resolved_question, messages,
+                        tier=req_tier, permitted_books=req_books,
+                        tools_invoked_out=tools_invoked,
+                    ))
+                    if pdes_events:
+                        yield from pdes_events
+                        return
+                    log.info("PDES produced no results; falling back to slow path")
+
+                # If planner returned only 'general' or PDES failed, try single-pattern fast path
+                if len(plan.sub_questions) == 1:
+                    sq = plan.sub_questions[0]
+                    pattern = PATTERN_REGISTRY.get(sq.pattern)
+                    if pattern and pattern.steps:
+                        entities = sq.entities or []
+                        fp_metadata = {}
+                        if sq.date_from:
+                            fp_metadata["date_from"] = sq.date_from
+                        if sq.date_to:
+                            fp_metadata["date_to"] = sq.date_to
+                        if sq.keywords:
+                            fp_metadata["keywords"] = sq.keywords
+                        if not fp_metadata and sq.pattern == "timeline":
+                            fp_metadata = _extract_temporal_metadata(question)
+
+                        execution_path = "fast"
+                        fp_events = list(self._execute_fast_path_stream(
+                            pattern, entities, sq.question,
+                            tier=req_tier, permitted_books=req_books,
+                            metadata=fp_metadata,
+                            tools_invoked_out=tools_invoked,
+                        ))
+                        if fp_events:
+                            yield from fp_events
+                            return
 
             # --- Slow path (full ReAct loop) ---
             execution_path = "slow"
             tools_invoked.clear()
-            log.info("SLOW_PATH: pattern=%s (confidence=%.2f below threshold or no pattern)", pattern_name, confidence)
+            log.info("SLOW_PATH: falling to ReAct agent loop")
             try:
                 mlflow.update_current_trace(tags={
-                    "question_pattern": pattern_name,
-                    "pattern_confidence": str(round(confidence, 2)),
                     "execution_path": "slow",
-                    "entities_found": ",".join(e.get("name", "") for e in entities),
+                    "classified_intent": classified_intent,
                 })
             except Exception:
                 pass
 
+            hnames = _heuristic_entity_names(question) if question else []
+            h_found: list[str] = []
+            h_not_found: list[str] = []
+            if hnames and CORPUS == "enron":
+                h_found, h_not_found = pre_lookup_entities(hnames)
+
+            classify_question = question + em_context if em_context else question
+            if question and _CLASSIFY_PIPELINE:
+                classification = classify_and_extract(classify_question)
+            else:
+                classification = {"pattern": "general", "confidence": 0.0, "entities": []}
+            entities = classification.get("entities", [])
             names = [e["name"] for e in entities if "name" in e]
             if names:
                 if _CLASSIFY_PIPELINE and CORPUS == "enron" and question:

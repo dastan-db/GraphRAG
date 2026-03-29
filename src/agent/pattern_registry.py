@@ -1,43 +1,12 @@
 """Pattern registry for the adaptive legal-audit agent.
 
-Maps classified question patterns to pre-defined execution plans.
-Fast-path patterns skip the ReAct tool-selection loop — they execute
-a fixed sequence of tool queries and synthesize with a single LLM call.
+Maps classified question patterns to pre-defined execution plans (MECE primitives).
+The Query Planner decomposes user questions into sub-questions, each tagged with
+one of 6 primitives. Each primitive has a fixed tool plan and a focused synthesis prompt.
 
-New patterns are promoted from the slow path via trace analysis
-(see notebooks/12_Enron_Pattern_Analysis.py).
-
-## Pattern Promotion Workflow
-
-When the trace analysis notebook (12) identifies a candidate for promotion:
-
-1. **Add to PATTERN_REGISTRY** — Create a new Pattern entry below with:
-   - A descriptive name matching the classifier categories
-   - Execution steps using existing tools (or new tools if needed)
-   - A focused synthesis prompt for the pattern type
-   - min_confidence threshold (start at 0.85, lower after validation)
-
-2. **Build supporting data** (if needed) — If the pattern requires a new
-   pre-aggregation table, create it in a new notebook cell or notebook
-   (e.g., 07e_Enron_<feature>.py). Add the table to config.py and
-   export_local_data.py.
-
-3. **Create composite tool** (if needed) — If the execution plan requires
-   a tool that doesn't exist, add it to src/agent/agent_serving.py and
-   include it in LOCAL_TOOLS.
-
-4. **Update classifier prompt** — Add the new pattern name and description
-   to _CORPORATE_CLASSIFY_AND_EXTRACT_PROMPT in agent_serving.py so the
-   8B LLM can classify questions into the new category.
-
-5. **Test locally** — Run with GRAPHRAG_BACKEND=local:
-   python scripts/test_local.py "<sample question for new pattern>"
-   Verify the log shows FAST_PATH: <new_pattern_name>.
-
-6. **Run evaluation** — Execute notebook 08 to validate the new pattern
-   doesn't degrade existing scores.
-
-7. **Deploy** — Redeploy the agent endpoint.
+The 6 primitives are derived from 2 orthogonal vectors across all eval questions:
+  - Anchor type:  single entity | entity pair | temporal | keyword | open
+  - Information need:  structure | explore | connection | events | content | synthesis
 """
 from __future__ import annotations
 
@@ -51,7 +20,9 @@ class ExecutionStep:
     Params may contain placeholders:
       $ENTITY   — replaced with the primary entity name from classifier output
       $ENTITY_B — replaced with the secondary entity (for dyad queries)
-      $TIME_RANGE — replaced with extracted time range (if any)
+      $KEYWORDS — replaced with extracted search keywords
+      $DATE_FROM / $DATE_TO — replaced with extracted date range
+      $QUESTION — replaced with the original user question
     """
     tool_name: str
     params: dict = field(default_factory=dict)
@@ -62,113 +33,83 @@ class Pattern:
     name: str
     synthesis_prompt: str
     steps: list[ExecutionStep]
-    min_confidence: float = 0.8
+    min_confidence: float = 0.0
 
 
-ORG_HIERARCHY_SYNTHESIS = """You are a corporate communications analyst answering a question about organizational hierarchy at Enron.
+# ---------------------------------------------------------------------------
+# Synthesis prompts for the 6 MECE primitives
+# ---------------------------------------------------------------------------
 
-You have been given pre-fetched data from the knowledge graph: REPORTS_TO relationships, MANAGES relationships, an entity summary, and email evidence. Use ALL of this data to provide a comprehensive, well-cited answer.
+ENTITY_STRUCTURE_SYNTHESIS = """You are a corporate communications analyst answering a question about organizational hierarchy at Enron.
+
+You have curated org hierarchy data (from SEC filings/DOJ records), graph relationships, and an entity summary. The curated data is the PRIMARY source of truth — it has verified reporting lines with temporal validity.
 
 Guidelines:
-- List ALL people found in the data, with their roles/titles when available.
-- Pay attention to edge direction: in REPORTS_TO, the source reports to the target. In MANAGES, the source manages the target.
-- If the data is sparse (few relationships found), state this explicitly and note the coverage limitation.
-- Cite specific relationship descriptions as evidence.
-- Cite email evidence inline using [YYYY-MM-DD, From: sender, Subject: topic] format when available.
+- PRIORITIZE curated org_hierarchy results over LLM-extracted relationships when they conflict.
+- List ALL people found with their roles/titles and effective date ranges.
+- Pay attention to edge direction: in REPORTS_TO, the source reports to the target.
 - Show organizational paths with → notation (e.g., "Delainey → Skilling → Lay").
-- Include explicit relationship type labels (REPORTS_TO, MANAGES) in your answer.
+- Note temporal changes in reporting structure (e.g., "reported to X until Aug 2001, then to Y").
+- Only cite emails that DIRECTLY support a specific claim. Do NOT cite news digests or mass emails as evidence for org structure.
+- If the curated data is comprehensive, state its source (SEC filings, DOJ, congressional testimony).
 - Do NOT fabricate relationships not present in the data."""
 
 
-COMMUNICATION_SYNTHESIS = """You are a corporate communications analyst answering a question about communication patterns at Enron.
+ENTITY_EXPLORE_SYNTHESIS = """You are a corporate communications analyst answering a question about an Enron employee's activities and connections.
 
-You have been given pre-fetched data: a ranked contact list with sent/received counts, an entity profile, and sample emails between key contacts. Use ALL of this data to provide a comprehensive answer.
+You have a ranked contact list, discussion topics, an entity profile, and sample emails.
 
 Guidelines:
-- Present the ranked contacts with their communication volumes.
+- Present the person's role and key relationships.
+- Rank their top contacts with communication volumes.
+- Identify their main discussion topics from relationship and email data.
+- Cite specific email evidence [YYYY-MM-DD, From: sender, Subject: topic] when available.
 - Note directional patterns (who initiated more).
-- If the question asks about specific people, highlight them.
-- Cite email counts as evidence and include specific email citations [YYYY-MM-DD, From: sender, Subject: topic] when available.
-- Include relationship type labels (SENT_TO, COLLABORATES_WITH) where relevant.
-- Do NOT fabricate communication patterns not present in the data."""
+- Do NOT fabricate activities or contacts not in the data."""
 
 
-PATH_SYNTHESIS = """You are a corporate communications analyst answering a question about how entities are connected at Enron.
+ENTITY_PAIR_SYNTHESIS = """You are a corporate communications analyst answering a question about the relationship between two people at Enron.
 
-You have been given pre-fetched path data showing the shortest connection between two entities, plus email evidence between the endpoints. Use ALL of this data to explain the connection.
+You have path data, direct emails between them, shared discussion topics, and relationship data.
 
 Guidelines:
-- Walk through each hop in the path, explaining the relationship at each step using → notation.
-- Note the relationship types and directions (e.g., "Delainey REPORTS_TO Skilling").
-- If direct relationships also exist, mention those.
-- Cite email evidence [YYYY-MM-DD, From: sender, Subject: topic] when available to support the connection.
+- Walk through each hop in any connection path using → notation.
+- Quantify their direct communication (email count, direction).
+- List shared discussion topics with evidence.
+- Note the relationship types (REPORTS_TO, COLLABORATES_WITH, SENT_TO).
+- Cite specific emails [YYYY-MM-DD, From: sender, Subject: topic] that illuminate their relationship.
 - Do NOT fabricate connections not present in the data."""
 
 
-TEMPORAL_SYNTHESIS = """You are a corporate communications analyst answering a question about events and timelines at Enron.
+TIMELINE_SYNTHESIS = """You are a corporate communications analyst answering a question about events and timelines at Enron.
 
-You have been given pre-fetched data: investigation timeline events and emails from the relevant period. Use ALL of this data to provide a chronological, evidence-backed answer.
+You have curated investigation timeline events, communication timeline data, and email evidence.
 
 Guidelines:
-- Present events in chronological order.
-- For each event, cite the source: timeline entry or email evidence (date, sender, subject).
-- If the timeline data is sparse, supplement with email evidence and note the gap.
-- Distinguish between curated timeline facts and email-derived evidence.
+- Present events in strict chronological order.
+- For each event, cite the source: curated timeline (verified) or email evidence (derived).
+- Distinguish clearly between curated facts and email-derived observations.
+- If asking about communication patterns over time, include volume trends.
+- Note any gaps in temporal coverage.
 - Do NOT fabricate dates or events not present in the data."""
 
 
-TOPIC_SYNTHESIS = """You are a corporate communications analyst answering a question about discussion topics at Enron.
+KEYWORD_SEARCH_SYNTHESIS = """You are a corporate communications analyst answering a question about a topic, project, or theme at Enron.
 
-You have been given pre-fetched data: an entity profile with all relationships, and emails mentioning the relevant entity/topic. Use ALL of this data to identify and explain the topics discussed.
-
-Guidelines:
-- Identify distinct discussion themes from the email subjects and body previews.
-- Group related emails by topic where possible.
-- Cite specific email evidence: dates, senders, subjects.
-- Note the volume of evidence for each topic (how many emails mention it).
-- Do NOT fabricate discussion topics not supported by the data."""
-
-
-COMMUNICATION_COMPARISON_SYNTHESIS = """You are a corporate communications analyst comparing two people's communication patterns at Enron.
-
-You have been given pre-fetched data: a ranked contact list with sent/received counts for EACH person, and any emails between them. Use ALL of this data to provide a direct, quantitative comparison.
+You have email search results, entity mentions, and entity context for the topic.
 
 Guidelines:
-- Sum the total emails for each person from their contact lists and compare directly.
-- State clearly who sent more emails overall, with numbers.
-- Note their top contacts and any overlap.
-- If they communicated with each other directly, highlight that.
-- Cite email counts as evidence.
-- Do NOT fabricate communication volumes not present in the data."""
-
-
-CORPUS_RANKING_PAIRS_SYNTHESIS = """You are a corporate communications analyst answering a question about the top email pairs at Enron.
-
-You have been given pre-fetched data: the top communication pairs ranked by total email volume. Use this data to answer the question directly.
-
-Guidelines:
-- Present the top pairs with their email counts.
-- If the question asks about "most emails between two people", answer with the #1 pair.
-- Include display names and email counts.
-- Note that these counts are from pre-aggregated sender/recipient header data.
-- Do NOT fabricate rankings not present in the data."""
-
-INDIVIDUAL_RANKING_SYNTHESIS = """You are a corporate communications analyst answering a question about the most active email users at Enron.
-
-You have been given pre-fetched data: individuals ranked by email volume (sent, received, or total). Use this data to answer the question directly.
-
-Guidelines:
-- Present the top individuals with their sent, received, and total email counts.
-- If the question asks about "who sent the most emails", focus on the sent column.
-- If the question asks about "who received the most emails", focus on the received column.
-- Include display names and email counts.
-- Note that these counts are from pre-aggregated person_activity data based on email headers.
-- Do NOT fabricate rankings not present in the data."""
+- Identify the key people involved with the topic from email evidence.
+- Group related emails by sub-theme where possible.
+- Cite specific email evidence: dates, senders, subjects, body previews.
+- Note the volume of evidence (how many emails mention this topic).
+- If an entity was found matching the keyword, include its profile.
+- Do NOT fabricate discussion content not supported by the data."""
 
 
 GENIE_ANALYTICS_SYNTHESIS = """You are a corporate communications analyst presenting Genie Space analytical results about Enron.
 
-You have been given pre-fetched data from a Genie Space SQL query and optional data quality enrichment. Present the results clearly.
+You have been given pre-fetched data from a Genie Space SQL query and optional data quality enrichment.
 
 Guidelines:
 - Present the analytical results with context.
@@ -177,84 +118,19 @@ Guidelines:
 - Do NOT fabricate analytical results not present in the data."""
 
 
-ENTITY_PROFILE_SYNTHESIS = """You are a corporate communications analyst presenting a comprehensive profile of an Enron employee or entity.
-
-You have been given pre-fetched data: entity details with email addresses, title, department, graph centrality metrics, their organizational relationships (REPORTS_TO), top communication contacts, and sample emails. Present a complete picture of this person.
-
-Guidelines:
-- Start with their name, email address(es), title/role, and department if available.
-- Include their graph centrality score to indicate their importance in the network.
-- List their key organizational relationships (REPORTS_TO, MANAGES).
-- Summarize their top communication partners with counts.
-- Note their first appearance in the corpus and any temporal context.
-- Cite email evidence [YYYY-MM-DD, From: sender, Subject: topic] when available.
-- Do NOT fabricate details not present in the data."""
-
-
-LINEAGE_SYNTHESIS = """You are a data governance specialist explaining data provenance for the Enron corpus.
-
-You have been given pre-fetched pipeline lineage data and corpus coverage statistics.
-
-Guidelines:
-- Walk through the transformation chain from source to target.
-- Explain each pipeline step in plain language.
-- Note coverage rates and any quality limitations.
-- Use → notation for lineage chains (e.g., emails → threads → entities).
-- Do NOT fabricate pipeline steps not in the data."""
-
-
-TOPIC_BROWSE_SYNTHESIS = """You are a corporate communications analyst presenting topic analysis for Enron.
-
-You have been given pre-fetched topic taxonomy data and entity context.
-
-Guidelines:
-- Present topics in a structured hierarchy (parent → sub-topics).
-- Include thread and entity counts for context.
-- Highlight the most significant topic clusters.
-- When showing entity-specific topics, explain the person's key discussion areas.
-- Do NOT fabricate topic categories not in the data."""
-
-
-DATA_QUALITY_SYNTHESIS = """You are a data governance specialist assessing data reliability for the Enron corpus.
-
-You have been given pre-fetched extraction provenance and corpus coverage data.
-
-Guidelines:
-- Report extraction method, model, and any truncation issues.
-- Show entity resolution confidence (method and merge audit trail).
-- Present coverage metrics and flag any below 80%.
-- Give an overall data reliability assessment (High/Medium/Low) with justification.
-- Do NOT fabricate quality metrics not in the data."""
-
+# ---------------------------------------------------------------------------
+# The 6 MECE computational primitives + genie_analytics
+# ---------------------------------------------------------------------------
 
 PATTERN_REGISTRY: dict[str, Pattern] = {
-    "entity_profile": Pattern(
-        name="entity_profile",
-        synthesis_prompt=ENTITY_PROFILE_SYNTHESIS,
-        steps=[
-            ExecutionStep("get_entity_summary", {
-                "entity_name": "$ENTITY",
-            }),
-            ExecutionStep("find_top_contacts", {
-                "entity_name": "$ENTITY",
-                "direction": "both",
-                "limit": 10,
-            }),
-            ExecutionStep("find_connections", {
-                "entity_name": "$ENTITY",
-                "relationship_type": "REPORTS_TO",
-            }),
-            ExecutionStep("get_context_verses", {
-                "entity_name": "$ENTITY",
-            }),
-        ],
-        min_confidence=0.8,
-    ),
 
-    "org_hierarchy": Pattern(
-        name="org_hierarchy",
-        synthesis_prompt=ORG_HIERARCHY_SYNTHESIS,
+    "entity_structure": Pattern(
+        name="entity_structure",
+        synthesis_prompt=ENTITY_STRUCTURE_SYNTHESIS,
         steps=[
+            ExecutionStep("query_org_hierarchy", {
+                "entity_name": "$ENTITY",
+            }),
             ExecutionStep("find_connections", {
                 "entity_name": "$ENTITY",
                 "relationship_type": "REPORTS_TO",
@@ -266,25 +142,22 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
             ExecutionStep("get_entity_summary", {
                 "entity_name": "$ENTITY",
             }),
-            ExecutionStep("get_context_verses", {
-                "entity_name": "$ENTITY",
-            }),
         ],
-        min_confidence=0.8,
+        min_confidence=0.0,
     ),
 
-    "communication": Pattern(
-        name="communication",
-        synthesis_prompt=COMMUNICATION_SYNTHESIS,
+    "entity_explore": Pattern(
+        name="entity_explore",
+        synthesis_prompt=ENTITY_EXPLORE_SYNTHESIS,
         steps=[
             ExecutionStep("find_top_contacts", {
                 "entity_name": "$ENTITY",
                 "direction": "both",
                 "limit": 15,
             }),
-            ExecutionStep("get_emails_between", {
-                "entity_a": "$ENTITY",
-                "entity_b": "$ENTITY_B",
+            ExecutionStep("find_connections", {
+                "entity_name": "$ENTITY",
+                "relationship_type": "DISCUSSES",
             }),
             ExecutionStep("get_entity_summary", {
                 "entity_name": "$ENTITY",
@@ -293,34 +166,43 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
                 "entity_name": "$ENTITY",
             }),
         ],
-        min_confidence=0.8,
+        min_confidence=0.0,
     ),
 
-    "path": Pattern(
-        name="path",
-        synthesis_prompt=PATH_SYNTHESIS,
+    "entity_pair": Pattern(
+        name="entity_pair",
+        synthesis_prompt=ENTITY_PAIR_SYNTHESIS,
         steps=[
             ExecutionStep("trace_path", {
+                "entity_a": "$ENTITY",
+                "entity_b": "$ENTITY_B",
+            }),
+            ExecutionStep("get_emails_between", {
+                "entity_a": "$ENTITY",
+                "entity_b": "$ENTITY_B",
+            }),
+            ExecutionStep("get_dyad_topics", {
                 "entity_a": "$ENTITY",
                 "entity_b": "$ENTITY_B",
             }),
             ExecutionStep("find_connections", {
                 "entity_name": "$ENTITY",
             }),
-            ExecutionStep("get_emails_between", {
-                "entity_a": "$ENTITY",
-                "entity_b": "$ENTITY_B",
-            }),
         ],
-        min_confidence=0.85,
+        min_confidence=0.0,
     ),
 
-    "temporal": Pattern(
-        name="temporal",
-        synthesis_prompt=TEMPORAL_SYNTHESIS,
+    "timeline": Pattern(
+        name="timeline",
+        synthesis_prompt=TIMELINE_SYNTHESIS,
         steps=[
             ExecutionStep("query_timeline", {
                 "person_name": "$ENTITY",
+                "date_from": "$DATE_FROM",
+                "date_to": "$DATE_TO",
+            }),
+            ExecutionStep("get_communication_timeline", {
+                "entity_name": "$ENTITY",
                 "date_from": "$DATE_FROM",
                 "date_to": "$DATE_TO",
             }),
@@ -328,86 +210,31 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
                 "entity_name": "$ENTITY",
             }),
         ],
-        min_confidence=0.75,
+        min_confidence=0.0,
     ),
 
-    "topic": Pattern(
-        name="topic",
-        synthesis_prompt=TOPIC_SYNTHESIS,
+    "keyword_search": Pattern(
+        name="keyword_search",
+        synthesis_prompt=KEYWORD_SEARCH_SYNTHESIS,
         steps=[
-            ExecutionStep("get_entity_summary", {
-                "entity_name": "$ENTITY",
-            }),
-            ExecutionStep("find_connections", {
-                "entity_name": "$ENTITY",
-                "relationship_type": "DISCUSSES",
+            ExecutionStep("search_emails", {
+                "keywords": "$KEYWORDS",
             }),
             ExecutionStep("get_context_verses", {
                 "entity_name": "$ENTITY",
             }),
+            ExecutionStep("find_entity", {
+                "name": "$ENTITY",
+            }),
         ],
-        min_confidence=0.75,
+        min_confidence=0.0,
     ),
 
-    "topic_pair": Pattern(
-        name="topic_pair",
-        synthesis_prompt=TOPIC_SYNTHESIS,
-        steps=[
-            ExecutionStep("get_dyad_topics", {
-                "entity_a": "$ENTITY",
-                "entity_b": "$ENTITY_B",
-            }),
-            ExecutionStep("get_emails_between", {
-                "entity_a": "$ENTITY",
-                "entity_b": "$ENTITY_B",
-                "limit": 20,
-            }),
-        ],
-        min_confidence=0.75,
-    ),
-
-    "communication_comparison": Pattern(
-        name="communication_comparison",
-        synthesis_prompt=COMMUNICATION_COMPARISON_SYNTHESIS,
-        steps=[
-            ExecutionStep("find_top_contacts", {
-                "entity_name": "$ENTITY",
-                "direction": "both",
-                "limit": 15,
-            }),
-            ExecutionStep("find_top_contacts", {
-                "entity_name": "$ENTITY_B",
-                "direction": "both",
-                "limit": 15,
-            }),
-            ExecutionStep("get_emails_between", {
-                "entity_a": "$ENTITY",
-                "entity_b": "$ENTITY_B",
-            }),
-        ],
-        min_confidence=0.8,
-    ),
-
-    "corpus_ranking_pairs": Pattern(
-        name="corpus_ranking_pairs",
-        synthesis_prompt=CORPUS_RANKING_PAIRS_SYNTHESIS,
-        steps=[
-            ExecutionStep("get_top_email_pairs", {
-                "limit": 20,
-            }),
-        ],
-        min_confidence=0.8,
-    ),
-
-    "individual_ranking": Pattern(
-        name="individual_ranking",
-        synthesis_prompt=INDIVIDUAL_RANKING_SYNTHESIS,
-        steps=[
-            ExecutionStep("get_top_individuals", {
-                "limit": 20,
-            }),
-        ],
-        min_confidence=0.8,
+    "general": Pattern(
+        name="general",
+        synthesis_prompt="",
+        steps=[],
+        min_confidence=0.0,
     ),
 
     "genie_analytics": Pattern(
@@ -418,47 +245,7 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
                 "question": "$QUESTION",
             }),
         ],
-        min_confidence=0.75,
-    ),
-
-    "lineage_query": Pattern(
-        name="lineage_query",
-        synthesis_prompt=LINEAGE_SYNTHESIS,
-        steps=[
-            ExecutionStep("trace_data_lineage", {
-                "table_name": "$QUESTION",
-            }),
-            ExecutionStep("get_corpus_coverage", {}),
-        ],
-        min_confidence=0.8,
-    ),
-
-    "topic_browse": Pattern(
-        name="topic_browse",
-        synthesis_prompt=TOPIC_BROWSE_SYNTHESIS,
-        steps=[
-            ExecutionStep("browse_topics", {
-                "entity_name": "$ENTITY",
-            }),
-            ExecutionStep("get_entity_summary", {
-                "entity_name": "$ENTITY",
-            }),
-        ],
-        min_confidence=0.75,
-    ),
-
-    "data_quality": Pattern(
-        name="data_quality",
-        synthesis_prompt=DATA_QUALITY_SYNTHESIS,
-        steps=[
-            ExecutionStep("get_extraction_provenance", {
-                "entity_name": "$ENTITY",
-            }),
-            ExecutionStep("get_corpus_coverage", {
-                "entity_name": "$ENTITY",
-            }),
-        ],
-        min_confidence=0.8,
+        min_confidence=0.0,
     ),
 }
 
@@ -470,12 +257,15 @@ def resolve_params(
     metadata: dict | None = None,
     question: str = "",
 ) -> dict:
-    """Replace $ENTITY / $ENTITY_B / $DATE_FROM / $DATE_TO / $QUESTION placeholders.
+    """Replace $-prefixed placeholders in tool params.
+
+    Supported placeholders:
+      $ENTITY, $ENTITY_B, $KEYWORDS, $DATE_FROM, $DATE_TO, $QUESTION
 
     Args:
         params: Template params with $-prefixed placeholders.
         entities: Extracted entities from the classifier.
-        metadata: Optional dict with 'date_from' and 'date_to' keys for temporal queries.
+        metadata: Optional dict with 'date_from', 'date_to', 'keywords' keys.
         question: Original user question for $QUESTION substitution.
     """
     resolved = {}
@@ -486,6 +276,7 @@ def resolve_params(
     for key, value in params.items():
         if isinstance(value, str):
             value = value.replace("$ENTITY_B", secondary)
+            value = value.replace("$KEYWORDS", meta.get("keywords", primary))
             value = value.replace("$ENTITY", primary)
             value = value.replace("$DATE_FROM", meta.get("date_from", ""))
             value = value.replace("$DATE_TO", meta.get("date_to", ""))
