@@ -129,6 +129,54 @@ Guidelines:
 - Do NOT fabricate discussion topics not supported by the data."""
 
 
+COMMUNICATION_COMPARISON_SYNTHESIS = """You are a corporate communications analyst comparing two people's communication patterns at Enron.
+
+You have been given pre-fetched data: a ranked contact list with sent/received counts for EACH person, and any emails between them. Use ALL of this data to provide a direct, quantitative comparison.
+
+Guidelines:
+- Sum the total emails for each person from their contact lists and compare directly.
+- State clearly who sent more emails overall, with numbers.
+- Note their top contacts and any overlap.
+- If they communicated with each other directly, highlight that.
+- Cite email counts as evidence.
+- Do NOT fabricate communication volumes not present in the data."""
+
+
+CORPUS_RANKING_PAIRS_SYNTHESIS = """You are a corporate communications analyst answering a question about the top email pairs at Enron.
+
+You have been given pre-fetched data: the top communication pairs ranked by total email volume. Use this data to answer the question directly.
+
+Guidelines:
+- Present the top pairs with their email counts.
+- If the question asks about "most emails between two people", answer with the #1 pair.
+- Include display names and email counts.
+- Note that these counts are from pre-aggregated sender/recipient header data.
+- Do NOT fabricate rankings not present in the data."""
+
+INDIVIDUAL_RANKING_SYNTHESIS = """You are a corporate communications analyst answering a question about the most active email users at Enron.
+
+You have been given pre-fetched data: individuals ranked by email volume (sent, received, or total). Use this data to answer the question directly.
+
+Guidelines:
+- Present the top individuals with their sent, received, and total email counts.
+- If the question asks about "who sent the most emails", focus on the sent column.
+- If the question asks about "who received the most emails", focus on the received column.
+- Include display names and email counts.
+- Note that these counts are from pre-aggregated person_activity data based on email headers.
+- Do NOT fabricate rankings not present in the data."""
+
+
+GENIE_ANALYTICS_SYNTHESIS = """You are a corporate communications analyst presenting Genie Space analytical results about Enron.
+
+You have been given pre-fetched data from a Genie Space SQL query and optional data quality enrichment. Present the results clearly.
+
+Guidelines:
+- Present the analytical results with context.
+- Note any data quality caveats from the enrichment.
+- If the Genie query failed, explain the limitation.
+- Do NOT fabricate analytical results not present in the data."""
+
+
 PATTERN_REGISTRY: dict[str, Pattern] = {
     "org_hierarchy": Pattern(
         name="org_hierarchy",
@@ -160,6 +208,10 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
                 "entity_name": "$ENTITY",
                 "direction": "both",
                 "limit": 15,
+            }),
+            ExecutionStep("get_emails_between", {
+                "entity_a": "$ENTITY",
+                "entity_b": "$ENTITY_B",
             }),
             ExecutionStep("get_entity_summary", {
                 "entity_name": "$ENTITY",
@@ -223,16 +275,95 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
         ],
         min_confidence=0.75,
     ),
+
+    "topic_pair": Pattern(
+        name="topic_pair",
+        synthesis_prompt=TOPIC_SYNTHESIS,
+        steps=[
+            ExecutionStep("get_dyad_topics", {
+                "entity_a": "$ENTITY",
+                "entity_b": "$ENTITY_B",
+            }),
+            ExecutionStep("get_emails_between", {
+                "entity_a": "$ENTITY",
+                "entity_b": "$ENTITY_B",
+                "limit": 20,
+            }),
+        ],
+        min_confidence=0.75,
+    ),
+
+    "communication_comparison": Pattern(
+        name="communication_comparison",
+        synthesis_prompt=COMMUNICATION_COMPARISON_SYNTHESIS,
+        steps=[
+            ExecutionStep("find_top_contacts", {
+                "entity_name": "$ENTITY",
+                "direction": "both",
+                "limit": 15,
+            }),
+            ExecutionStep("find_top_contacts", {
+                "entity_name": "$ENTITY_B",
+                "direction": "both",
+                "limit": 15,
+            }),
+            ExecutionStep("get_emails_between", {
+                "entity_a": "$ENTITY",
+                "entity_b": "$ENTITY_B",
+            }),
+        ],
+        min_confidence=0.8,
+    ),
+
+    "corpus_ranking_pairs": Pattern(
+        name="corpus_ranking_pairs",
+        synthesis_prompt=CORPUS_RANKING_PAIRS_SYNTHESIS,
+        steps=[
+            ExecutionStep("get_top_email_pairs", {
+                "limit": 20,
+            }),
+        ],
+        min_confidence=0.8,
+    ),
+
+    "individual_ranking": Pattern(
+        name="individual_ranking",
+        synthesis_prompt=INDIVIDUAL_RANKING_SYNTHESIS,
+        steps=[
+            ExecutionStep("get_top_individuals", {
+                "limit": 20,
+            }),
+        ],
+        min_confidence=0.8,
+    ),
+
+    "genie_analytics": Pattern(
+        name="genie_analytics",
+        synthesis_prompt=GENIE_ANALYTICS_SYNTHESIS,
+        steps=[
+            ExecutionStep("query_and_enrich", {
+                "question": "$QUESTION",
+            }),
+        ],
+        min_confidence=0.75,
+    ),
 }
 
 
-def resolve_params(params: dict, entities: list[dict], *, metadata: dict | None = None) -> dict:
-    """Replace $ENTITY / $ENTITY_B / $DATE_FROM / $DATE_TO placeholders.
+def resolve_params(
+    params: dict,
+    entities: list[dict],
+    *,
+    metadata: dict | None = None,
+    question: str = "",
+) -> dict:
+    """Replace $ENTITY / $ENTITY_B / $DATE_FROM / $DATE_TO / $QUESTION placeholders.
 
     Args:
         params: Template params with $-prefixed placeholders.
         entities: Extracted entities from the classifier.
         metadata: Optional dict with 'date_from' and 'date_to' keys for temporal queries.
+        question: Original user question for $QUESTION substitution.
     """
     resolved = {}
     primary = entities[0]["name"] if entities else ""
@@ -245,5 +376,6 @@ def resolve_params(params: dict, entities: list[dict], *, metadata: dict | None 
             value = value.replace("$ENTITY", primary)
             value = value.replace("$DATE_FROM", meta.get("date_from", ""))
             value = value.replace("$DATE_TO", meta.get("date_to", ""))
+            value = value.replace("$QUESTION", question)
         resolved[key] = value
     return resolved

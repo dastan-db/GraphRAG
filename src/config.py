@@ -57,6 +57,18 @@ config['enron_communication_dyads_table'] = f"{config['catalog']}.{config['enron
 config['enron_person_activity_table'] = f"{config['catalog']}.{config['enron_schema']}.person_activity"
 config['enron_org_hierarchy_table'] = f"{config['catalog']}.{config['enron_schema']}.org_hierarchy"
 config['enron_investigation_timeline_table'] = f"{config['catalog']}.{config['enron_schema']}.investigation_timeline"
+config['enron_person_identity_table'] = f"{config['catalog']}.{config['enron_schema']}.person_identity"
+config['enron_ontology_registry_table'] = f"{config['catalog']}.{config['enron_schema']}.ontology_registry"
+config['enron_corpus_coverage_table'] = f"{config['catalog']}.{config['enron_schema']}.corpus_coverage"
+
+config['enron_extraction_provenance_table'] = f"{config['catalog']}.{config['enron_schema']}.extraction_provenance"
+config['enron_entity_resolution_audit_table'] = f"{config['catalog']}.{config['enron_schema']}.entity_resolution_audit"
+config['enron_email_classification_table'] = f"{config['catalog']}.{config['enron_schema']}.email_classification"
+config['enron_data_quality_report_table'] = f"{config['catalog']}.{config['enron_schema']}.data_quality_report"
+config['enron_person_role_timeline_table'] = f"{config['catalog']}.{config['enron_schema']}.person_role_timeline"
+config['enron_topic_taxonomy_table'] = f"{config['catalog']}.{config['enron_schema']}.topic_taxonomy"
+config['enron_pipeline_lineage_table'] = f"{config['catalog']}.{config['enron_schema']}.pipeline_lineage"
+config['enron_agent_query_log_table'] = f"{config['catalog']}.{config['enron_schema']}.agent_query_log"
 
 # COMMAND ----------
 

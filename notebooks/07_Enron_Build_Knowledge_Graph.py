@@ -456,6 +456,59 @@ print(f"Wrote {alias_count:,} entity aliases to {alias_table}")
 
 # COMMAND ----------
 
+# DBTITLE 1,Build Entity Resolution Audit Table
+
+audit_table = f"{config['catalog']}.{enron_schema}.entity_resolution_audit"
+
+# Custodian-derived audit rows
+custodian_audit = (
+    custodian_aliases_df
+    .withColumn("method", F.lit("custodian_hardcode"))
+    .withColumn("blocking_reason", F.lit(None).cast("string"))
+    .withColumn("ai_raw_response", F.lit(None).cast("string"))
+    .withColumn("confidence", F.lit(1.0))
+    .withColumn("created_at", F.current_timestamp())
+)
+
+# AI-derived audit rows
+ai_audit = (
+    spark.table(ai_merge_table)
+    .filter(F.upper(F.trim(F.col("merge_decision.result"))).like("YES%"))
+    .withColumn(
+        "canonical_id",
+        F.when(F.length(F.col("id_a")) >= F.length(F.col("id_b")), F.col("id_a"))
+         .otherwise(F.col("id_b"))
+    )
+    .withColumn(
+        "alias_id",
+        F.when(F.length(F.col("id_a")) >= F.length(F.col("id_b")), F.col("id_b"))
+         .otherwise(F.col("id_a"))
+    )
+    .filter(F.col("alias_id") != F.col("canonical_id"))
+    .select(
+        "alias_id", "canonical_id",
+        F.lit("ai_powered").alias("method"),
+        F.lit("levenshtein").alias("blocking_reason"),
+        F.col("merge_decision.result").alias("ai_raw_response"),
+        F.lit(0.85).alias("confidence"),
+        F.current_timestamp().alias("created_at"),
+    )
+)
+
+(
+    custodian_audit
+    .unionByName(ai_audit)
+    .write.format("delta")
+    .mode("overwrite")
+    .option("overwriteSchema", "true")
+    .saveAsTable(audit_table)
+)
+
+audit_count = spark.table(audit_table).count()
+print(f"Wrote {audit_count:,} entity resolution audit rows to {audit_table}")
+
+# COMMAND ----------
+
 # DBTITLE 1,Rewrite Entity Mentions with Canonical IDs
 aliases_df = spark.table(alias_table)
 
@@ -694,6 +747,29 @@ all_rels = (
         F.first("description").alias("description"),
         F.collect_set("thread_id").alias("source_threads"),
         F.count("*").alias("edge_count"),
+        F.min("thread_id").alias("first_observed"),
+        F.max("thread_id").alias("last_observed"),
+        F.when(
+            F.first("relationship_type").isin(
+                "SENT_TO", "REPORTS_TO", "EMPLOYED_BY", "MANAGES"
+            ),
+            F.lit("structural"),
+        )
+        .otherwise(F.lit("semantic"))
+        .alias("evidence_type"),
+        F.when(
+            F.first("relationship_type").isin(
+                "SENT_TO", "REPORTS_TO", "EMPLOYED_BY", "MANAGES"
+            ),
+            F.lit(1.0),
+        )
+        .otherwise(
+            F.least(
+                F.lit(0.95),
+                F.lit(0.5) + F.count("*").cast("float") * F.lit(0.1),
+            )
+        )
+        .alias("confidence"),
     )
 )
 

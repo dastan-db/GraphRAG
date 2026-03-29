@@ -35,6 +35,51 @@ TEST_CASES = [
     },
 ]
 
+ENRON_TEST_CASES = [
+    {
+        "question": "Who sent the most emails in the Enron corpus?",
+        "expected_tool": "get_top_individuals",
+        "forbidden_tool": "get_top_email_pairs",
+        "category": "individual_ranking",
+    },
+    {
+        "question": "Which two people exchanged the most emails?",
+        "expected_tool": "get_top_email_pairs",
+        "forbidden_tool": "get_top_individuals",
+        "category": "corpus_ranking_pairs",
+    },
+    {
+        "question": "Who did Jeff Skilling report to?",
+        "expected_tool": "find_connections",
+        "category": "org_hierarchy",
+    },
+    {
+        "question": "What did Kenneth Lay and Jeff Skilling discuss?",
+        "expected_tool": "get_dyad_topics",
+        "category": "topic_pair",
+    },
+    {
+        "question": "Find emails mentioning 'shred' or 'destroy'",
+        "expected_tool": "search_emails",
+        "category": "investigation",
+    },
+    {
+        "question": "How are Andrew Fastow and Kenneth Lay connected?",
+        "expected_tool": "trace_path",
+        "category": "path",
+    },
+    {
+        "question": "Who were Jeff Skilling's top email contacts?",
+        "expected_tool": "find_top_contacts",
+        "category": "communication",
+    },
+    {
+        "question": "What percentage of emails were internal?",
+        "expected_tool": "query_and_enrich",
+        "category": "genie_analytics",
+    },
+]
+
 QUALITY_THRESHOLDS = {
     "entity_recall": 0.60,
     "citations": 1.0,

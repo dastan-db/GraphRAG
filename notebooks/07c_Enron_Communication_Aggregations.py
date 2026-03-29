@@ -127,6 +127,8 @@ spark.sql(f"""
             SELECT EXPLODE(to_recipients) AS recipient, date FROM {emails_table}
             UNION ALL
             SELECT EXPLODE(cc_recipients) AS recipient, date FROM {emails_table}
+            UNION ALL
+            SELECT EXPLODE(bcc_recipients) AS recipient, date FROM {emails_table}
         )
         WHERE recipient IS NOT NULL
         GROUP BY recipient, DATE_TRUNC('week', date)

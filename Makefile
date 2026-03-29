@@ -8,7 +8,8 @@
 #   make deploy        — validate + log + smoke-test + deploy
 #   make deploy-force  — skip validation, deploy immediately
 
-.PHONY: export test test-unit test-app validate parity \
+.PHONY: export export-enron test test-unit test-app test-enron test-enron-integration \
+       build-metadata validate parity \
        bundle-validate bundle-deploy local-all \
        deploy deploy-force deploy-all test-endpoint help \
        preflight preflight-full deploy-confident
@@ -21,6 +22,21 @@ help: ## Show available targets
 
 export: ## Export Delta tables to local DuckDB (data/graphrag.duckdb)
 	$(PYTHON) scripts/export_local_data.py
+
+export-enron: ## Export Enron Delta tables to local DuckDB
+	$(PYTHON) scripts/export_local_data.py --corpus enron
+
+test-enron: ## Run Enron agent unit tests (no DuckDB needed)
+	$(PYTHON) -m pytest tests/test_enron_agent.py -m "not integration" -v
+
+test-enron-integration: ## Run Enron agent integration tests (needs DuckDB)
+	$(PYTHON) -m pytest tests/test_enron_agent.py -m integration -v
+
+build-metadata: ## Build metadata tables locally via DuckDB scripts
+	$(PYTHON) scripts/build_extraction_provenance.py
+	$(PYTHON) scripts/build_email_classification.py
+	$(PYTHON) scripts/build_data_quality.py
+	$(PYTHON) scripts/build_person_identity.py
 
 test: ## Quick single-question agent test (local backend)
 	$(PYTHON) scripts/test_local.py "Who is Abraham?"

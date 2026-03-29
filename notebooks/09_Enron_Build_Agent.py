@@ -61,6 +61,8 @@ mlflow.set_registry_uri("databricks-uc")
 ENRON_TABLE_NAMES = [
     "entities", "relationships", "emails",
     "entity_analytics", "entity_paths", "entity_mentions",
+    "communication_dyads", "participants", "entity_aliases",
+    "person_activity", "investigation_timeline",
 ]
 
 _wh_id = "399215661843ad19"

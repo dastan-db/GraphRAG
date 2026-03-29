@@ -40,8 +40,19 @@ ENRON_TABLES = [
     "entity_aliases",
     "communication_dyads",
     "person_activity",
+    "participants",
     "org_hierarchy",
     "investigation_timeline",
+    "person_identity",
+    "ontology_registry",
+    "corpus_coverage",
+    "extraction_provenance",
+    "entity_resolution_audit",
+    "email_classification",
+    "data_quality_report",
+    "person_role_timeline",
+    "topic_taxonomy",
+    "pipeline_lineage",
 ]
 
 TABLES = BIBLE_TABLES
