@@ -64,7 +64,7 @@ ENRON_TABLE_NAMES = [
     "communication_dyads", "participants", "entity_aliases",
     "person_activity", "investigation_timeline",
     "extraction_provenance", "pipeline_lineage", "topic_taxonomy",
-    "entity_resolution_audit", "corpus_coverage",
+    "corpus_coverage",
     "person_role_timeline", "person_identity", "email_classification",
     "data_quality_report", "threads", "org_hierarchy",
 ]
