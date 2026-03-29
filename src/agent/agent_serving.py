@@ -399,6 +399,9 @@ _CORPORATE_CLASSIFY_AND_EXTRACT_PROMPT = """You are a corporate communications a
    - topic_pair: questions about what TWO specific named people discussed together, topics between a specific pair of people (requires two person names)
    - path: questions about how two specific entities are connected, degrees of separation
    - genie_analytics: questions requiring arbitrary SQL aggregation, statistical analysis, percentage calculations, time-of-day or business-hours filtering, or complex filtering that don't match simpler patterns — e.g. "what percentage of emails were internal?", "who emailed most outside business hours?", "emails sent on weekends", "average reply depth", "distribution of email types by hour", "compare department sizes". IMPORTANT: if a prior question used a simpler pattern (like corpus_ranking_pairs) but the follow-up adds a temporal filter (e.g. "outside business hours", "after 6pm", "on weekends"), classify the follow-up as genie_analytics.
+   - lineage_query: questions about data provenance, where data comes from, how tables were derived, pipeline steps — e.g. "where does the communication_dyads data come from?", "how was this table created?", "what's the data pipeline?"
+   - topic_browse: questions about what topics were discussed, topic categories, thematic analysis across the corpus — e.g. "what topics did Kenneth Lay discuss?", "what were the main themes?", "show me the topic hierarchy"
+   - data_quality: questions about data reliability, extraction quality, coverage, confidence, how trustworthy the data is — e.g. "how reliable is the data about Jeff Skilling?", "what's the extraction quality?", "are there coverage gaps?"
    - general: anything that doesn't clearly fit the above categories
 
 2. EXTRACT all significant entities mentioned in the question.
@@ -409,7 +412,7 @@ _CORPORATE_CLASSIFY_AND_EXTRACT_PROMPT = """You are a corporate communications a
 IMPORTANT: Only extract REAL named entities. Generic phrases like "two individuals", "someone", "the person", "each other" are NOT entities — return an empty entities list for those. For corpus_ranking questions there may be no specific entities to extract.
 
 Return a JSON object with exactly this structure:
-{"pattern": "<one of the 11 pattern names>", "confidence": <0.0 to 1.0>, "entities": [{"name": "...", "entity_type": "..."}]}
+{"pattern": "<one of the 14 pattern names>", "confidence": <0.0 to 1.0>, "entities": [{"name": "...", "entity_type": "..."}]}
 
 Return ONLY the JSON object, no other text.
 
@@ -3024,6 +3027,65 @@ def search_emails(
     }, ensure_ascii=False)
 
 
+def _genie_sql_fallback(question: str, space_name: str) -> dict | None:
+    """Direct SQL fallback when Genie is unavailable (e.g. Model Serving identity issues).
+
+    Returns a genie_result-shaped dict on success, None if no fallback applies.
+    """
+    q_lower = question.lower()
+    emails_table = f"{CATALOG}.{ENRON_SCHEMA}.emails"
+    participants_table = f"{CATALOG}.{ENRON_SCHEMA}.participants"
+
+    try:
+        if any(kw in q_lower for kw in ("business hours", "after hours", "outside of",
+                                         "weekend", "evening", "night", "before 9", "after 5", "after 6")):
+            is_weekend = "weekend" in q_lower
+            if is_weekend:
+                time_filter = "DAYOFWEEK(e.date) IN (1, 7)"
+                label = "weekend"
+            else:
+                time_filter = "(HOUR(e.date) < 9 OR HOUR(e.date) >= 17)"
+                label = "outside business hours (before 9am or after 5pm)"
+
+            if any(kw in q_lower for kw in ("pair", "between", "each other", "communicated", "exchanged")):
+                sql = (
+                    f"SELECT p_from.display_name AS person_a, p_from.email AS email_a,"
+                    f" p_to.display_name AS person_b, p_to.email AS email_b,"
+                    f" COUNT(*) AS total_emails"
+                    f" FROM {emails_table} e"
+                    f" JOIN {participants_table} p_from ON e.message_id = p_from.message_id AND p_from.role = 'from'"
+                    f" JOIN {participants_table} p_to ON e.message_id = p_to.message_id AND p_to.role = 'to'"
+                    f" WHERE e.date IS NOT NULL AND {time_filter}"
+                    f" GROUP BY 1, 2, 3, 4"
+                    f" ORDER BY total_emails DESC"
+                    f" LIMIT 20"
+                )
+            else:
+                sql = (
+                    f"SELECT p.display_name, p.email, COUNT(*) AS total_emails"
+                    f" FROM {emails_table} e"
+                    f" JOIN {participants_table} p ON e.message_id = p.message_id AND p.role = 'from'"
+                    f" WHERE e.date IS NOT NULL AND {time_filter}"
+                    f" GROUP BY 1, 2"
+                    f" ORDER BY total_emails DESC"
+                    f" LIMIT 20"
+                )
+
+            rows = _backend.execute_sql(sql)
+            return {
+                "source": "direct_sql_fallback",
+                "space": space_name,
+                "query": question,
+                "sql": sql,
+                "filter_description": label,
+                "results": rows,
+                "row_count": len(rows),
+            }
+    except Exception as exc:
+        log.warning("Genie SQL fallback failed: %s", exc)
+    return None
+
+
 @tool
 def query_and_enrich(question: str, space_name: str = "auto") -> str:
     """Query a Genie Space for analytical answers, then enrich with graph context.
@@ -3083,6 +3145,11 @@ def query_and_enrich(question: str, space_name: str = "auto") -> str:
             "error": f"Genie query failed: {exc}",
         }
 
+    if genie_result.get("error"):
+        fallback = _genie_sql_fallback(question, space_name)
+        if fallback:
+            genie_result = fallback
+
     enrichment = {}
     try:
         quality_rows = _backend.execute_sql(
@@ -3096,10 +3163,379 @@ def query_and_enrich(question: str, space_name: str = "auto") -> str:
     except Exception:
         pass
 
+    q_lower = question.lower()
+    person_names = _heuristic_entity_names(question)
+
+    for pname in person_names[:2]:
+        try:
+            role_rows = _backend.execute_sql(
+                f"SELECT entity_id, title, department, reports_to, effective_from, effective_to, source"
+                f" FROM {CATALOG}.{ENRON_SCHEMA}.person_role_timeline"
+                f" WHERE LOWER(entity_id) LIKE :pattern"
+                f" ORDER BY effective_from"
+                f" LIMIT 5",
+                params={"pattern": f"%{'_'.join(pname.lower().split())}%"},
+            )
+            if role_rows:
+                enrichment.setdefault("role_context", {})[pname] = role_rows
+        except Exception:
+            pass
+
+    try:
+        cov_rows = _backend.execute_sql(
+            f"SELECT metric_name, coverage_pct"
+            f" FROM {CATALOG}.{ENRON_SCHEMA}.corpus_coverage"
+            f" WHERE coverage_pct < 80"
+        )
+        if cov_rows:
+            enrichment["coverage_warnings"] = [
+                f"{r['metric_name']}: {r.get('coverage_pct', 0):.1f}%"
+                for r in cov_rows
+            ]
+    except Exception:
+        pass
+
+    try:
+        cls_rows = _backend.execute_sql(
+            f"SELECT email_type, COUNT(*) AS cnt,"
+            f" ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER(), 1) AS pct"
+            f" FROM {CATALOG}.{ENRON_SCHEMA}.email_classification"
+            f" GROUP BY email_type"
+            f" ORDER BY cnt DESC"
+        )
+        if cls_rows:
+            enrichment["email_classification_summary"] = cls_rows
+    except Exception:
+        pass
+
+    for pname in person_names[:2]:
+        try:
+            ent_rows = _backend.execute_sql(
+                f"SELECT name, entity_type, description"
+                f" FROM {ENTITIES_TABLE if CORPUS != 'enron' else f'{CATALOG}.{ENRON_SCHEMA}.entities'}"
+                f" WHERE LOWER(name) LIKE :pattern"
+                f" LIMIT 3",
+                params={"pattern": f"%{pname.lower()}%"},
+            )
+            if ent_rows:
+                enrichment.setdefault("entity_context", {})[pname] = ent_rows
+        except Exception:
+            pass
+
     return json.dumps({
         "genie_result": genie_result,
         "enrichment": enrichment,
     }, ensure_ascii=False, default=str)
+
+
+# ---------------------------------------------------------------------------
+# Investigative-trust tools — surface lineage, provenance, coverage, topics
+# ---------------------------------------------------------------------------
+
+@tool
+def get_extraction_provenance(thread_id: str = "", entity_name: str = "") -> str:
+    """Get extraction quality metadata for a thread or entity: which LLM model
+    performed the extraction, whether input was truncated, entity resolution
+    method and confidence. Use this to assess data reliability.
+
+    Args:
+        thread_id: A specific thread ID to check extraction quality for.
+        entity_name: An entity name to check resolution audit and identity confidence.
+    """
+    if CORPUS != "enron":
+        return "get_extraction_provenance is only available for the Enron corpus."
+
+    result: dict = {}
+
+    if thread_id:
+        prov_table = f"{CATALOG}.{ENRON_SCHEMA}.extraction_provenance"
+        try:
+            rows = _backend.execute_sql(
+                f"SELECT step, model_endpoint, prompt_template_version,"
+                f" input_char_count, input_truncated_at,"
+                f" output_entity_count, output_rel_count, error_message"
+                f" FROM {prov_table}"
+                f" WHERE thread_id = :tid",
+                params={"tid": thread_id},
+            )
+            result["extraction_steps"] = rows if rows else []
+            truncated = [r for r in (rows or []) if r.get("input_truncated_at")]
+            if truncated:
+                result["truncation_warning"] = (
+                    f"{len(truncated)} extraction step(s) had truncated input — "
+                    "some entities/relationships may be missing."
+                )
+        except Exception as exc:
+            result["extraction_error"] = str(exc)
+
+    if entity_name:
+        patterns = _resolve_enron_entity_id(entity_name) if CORPUS == "enron" else [f"%{entity_name}%"]
+        primary_pattern = patterns[0] if patterns else f"%{entity_name.lower()}%"
+
+        audit_table = f"{CATALOG}.{ENRON_SCHEMA}.entity_resolution_audit"
+        try:
+            rows = _backend.execute_sql(
+                f"SELECT alias_id, canonical_id, method, blocking_reason,"
+                f" confidence, ai_raw_response"
+                f" FROM {audit_table}"
+                f" WHERE LOWER(canonical_id) LIKE :pattern"
+                f"    OR LOWER(alias_id) LIKE :pattern"
+                f" LIMIT 10",
+                params={"pattern": primary_pattern},
+            )
+            result["resolution_audit"] = rows if rows else []
+        except Exception as exc:
+            result["resolution_audit_error"] = str(exc)
+
+        identity_table = f"{CATALOG}.{ENRON_SCHEMA}.person_identity"
+        try:
+            rows = _backend.execute_sql(
+                f"SELECT entity_id, canonical_name, email_addresses, aliases,"
+                f" source, confidence"
+                f" FROM {identity_table}"
+                f" WHERE LOWER(canonical_name) LIKE :pattern"
+                f" LIMIT 5",
+                params={"pattern": f"%{entity_name.lower()}%"},
+            )
+            result["identity"] = rows if rows else []
+        except Exception as exc:
+            result["identity_error"] = str(exc)
+
+    if not result:
+        return "Provide either thread_id or entity_name to check extraction provenance."
+
+    return json.dumps(result, ensure_ascii=False, default=str)
+
+
+@tool
+def trace_data_lineage(table_name: str) -> str:
+    """Trace how a table was derived through the data pipeline. Shows the
+    upstream transformation chain from raw data to the target table.
+
+    Args:
+        table_name: The short table name (e.g., "communication_dyads", "entities").
+    """
+    if CORPUS != "enron":
+        return "trace_data_lineage is only available for the Enron corpus."
+
+    lineage_table = f"{CATALOG}.{ENRON_SCHEMA}.pipeline_lineage"
+    try:
+        all_rows = _backend.execute_sql(
+            f"SELECT source_table, target_table, transformation_step, sql_description"
+            f" FROM {lineage_table}"
+        )
+    except Exception as exc:
+        return f"Failed to query pipeline_lineage: {exc}"
+
+    if not all_rows:
+        return "No pipeline lineage data found."
+
+    edges = {(r["source_table"], r["target_table"]): r for r in all_rows}
+
+    chain = []
+    visited = set()
+    queue = [table_name]
+    while queue and len(visited) < 20:
+        current = queue.pop(0)
+        if current in visited:
+            continue
+        visited.add(current)
+        for (src, tgt), row in edges.items():
+            if tgt == current:
+                chain.append({
+                    "source": src,
+                    "target": tgt,
+                    "step": row.get("transformation_step", ""),
+                    "description": row.get("sql_description", ""),
+                })
+                queue.append(src)
+
+    if not chain:
+        return json.dumps({
+            "table": table_name,
+            "lineage": [],
+            "note": f"No upstream lineage found for '{table_name}'. It may be a raw source table.",
+        })
+
+    chain.reverse()
+    return json.dumps({
+        "table": table_name,
+        "lineage_depth": len(chain),
+        "lineage": chain,
+    }, ensure_ascii=False, default=str)
+
+
+@tool
+def browse_topics(category: str = "", entity_name: str = "") -> str:
+    """Browse the hierarchical topic taxonomy extracted from email threads.
+    Without arguments, lists parent categories with aggregate counts.
+    With category, drills into sub-topics. With entity_name, shows topics
+    associated with that entity.
+
+    Args:
+        category: A parent category to drill into (e.g., "Energy", "Legal", "Finance").
+        entity_name: An entity name to find associated topics for.
+    """
+    if CORPUS != "enron":
+        return "browse_topics is only available for the Enron corpus."
+
+    taxonomy_table = f"{CATALOG}.{ENRON_SCHEMA}.topic_taxonomy"
+
+    if entity_name:
+        mentions_table = f"{CATALOG}.{ENRON_SCHEMA}.entity_mentions"
+        threads_table = f"{CATALOG}.{ENRON_SCHEMA}.threads"
+        try:
+            rows = _backend.execute_sql(
+                f"SELECT tt.parent_label, tt.topic_label, COUNT(DISTINCT em.thread_id) AS thread_count"
+                f" FROM {mentions_table} em"
+                f" JOIN {threads_table} t ON em.thread_id = t.thread_id"
+                f" JOIN {taxonomy_table} tt ON tt.level = 1"
+                f"   AND LOWER(tt.topic_label) IN ("
+                f"     SELECT LOWER(topic) FROM (SELECT EXPLODE(t.key_topics) AS topic)"
+                f"   )"
+                f" WHERE LOWER(em.entity_id) LIKE :pattern"
+                f" GROUP BY tt.parent_label, tt.topic_label"
+                f" ORDER BY thread_count DESC"
+                f" LIMIT 20",
+                params={"pattern": f"%{'_'.join(entity_name.lower().split())}%"},
+            )
+        except Exception:
+            try:
+                rows = _backend.execute_sql(
+                    f"SELECT parent_label, topic_label, thread_count, entity_count"
+                    f" FROM {taxonomy_table}"
+                    f" WHERE level = 1"
+                    f" ORDER BY entity_count DESC"
+                    f" LIMIT 20"
+                )
+            except Exception as exc:
+                return f"Topic query failed: {exc}"
+
+        return json.dumps({
+            "entity": entity_name,
+            "topics": rows if rows else [],
+        }, ensure_ascii=False, default=str)
+
+    if category:
+        try:
+            rows = _backend.execute_sql(
+                f"SELECT topic_id, topic_label, thread_count, entity_count"
+                f" FROM {taxonomy_table}"
+                f" WHERE level = 1 AND LOWER(parent_label) = LOWER(:cat)"
+                f" ORDER BY thread_count DESC"
+                f" LIMIT 30",
+                params={"cat": category},
+            )
+        except Exception as exc:
+            return f"Topic query failed: {exc}"
+
+        return json.dumps({
+            "category": category,
+            "sub_topics": rows if rows else [],
+        }, ensure_ascii=False, default=str)
+
+    try:
+        rows = _backend.execute_sql(
+            f"SELECT topic_id, topic_label AS category, thread_count, entity_count"
+            f" FROM {taxonomy_table}"
+            f" WHERE level = 0"
+            f" ORDER BY thread_count DESC"
+        )
+    except Exception as exc:
+        return f"Topic query failed: {exc}"
+
+    return json.dumps({
+        "parent_categories": rows if rows else [],
+        "hint": "Pass a category name to see sub-topics, or entity_name to find topics for a person.",
+    }, ensure_ascii=False, default=str)
+
+
+@tool
+def get_corpus_coverage(entity_name: str = "") -> str:
+    """Get corpus coverage statistics and data quality context. Shows extraction
+    rates, relationship density, and coverage gaps. When given an entity, shows
+    coverage context specific to that entity's data.
+
+    Args:
+        entity_name: Optional entity name for entity-specific coverage context.
+    """
+    if CORPUS != "enron":
+        return "get_corpus_coverage is only available for the Enron corpus."
+
+    coverage_table = f"{CATALOG}.{ENRON_SCHEMA}.corpus_coverage"
+    result: dict = {}
+
+    try:
+        rows = _backend.execute_sql(
+            f"SELECT metric_name, metric_value, denominator, coverage_pct"
+            f" FROM {coverage_table}"
+        )
+        result["corpus_metrics"] = rows if rows else []
+        low_coverage = [r for r in (rows or []) if (r.get("coverage_pct") or 100) < 80]
+        if low_coverage:
+            result["coverage_warnings"] = [
+                f"{r['metric_name']}: {r.get('coverage_pct', 0):.1f}% "
+                f"({r.get('metric_value', 0)}/{r.get('denominator', 0)})"
+                for r in low_coverage
+            ]
+    except Exception as exc:
+        result["coverage_error"] = str(exc)
+
+    if entity_name:
+        activity_table = f"{CATALOG}.{ENRON_SCHEMA}.person_activity"
+        try:
+            rows = _backend.execute_sql(
+                f"SELECT display_name, total_sent, total_received"
+                f" FROM {activity_table}"
+                f" WHERE LOWER(display_name) LIKE :pattern"
+                f" LIMIT 3",
+                params={"pattern": f"%{entity_name.lower()}%"},
+            )
+            result["entity_activity"] = rows if rows else []
+        except Exception:
+            pass
+
+        classification_table = f"{CATALOG}.{ENRON_SCHEMA}.email_classification"
+        emails_table = f"{CATALOG}.{ENRON_SCHEMA}.emails"
+        try:
+            rows = _backend.execute_sql(
+                f"SELECT ec.email_type, COUNT(*) AS cnt,"
+                f" ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER(), 1) AS pct"
+                f" FROM {classification_table} ec"
+                f" JOIN {emails_table} e ON ec.message_id = e.message_id"
+                f" WHERE LOWER(e.sender) LIKE :pattern"
+                f" GROUP BY ec.email_type"
+                f" ORDER BY cnt DESC",
+                params={"pattern": f"%{entity_name.lower()}%"},
+            )
+            result["email_type_breakdown"] = rows if rows else []
+        except Exception:
+            pass
+
+        prov_table = f"{CATALOG}.{ENRON_SCHEMA}.extraction_provenance"
+        try:
+            rows = _backend.execute_sql(
+                f"SELECT COUNT(*) AS total_threads,"
+                f" SUM(CASE WHEN ep.input_truncated_at IS NOT NULL THEN 1 ELSE 0 END) AS truncated_threads"
+                f" FROM {prov_table} ep"
+                f" JOIN {CATALOG}.{ENRON_SCHEMA}.entity_mentions em"
+                f"   ON ep.thread_id = em.thread_id"
+                f" WHERE ep.step = 'entity_extraction'"
+                f"   AND LOWER(em.entity_id) LIKE :pattern",
+                params={"pattern": f"%{'_'.join(entity_name.lower().split())}%"},
+            )
+            if rows and rows[0].get("total_threads"):
+                total = rows[0]["total_threads"]
+                trunc = rows[0].get("truncated_threads", 0)
+                result["extraction_quality"] = {
+                    "total_threads": total,
+                    "truncated_threads": trunc,
+                    "truncation_rate_pct": round(100.0 * trunc / total, 1) if total else 0,
+                }
+        except Exception:
+            pass
+
+    return json.dumps(result, ensure_ascii=False, default=str)
 
 
 LOCAL_TOOLS = [find_entity, find_connections, find_top_contacts, get_top_email_pairs,
@@ -3108,7 +3544,9 @@ LOCAL_TOOLS = [find_entity, find_connections, find_top_contacts, get_top_email_p
                list_entities_by_book, find_cross_book_entities, trace_path, compare_entity_sets,
                query_timeline,
                detect_self_emails, get_external_contacts, get_communication_timeline,
-               get_activity_anomalies, search_emails, query_and_enrich]
+               get_activity_anomalies, search_emails, query_and_enrich,
+               get_extraction_provenance, trace_data_lineage, browse_topics,
+               get_corpus_coverage]
 
 
 def build_scoped_tools_local(permitted_books: list):
@@ -3602,8 +4040,12 @@ End EVERY response with a Provenance section using this exact format:
 
 ### Provenance
 - **Sources**: [list each tool called and what it returned, e.g., "find_connections(Jeff Skilling, REPORTS_TO) → 5 relationships"]
+- **Data Lineage**: [table origins for key claims, e.g., "communication_dyads ← emails via sender/recipient aggregation (07c)"]
 - **Grounding**: [One of: "All claims grounded in graph data" | "Partially grounded — some claims from graph, some from general knowledge" | "Not found in graph"]
-- **Confidence**: [High/Medium/Low] — based on how much evidence supports the answer
+- **Confidence per claim**:
+  - [Claim 1]: [High/Medium/Low] — [reason, e.g., "12 direct email references, clean entity resolution"]
+  - [Claim 2]: [High/Medium/Low] — [reason, e.g., "based on 3 truncated threads, possible missing context"]
+- **Coverage caveats**: [Any data quality or coverage limitations, e.g., "extraction rate 85% — some threads were truncated"]
 """
 
 
@@ -3760,8 +4202,10 @@ except ImportError:
         _PROV = (
             "\n\n## Response Format (MANDATORY)\nEnd EVERY response with:\n\n"
             "### Provenance\n- **Sources**: [tools called and results]\n"
+            "- **Data Lineage**: [table origins for key claims]\n"
             "- **Grounding**: [All claims grounded in graph data | Partially grounded]\n"
-            "- **Confidence**: [High/Medium/Low]"
+            "- **Confidence per claim**: [Claim: level (reason)]\n"
+            "- **Coverage caveats**: [data quality or coverage limitations]"
         )
 
         _COMP_SYNTH = (
@@ -3795,6 +4239,33 @@ except ImportError:
             "- Note any data quality caveats from the enrichment.\n"
             "- If the Genie query failed, explain the limitation.\n"
             "- Do NOT fabricate analytical results not present in the data."
+        )
+        _LINEAGE_SYNTH = (
+            "You are a data governance specialist explaining data provenance for the Enron corpus.\n\n"
+            "You have pre-fetched pipeline lineage data and corpus coverage statistics.\n\n"
+            "Guidelines:\n- Walk through the transformation chain from source to target.\n"
+            "- Explain each pipeline step in plain language.\n"
+            "- Note coverage rates and any quality limitations.\n"
+            "- Use → notation for lineage chains (e.g., emails → threads → entities).\n"
+            "- Do NOT fabricate pipeline steps not in the data."
+        )
+        _TOPIC_BROWSE_SYNTH = (
+            "You are a corporate communications analyst presenting topic analysis for Enron.\n\n"
+            "You have pre-fetched topic taxonomy data and entity context.\n\n"
+            "Guidelines:\n- Present topics in a structured hierarchy (parent → sub-topics).\n"
+            "- Include thread and entity counts for context.\n"
+            "- Highlight the most significant topic clusters.\n"
+            "- When showing entity-specific topics, explain the person's key discussion areas.\n"
+            "- Do NOT fabricate topic categories not in the data."
+        )
+        _DATA_QUALITY_SYNTH = (
+            "You are a data governance specialist assessing data reliability for the Enron corpus.\n\n"
+            "You have pre-fetched extraction provenance and corpus coverage data.\n\n"
+            "Guidelines:\n- Report extraction method, model, and any truncation issues.\n"
+            "- Show entity resolution confidence (method and merge audit trail).\n"
+            "- Present coverage metrics and flag any below 80%.\n"
+            "- Give an overall data reliability assessment (High/Medium/Low) with justification.\n"
+            "- Do NOT fabricate quality metrics not in the data."
         )
 
         PATTERN_REGISTRY = {
@@ -3841,6 +4312,18 @@ except ImportError:
             "genie_analytics": _Pattern("genie_analytics", _GENIE_SYNTH + _PROV, [
                 _Step("query_and_enrich", {"question": "$QUESTION"}),
             ], 0.75),
+            "lineage_query": _Pattern("lineage_query", _LINEAGE_SYNTH + _PROV, [
+                _Step("trace_data_lineage", {"table_name": "$ENTITY"}),
+                _Step("get_corpus_coverage", {}),
+            ], 0.8),
+            "topic_browse": _Pattern("topic_browse", _TOPIC_BROWSE_SYNTH + _PROV, [
+                _Step("browse_topics", {"entity_name": "$ENTITY"}),
+                _Step("get_entity_summary", {"entity_name": "$ENTITY"}),
+            ], 0.75),
+            "data_quality": _Pattern("data_quality", _DATA_QUALITY_SYNTH + _PROV, [
+                _Step("get_extraction_provenance", {"entity_name": "$ENTITY"}),
+                _Step("get_corpus_coverage", {"entity_name": "$ENTITY"}),
+            ], 0.8),
         }
 
         def resolve_params(params, entities, *, metadata=None, question=""):
