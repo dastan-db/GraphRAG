@@ -374,7 +374,7 @@ class TestPatternRegistry:
     def test_all_patterns_exist(self):
         from src.agent.pattern_registry import PATTERN_REGISTRY
         expected = {
-            "org_hierarchy", "communication", "communication_comparison",
+            "entity_profile", "org_hierarchy", "communication", "communication_comparison",
             "path", "temporal", "topic", "topic_pair",
             "corpus_ranking_pairs", "individual_ranking", "genie_analytics",
         }
@@ -871,6 +871,245 @@ class TestGetCorpusCoverage:
         assert "entity_activity" in parsed
         assert "extraction_quality" in parsed
         assert parsed["extraction_quality"]["truncation_rate_pct"] == 10.0
+
+
+# ===================================================================
+# Entity Memory Tests
+# ===================================================================
+
+class TestEntityMemory:
+    """Unit tests for EntityMemory class."""
+
+    def test_extract_simple_entity(self, mod):
+        em = mod.EntityMemory()
+        em.extract('{"name": "Kenneth Lay", "type": "Person"}')
+        assert len(em.recent) == 1
+        assert em.recent[0]["name"] == "Kenneth Lay"
+
+    def test_extract_entity_with_email(self, mod):
+        em = mod.EntityMemory()
+        em.extract('{"name": "Jeff Skilling", "corporate_email": "jeff.skilling@enron.com"}')
+        assert em.recent[0]["name"] == "Jeff Skilling"
+        assert em.recent[0]["email"] == "jeff.skilling@enron.com"
+
+    def test_extract_from_list(self, mod):
+        em = mod.EntityMemory()
+        em.extract('[{"name": "Alice"}, {"name": "Bob"}]')
+        assert len(em.recent) == 2
+        names = [e["name"] for e in em.recent]
+        assert "Alice" in names
+        assert "Bob" in names
+
+    def test_extract_nested_dict(self, mod):
+        em = mod.EntityMemory()
+        data = json.dumps({"relationships": {"by_type": {"SENT_TO": [
+            {"name": "Kenneth Lay", "target": "Jeff Skilling"},
+            {"name": "Jeff Skilling", "source": "Kenneth Lay"},
+        ]}}})
+        em.extract(data)
+        names = [e["name"] for e in em.recent]
+        assert "Kenneth Lay" in names
+        assert "Jeff Skilling" in names
+
+    def test_deduplication(self, mod):
+        em = mod.EntityMemory()
+        em.extract('{"name": "Kenneth Lay"}')
+        em.extract('{"name": "Kenneth Lay"}')
+        assert len(em.recent) == 1
+
+    def test_max_entities(self, mod):
+        em = mod.EntityMemory(max_entities=3)
+        for i in range(5):
+            em.extract(json.dumps({"name": f"Person{i}"}))
+        assert len(em.recent) == 3
+        assert em.recent[0]["name"] == "Person2"
+
+    def test_skips_email_addresses_as_names(self, mod):
+        em = mod.EntityMemory()
+        em.extract('{"name": "foo@bar.com"}')
+        assert len(em.recent) == 0
+
+    def test_skips_invalid_json(self, mod):
+        em = mod.EntityMemory()
+        em.extract("not json at all")
+        assert len(em.recent) == 0
+
+    def test_context_for_classifier_empty(self, mod):
+        em = mod.EntityMemory()
+        assert em.context_for_classifier() == ""
+
+    def test_context_for_classifier_with_entities(self, mod):
+        em = mod.EntityMemory()
+        em.extract('{"name": "Kenneth Lay"}')
+        em.extract('{"name": "Jeff Skilling"}')
+        ctx = em.context_for_classifier()
+        assert "Kenneth Lay" in ctx
+        assert "Jeff Skilling" in ctx
+
+    def test_clear(self, mod):
+        em = mod.EntityMemory()
+        em.extract('{"name": "Kenneth Lay"}')
+        em.clear()
+        assert len(em.recent) == 0
+
+
+# ===================================================================
+# Enriched get_entity_summary Tests (Mock)
+# ===================================================================
+
+class TestGetEntitySummaryEnriched:
+    """Test that get_entity_summary returns enriched data for Enron Person entities."""
+
+    def test_email_addresses_included(self, mod, mock_backend):
+        entity_rows = [{
+            "name": "Mike A Roberts", "entity_type": "Person",
+            "description": "An Enron employee", "mention_a": "Test Thread", "mention_b": None,
+            "src": "Mike A Roberts", "relationship_type": "SENT_TO",
+            "tgt": "Vince Kaminski", "rel_desc": "Email communication",
+        }]
+        backend, ctx = mock_backend([
+            [],       # first pattern miss
+            entity_rows,  # second pattern hit
+            [],       # role_timeline query
+            [],       # entity_analytics query
+            [],       # department query
+        ])
+        with ctx, patch.object(mod, "_resolve_name_to_email", return_value=["%mike.roberts@enron.com%"]):
+            with patch.object(mod, "_resolve_enron_entity_id", return_value=["%mike_a_roberts%", "%mike_roberts%"]):
+                result = mod.get_entity_summary("Mike A Roberts")
+        parsed = json.loads(result)
+        assert "email_addresses" in parsed
+
+    def test_centrality_included_when_available(self, mod, mock_backend):
+        entity_rows = [{
+            "name": "Kenneth Lay", "entity_type": "Person",
+            "description": "CEO of Enron", "mention_a": "Leadership", "mention_b": None,
+            "src": None, "relationship_type": None,
+            "tgt": None, "rel_desc": None,
+        }]
+        analytics_rows = [{
+            "pagerank": 0.045, "in_degree": 150,
+            "out_degree": 200, "total_degree": 350,
+        }]
+        backend, ctx = mock_backend([
+            entity_rows,      # entity query
+            [],               # role_timeline
+            analytics_rows,   # entity_analytics
+            [],               # department
+        ])
+        with ctx, \
+            patch.object(mod, "_resolve_name_to_email", return_value=[]), \
+            patch.object(mod, "_resolve_enron_entity_id", return_value=["%kenneth_lay%"]):
+            result = mod.get_entity_summary("Kenneth Lay")
+        parsed = json.loads(result)
+        assert "centrality" in parsed
+        assert parsed["centrality"]["in_degree"] == 150
+
+
+# ===================================================================
+# find_connections temporal data Tests (Mock)
+# ===================================================================
+
+class TestFindConnectionsTemporal:
+    """Test that find_connections returns temporal metadata."""
+
+    def test_temporal_fields_in_output(self, mod, mock_backend):
+        conn_rows = [{
+            "source_name": "Kenneth Lay", "relationship_type": "MANAGES",
+            "target_name": "Jeff Skilling", "description": "Managed",
+            "frequency": 5, "evidence_count": 3,
+            "first_observed": "2001-01-15", "last_observed": "2001-10-20",
+            "confidence": 0.92,
+        }]
+        backend, ctx = mock_backend([conn_rows])
+        with ctx, patch.object(mod, "_resolve_enron_entity_id", return_value=["%kenneth_lay%"]):
+            result = mod.find_connections("Kenneth Lay", relationship_type="MANAGES")
+        parsed = json.loads(result)
+        conns = parsed["by_type"]["MANAGES"]
+        assert len(conns) > 0
+        assert "first_observed" in conns[0]
+        assert "last_observed" in conns[0]
+        assert "confidence" in conns[0]
+
+
+# ===================================================================
+# find_emails Tests (Mock)
+# ===================================================================
+
+class TestFindEmails:
+    """Test the unified find_emails tool."""
+
+    def test_hour_filter_in_sql(self, mod, mock_backend):
+        email_rows = [{
+            "date": "2001-06-15 19:30:00", "sender": "jeff.skilling@enron.com",
+            "subject": "Late night", "body_preview": "Working late",
+        }]
+        backend, ctx = mock_backend([email_rows])
+        with ctx, patch.object(mod, "_resolve_name_to_email", return_value=["%skilling%"]):
+            result = mod.find_emails(person_a="Jeff Skilling", hour_from=18)
+        assert "HOUR(date)" in backend.queries[0]["query"]
+        parsed = json.loads(result)
+        assert parsed["filters"]["hour_from"] == 18
+        assert parsed["total"] > 0
+
+    def test_keyword_search(self, mod, mock_backend):
+        email_rows = [{
+            "date": "2001-08-01", "sender": "a@enron.com",
+            "subject": "Shred documents", "body_preview": "Please shred...",
+        }]
+        backend, ctx = mock_backend([email_rows])
+        with ctx:
+            result = mod.find_emails(keywords="shred, destroy")
+        parsed = json.loads(result)
+        assert parsed["total"] == 1
+        assert parsed["filters"]["keywords"] == "shred, destroy"
+
+    def test_no_criteria_returns_error(self, mod, mock_backend):
+        backend, ctx = mock_backend([])
+        with ctx:
+            result = mod.find_emails()
+        assert "No search criteria" in result
+
+    def test_person_pair_search(self, mod, mock_backend):
+        email_rows = [{
+            "date": "2001-03-01", "sender": "lay@enron.com",
+            "subject": "Meeting", "body_preview": "Let's discuss",
+        }]
+        backend, ctx = mock_backend([email_rows])
+        with ctx, patch.object(mod, "_resolve_name_to_email", return_value=["%lay%"]):
+            result = mod.find_emails(
+                person_a="Kenneth Lay", person_b="Jeff Skilling",
+                hour_from=18, hour_to=23,
+            )
+        parsed = json.loads(result)
+        assert parsed["filters"]["person_a"] == "Kenneth Lay"
+        assert parsed["filters"]["person_b"] == "Jeff Skilling"
+
+
+# ===================================================================
+# entity_profile pattern Tests
+# ===================================================================
+
+class TestEntityProfilePattern:
+    """Test the entity_profile pattern in the registry."""
+
+    def test_entity_profile_pattern_exists(self):
+        from src.agent.pattern_registry import PATTERN_REGISTRY
+        assert "entity_profile" in PATTERN_REGISTRY
+
+    def test_entity_profile_steps(self):
+        from src.agent.pattern_registry import PATTERN_REGISTRY
+        pattern = PATTERN_REGISTRY["entity_profile"]
+        tool_names = [s.tool_name for s in pattern.steps]
+        assert "get_entity_summary" in tool_names
+        assert "find_top_contacts" in tool_names
+        assert "find_connections" in tool_names
+        assert "get_context_verses" in tool_names
+
+    def test_entity_profile_min_confidence(self):
+        from src.agent.pattern_registry import PATTERN_REGISTRY
+        pattern = PATTERN_REGISTRY["entity_profile"]
+        assert pattern.min_confidence == 0.8
 
 
 class TestQueryAndEnrichEnhanced:

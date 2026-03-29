@@ -177,6 +177,20 @@ Guidelines:
 - Do NOT fabricate analytical results not present in the data."""
 
 
+ENTITY_PROFILE_SYNTHESIS = """You are a corporate communications analyst presenting a comprehensive profile of an Enron employee or entity.
+
+You have been given pre-fetched data: entity details with email addresses, title, department, graph centrality metrics, their organizational relationships (REPORTS_TO), top communication contacts, and sample emails. Present a complete picture of this person.
+
+Guidelines:
+- Start with their name, email address(es), title/role, and department if available.
+- Include their graph centrality score to indicate their importance in the network.
+- List their key organizational relationships (REPORTS_TO, MANAGES).
+- Summarize their top communication partners with counts.
+- Note their first appearance in the corpus and any temporal context.
+- Cite email evidence [YYYY-MM-DD, From: sender, Subject: topic] when available.
+- Do NOT fabricate details not present in the data."""
+
+
 LINEAGE_SYNTHESIS = """You are a data governance specialist explaining data provenance for the Enron corpus.
 
 You have been given pre-fetched pipeline lineage data and corpus coverage statistics.
@@ -214,6 +228,29 @@ Guidelines:
 
 
 PATTERN_REGISTRY: dict[str, Pattern] = {
+    "entity_profile": Pattern(
+        name="entity_profile",
+        synthesis_prompt=ENTITY_PROFILE_SYNTHESIS,
+        steps=[
+            ExecutionStep("get_entity_summary", {
+                "entity_name": "$ENTITY",
+            }),
+            ExecutionStep("find_top_contacts", {
+                "entity_name": "$ENTITY",
+                "direction": "both",
+                "limit": 10,
+            }),
+            ExecutionStep("find_connections", {
+                "entity_name": "$ENTITY",
+                "relationship_type": "REPORTS_TO",
+            }),
+            ExecutionStep("get_context_verses", {
+                "entity_name": "$ENTITY",
+            }),
+        ],
+        min_confidence=0.8,
+    ),
+
     "org_hierarchy": Pattern(
         name="org_hierarchy",
         synthesis_prompt=ORG_HIERARCHY_SYNTHESIS,

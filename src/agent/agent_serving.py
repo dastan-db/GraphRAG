@@ -389,6 +389,7 @@ Question:
 _CORPORATE_CLASSIFY_AND_EXTRACT_PROMPT = """You are a corporate communications analyst. Given a user question about the Enron email corpus, do TWO things:
 
 1. CLASSIFY the question into one of these patterns:
+   - entity_profile: questions about who someone IS, their identity, role, email address, department, background — "who is X?", "what is X's email?", "tell me about X", "what department is X in?"
    - org_hierarchy: questions about reporting lines, authority, roles, org structure, who managed whom, who reported to whom, job titles
    - communication: questions about who communicated with ONE specific person, top contacts for a single person, email frequency for one person
    - communication_comparison: questions COMPARING two named people's email volumes, who sent more emails, side-by-side communication stats (requires two specific person names)
@@ -412,7 +413,7 @@ _CORPORATE_CLASSIFY_AND_EXTRACT_PROMPT = """You are a corporate communications a
 IMPORTANT: Only extract REAL named entities. Generic phrases like "two individuals", "someone", "the person", "each other" are NOT entities — return an empty entities list for those. For corpus_ranking questions there may be no specific entities to extract.
 
 Return a JSON object with exactly this structure:
-{"pattern": "<one of the 14 pattern names>", "confidence": <0.0 to 1.0>, "entities": [{"name": "...", "entity_type": "..."}]}
+{"pattern": "<one of the 15 pattern names>", "confidence": <0.0 to 1.0>, "entities": [{"name": "...", "entity_type": "..."}]}
 
 Return ONLY the JSON object, no other text.
 
@@ -729,6 +730,16 @@ def _group_connections(entity_name: str, results: list[dict], corpus: str = "bib
                 entry["evidence_count"] = int(ev_count)
             except (ValueError, TypeError):
                 pass
+        for temporal_key in ("first_observed", "last_observed"):
+            val = r.get(temporal_key)
+            if val is not None:
+                entry[temporal_key] = str(val)
+        conf = r.get("confidence")
+        if conf is not None:
+            try:
+                entry["confidence"] = round(float(conf), 3)
+            except (ValueError, TypeError):
+                pass
         if corpus != "enron" and "book" in r:
             entry["book"] = r["book"]
             entry["chapter"] = r.get("chapter")
@@ -806,12 +817,20 @@ def find_entity(name: str) -> str:
             mention = f"Thread: {r.get('first_mention_subject', 'N/A')}"
         else:
             mention = f"{r['first_mention_book']} ch.{r['first_mention_chapter']}"
-        entities.append({
+        entry = {
             "name": r["name"],
             "type": r["entity_type"],
             "description": r["description"],
             "first_mention": mention,
-        })
+        }
+        if CORPUS == "enron" and r.get("entity_type", "").lower() == "person":
+            try:
+                addrs = [e for e in _resolve_name_to_email(r["name"]) if "@" in e]
+                if addrs:
+                    entry["email_addresses"] = addrs
+            except Exception:
+                pass
+        entities.append(entry)
     return json.dumps(entities, ensure_ascii=False)
 
 
@@ -884,12 +903,16 @@ def find_connections(entity_name: str, book: str = "", relationship_type: str = 
                 f"SELECT source_name, relationship_type, target_name,"
                 f" MAX(description) as description,"
                 f" SUM(COALESCE(edge_count, 1)) as frequency,"
-                f" SUM(COALESCE(thread_cnt, 0)) as evidence_count"
+                f" SUM(COALESCE(thread_cnt, 0)) as evidence_count,"
+                f" MIN(first_observed) as first_observed,"
+                f" MAX(last_observed) as last_observed,"
+                f" ROUND(AVG(confidence), 3) as confidence"
                 f" FROM ("
                 f"   SELECT COALESCE(e1.name, r.source_entity) as source_name,"
                 f"   r.relationship_type, COALESCE(e2.name, r.target_entity) as target_name,"
                 f"   r.description, r.edge_count,"
-                f"   COALESCE(SIZE(r.source_threads), 0) as thread_cnt"
+                f"   COALESCE(SIZE(r.source_threads), 0) as thread_cnt,"
+                f"   r.first_observed, r.last_observed, r.confidence"
                 f"   FROM {RELATIONSHIPS_TABLE} r"
                 f"   LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
                 f"   LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
@@ -1991,6 +2014,63 @@ def get_entity_summary(entity_name: str) -> str:
         "description": first["description"],
         "first_mention": mention,
     }
+
+    if CORPUS == "enron" and first.get("entity_type", "").lower() == "person":
+        try:
+            email_addrs = [e for e in _resolve_name_to_email(first["name"]) if "@" in e]
+            if email_addrs:
+                summary["email_addresses"] = email_addrs
+        except Exception:
+            pass
+
+        try:
+            role_rows = _backend.execute_sql(
+                f"SELECT title, department, reports_to, effective_from, effective_to, source"
+                f" FROM {CATALOG}.{ENRON_SCHEMA}.person_role_timeline"
+                f" WHERE LOWER(entity_id) LIKE :pattern"
+                f" ORDER BY effective_from"
+                f" LIMIT 5",
+                params={"pattern": f"%{'_'.join(first['name'].lower().split())}%"},
+            )
+            if role_rows:
+                summary["roles"] = [
+                    {k: str(v) if v is not None else None for k, v in r.items()}
+                    for r in role_rows
+                ]
+        except Exception:
+            pass
+
+        try:
+            entity_id_pat = f"%{'_'.join(first['name'].lower().split())}%"
+            analytics_rows = _backend.execute_sql(
+                f"SELECT pagerank, in_degree, out_degree, total_degree"
+                f" FROM {ENRON_ENTITY_ANALYTICS_TABLE}"
+                f" WHERE entity_id LIKE :eid LIMIT 1",
+                params={"eid": entity_id_pat},
+            )
+            if analytics_rows:
+                a = analytics_rows[0]
+                summary["centrality"] = {
+                    "pagerank": round(float(a.get("pagerank", 0)), 6),
+                    "in_degree": int(a.get("in_degree", 0)),
+                    "out_degree": int(a.get("out_degree", 0)),
+                    "total_degree": int(a.get("total_degree", 0)),
+                }
+        except Exception:
+            pass
+
+        try:
+            dept_rows = _backend.execute_sql(
+                f"SELECT department FROM {ENRON_PARTICIPANTS_TABLE}"
+                f" WHERE LOWER(name_normalized) LIKE :name_pat"
+                f" AND department IS NOT NULL AND department != ''"
+                f" LIMIT 1",
+                params={"name_pat": f"%{first['name'].lower()}%"},
+            )
+            if dept_rows and dept_rows[0].get("department"):
+                summary["department"] = dept_rows[0]["department"]
+        except Exception:
+            pass
 
     rels = [r for r in combined if r.get("relationship_type")]
     if rels:
@@ -3562,13 +3642,144 @@ def get_corpus_coverage(entity_name: str = "") -> str:
     return json.dumps(result, ensure_ascii=False, default=str)
 
 
+@tool
+def find_emails(
+    person_a: str = "",
+    person_b: str = "",
+    keywords: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    hour_from: int = -1,
+    hour_to: int = -1,
+    limit: int = 15,
+) -> str:
+    """Unified email search: find emails by people, keywords, date range, and/or time of day.
+    Combines person-to-person lookup, keyword search, and body-mention search in one tool.
+
+    Args:
+        person_a: Optional first person name or email (sender or participant).
+        person_b: Optional second person. When both given, finds emails between the two.
+        keywords: Optional comma-separated keywords (OR-matched against subject and body).
+        date_from: Optional start date (YYYY-MM-DD).
+        date_to: Optional end date (YYYY-MM-DD).
+        hour_from: Optional hour (0-23) — only include emails sent at or after this hour. Use 18 for "after 6pm".
+        hour_to: Optional hour (0-23) — only include emails sent at or before this hour.
+        limit: Max results (default 15).
+    """
+    if CORPUS != "enron":
+        return "find_emails is only available for the Enron corpus."
+
+    if person_a and person_b and not keywords:
+        if hour_from < 0 and hour_to < 0 and not date_from and not date_to:
+            return get_emails_between(entity_a=person_a, entity_b=person_b, limit=limit)
+
+    cfg = _get_corpus_config()
+    source_table = cfg["source_table"]
+
+    where_parts: list[str] = []
+    params: dict = {}
+
+    if person_a:
+        pats_a = _resolve_name_to_email(person_a)
+        if pats_a:
+            if person_b:
+                pats_b = _resolve_name_to_email(person_b)
+                if pats_b:
+                    where_parts.append(
+                        "("
+                        "(LOWER(sender) LIKE :pa AND ("
+                        "LOWER(CAST(to_recipients AS STRING)) LIKE :pb"
+                        " OR LOWER(CAST(cc_recipients AS STRING)) LIKE :pb))"
+                        " OR "
+                        "(LOWER(sender) LIKE :pb AND ("
+                        "LOWER(CAST(to_recipients AS STRING)) LIKE :pa"
+                        " OR LOWER(CAST(cc_recipients AS STRING)) LIKE :pa))"
+                        ")"
+                    )
+                    params["pa"] = pats_a[0]
+                    params["pb"] = pats_b[0]
+            else:
+                where_parts.append(
+                    "(LOWER(sender) LIKE :pa"
+                    " OR LOWER(CAST(to_recipients AS STRING)) LIKE :pa"
+                    " OR LOWER(body) LIKE :pa)"
+                )
+                params["pa"] = pats_a[0]
+
+    if keywords:
+        kw_list = [k.strip().lower() for k in keywords.split(",") if k.strip()]
+        kw_conds = []
+        for i, kw in enumerate(kw_list):
+            pk = f"kw{i}"
+            kw_conds.append(f"(LOWER(subject) LIKE :{pk} OR LOWER(body) LIKE :{pk})")
+            params[pk] = f"%{kw}%"
+        if kw_conds:
+            where_parts.append(f"({' OR '.join(kw_conds)})")
+
+    if date_from:
+        where_parts.append("date >= :date_from")
+        params["date_from"] = date_from
+    if date_to:
+        where_parts.append("date <= :date_to")
+        params["date_to"] = date_to
+    if hour_from >= 0:
+        where_parts.append("HOUR(date) >= :hour_from")
+        params["hour_from"] = hour_from
+    if hour_to >= 0:
+        where_parts.append("HOUR(date) <= :hour_to")
+        params["hour_to"] = hour_to
+
+    if not where_parts:
+        return "No search criteria provided. Specify at least person_a, keywords, or a date range."
+
+    where_clause = " AND ".join(where_parts)
+    sql = (
+        f"SELECT date, sender, subject,"
+        f" SUBSTR(body, 1, 400) AS body_preview"
+        f" FROM {source_table}"
+        f" WHERE {where_clause}"
+        f" ORDER BY date DESC"
+        f" LIMIT {int(limit)}"
+    )
+
+    try:
+        results = _backend.execute_sql(sql, params=params)
+    except Exception as exc:
+        log.warning("find_emails query failed: %s", exc)
+        return f"Email search failed: {exc}"
+
+    if not results:
+        return f"No emails found matching the given criteria."
+
+    emails = []
+    for r in results:
+        emails.append({
+            "date": str(r.get("date", "")),
+            "sender": r.get("sender", ""),
+            "subject": r.get("subject", ""),
+            "body_preview": r.get("body_preview", ""),
+        })
+
+    return json.dumps({
+        "filters": {
+            "person_a": person_a or None, "person_b": person_b or None,
+            "keywords": keywords or None,
+            "date_from": date_from or None, "date_to": date_to or None,
+            "hour_from": hour_from if hour_from >= 0 else None,
+            "hour_to": hour_to if hour_to >= 0 else None,
+        },
+        "total": len(emails),
+        "emails": emails,
+    }, ensure_ascii=False)
+
+
 LOCAL_TOOLS = [find_entity, find_connections, find_top_contacts, get_top_email_pairs,
                get_top_individuals, get_emails_between, get_dyad_topics,
                get_relationship_evidence, get_context_verses, get_entity_summary,
                list_entities_by_book, find_cross_book_entities, trace_path, compare_entity_sets,
                query_timeline,
                detect_self_emails, get_external_contacts, get_communication_timeline,
-               get_activity_anomalies, search_emails, query_and_enrich,
+               get_activity_anomalies, search_emails, find_emails, query_and_enrich,
                get_extraction_provenance, trace_data_lineage, browse_topics,
                get_corpus_coverage]
 
@@ -3972,24 +4183,25 @@ You have tools that let you search the knowledge graph for entities, relationshi
 ## Available Tools
 
 ### Graph & Communication Tools
-- **find_entity(name)** — search for a person, organization, project, or event by name
-- **find_connections(entity_name, relationship_type="")** — find relationships for an entity, optionally filtered by type (REPORTS_TO, MANAGES, SENT_TO, DISCUSSES, COLLABORATES_WITH, etc.). Returns `evidence_count` per relationship showing how many source emails back the claim.
+- **find_entity(name)** — search for a person, organization, project, or event by name. For Enron Person results, also returns email addresses.
+- **find_connections(entity_name, relationship_type="")** — find relationships for an entity, optionally filtered by type (REPORTS_TO, MANAGES, SENT_TO, DISCUSSES, COLLABORATES_WITH, etc.). Returns `evidence_count`, `first_observed`, `last_observed`, and `confidence` per relationship.
 - **find_top_contacts(entity_name, direction, limit)** — ranked list of who communicated most with an entity (sent/received/total counts). Automatically deduplicates aliased entities.
-- **get_top_email_pairs(limit)** — corpus-wide ranking of the pairs of people who exchanged the most emails. Returns `is_self_email` flag for pairs that are the same person emailing themselves across domains. Use for "who emailed each other most?", "top communication pairs", or any global ranking question.
+- **get_top_email_pairs(limit)** — corpus-wide ranking of the pairs of people who exchanged the most emails. Returns `is_self_email` flag for pairs that are the same person emailing themselves across domains.
 - **get_emails_between(entity_a, entity_b)** — retrieve emails between two people. Check `match_type`: "header" = direct, "body_mention" = both mentioned in same email.
-- **get_dyad_topics(entity_a, entity_b)** — get the discussion topics between two people using AI-generated thread summaries. Returns a frequency-ranked list of topic tags and sample thread summaries. Use for "what did X and Y discuss?", "topics between X and Y", or any pair-scoped topic question.
+- **find_emails(person_a="", person_b="", keywords="", date_from="", date_to="", hour_from=-1, hour_to=-1, limit=15)** — unified email search: find emails by people, keywords, date range, and/or time of day. Use `hour_from=18` for after-hours emails, `hour_to=8` for early morning. Replaces separate search_emails/get_emails_between/get_context_verses for flexible queries.
+- **get_dyad_topics(entity_a, entity_b)** — discussion topics between two people using AI-generated thread summaries.
 - **get_relationship_evidence(source_entity, target_entity, relationship_type="")** — retrieve original emails where a graph relationship was extracted from.
-- **get_context_verses(entity_name)** — find emails mentioning an entity in the body text; supports 'A AND B' syntax
-- **get_entity_summary(entity_name)** — get a comprehensive entity profile with all relationships
-- **trace_path(entity_a, entity_b)** — find shortest path between two entities via relationship traversal
-- **query_timeline(person_name="", date_from="", date_to="", category="")** — query curated Enron investigation timeline for key events by date range, person, or category
+- **get_context_verses(entity_name)** — find emails mentioning an entity in the body text; supports 'A AND B' syntax.
+- **get_entity_summary(entity_name)** — comprehensive entity profile: relationships, and for Enron Person entities: email addresses, title, department, graph centrality (pagerank, degree).
+- **trace_path(entity_a, entity_b)** — find shortest path between two entities via relationship traversal.
+- **query_timeline(person_name="", date_from="", date_to="", category="")** — query curated Enron investigation timeline for key events.
 
 ### Investigative Analysis Tools
-- **detect_self_emails(limit)** — find people who emailed their own personal accounts from corporate email. Detects cross-domain same-person pairs. Use for data exfiltration analysis, "who forwarded to personal email?", or self-emailing patterns.
-- **get_external_contacts(entity_name="", direction="both", limit)** — who communicated most with non-Enron addresses. If entity_name given, shows that person's external contacts. If empty, corpus-wide ranking. Use for "who emailed outside Enron?", "external contacts".
-- **get_communication_timeline(entity_name="", entity_b="", date_from="", date_to="")** — weekly time-series email volume. With both names: pairwise volume. With one name: person's sent/received. With no names: corpus-wide. Use for "communication spikes", "volume over time", temporal patterns.
-- **get_activity_anomalies(entity_name="", metric="all", limit)** — surface unusual behavioral patterns: BCC-heavy usage, after-hours emailing, weekend activity, volume spikes. Use for "who used BCC the most?", "after-hours patterns", or behavioral anomaly detection.
-- **search_emails(keywords, date_from="", date_to="", sender="", limit)** — keyword search across email subject and body with date/sender filters. Keywords are comma-separated, OR-matched. Use for investigative keyword sweeps like "shred, delete, destroy, off the record".
+- **detect_self_emails(limit)** — find people who emailed their own personal accounts from corporate email.
+- **get_external_contacts(entity_name="", direction="both", limit)** — who communicated most with non-Enron addresses.
+- **get_communication_timeline(entity_name="", entity_b="", date_from="", date_to="")** — weekly time-series email volume.
+- **get_activity_anomalies(entity_name="", metric="all", limit)** — surface unusual behavioral patterns: BCC-heavy, after-hours, weekend, volume spikes.
+- **search_emails(keywords, date_from="", date_to="", sender="", limit)** — keyword search across email subject and body.
 
 ## Tool Usage Strategy
 - ALWAYS use tools before answering. Prefer graph data over training knowledge.
@@ -4015,6 +4227,9 @@ You have tools that let you search the knowledge graph for entities, relationshi
 - For **keyword-based investigation** ("emails about shredding", "who mentioned destroying documents?"), use **search_emails** with comma-separated keywords and optional date/sender filters. Good investigative keywords include: "shred", "delete", "destroy", "off the record", "confidential", "personal", "attorney".
 - When answering investigative questions, always note the time period of the data and any caveats about corpus coverage (~20,000 emails from key custodians).
 - If tools fail to find an entity by name (e.g., misspelling), the system will automatically try fuzzy matching. If still not found, try a shorter name or email address directly.
+
+## Entity Memory
+The system tracks entities mentioned in prior tool outputs across conversation turns. Before saying you lack information about a person or email, CHECK previous tool outputs in this conversation — names and emails may already have been returned.
 
 ## Approach (CRITICAL — follow this process)
 For any substantive question:
@@ -4292,7 +4507,25 @@ except ImportError:
             "- Do NOT fabricate quality metrics not in the data."
         )
 
+        _PROFILE_SYNTH = (
+            "You are a corporate communications analyst presenting a comprehensive profile of an Enron employee.\n\n"
+            "You have pre-fetched data: entity details with email addresses, title, department, graph centrality, "
+            "organizational relationships (REPORTS_TO), top communication contacts, and sample emails.\n\n"
+            "Guidelines:\n- Start with name, email, title/role, department if available.\n"
+            "- Include graph centrality to indicate network importance.\n"
+            "- List key organizational relationships.\n"
+            "- Summarize top communication partners.\n"
+            "- Cite email evidence [YYYY-MM-DD, From: sender, Subject: topic] when available.\n"
+            "- Do NOT fabricate details not in the data."
+        )
+
         PATTERN_REGISTRY = {
+            "entity_profile": _Pattern("entity_profile", _PROFILE_SYNTH + _PROV, [
+                _Step("get_entity_summary", {"entity_name": "$ENTITY"}),
+                _Step("find_top_contacts", {"entity_name": "$ENTITY", "direction": "both", "limit": 10}),
+                _Step("find_connections", {"entity_name": "$ENTITY", "relationship_type": "REPORTS_TO"}),
+                _Step("get_context_verses", {"entity_name": "$ENTITY"}),
+            ], 0.8),
             "org_hierarchy": _Pattern("org_hierarchy", _ORG_SYNTH + _PROV, [
                 _Step("find_connections", {"entity_name": "$ENTITY", "relationship_type": "REPORTS_TO"}),
                 _Step("find_connections", {"entity_name": "$ENTITY", "relationship_type": "MANAGES"}),
@@ -4392,6 +4625,59 @@ def _fast_path_invoke_tool(payload: tuple) -> tuple:
 
 
 # ---------------------------------------------------------------------------
+# Entity Memory — cross-turn entity carry-forward
+# ---------------------------------------------------------------------------
+class EntityMemory:
+    """Extract entity names/emails from tool outputs and carry them across turns.
+
+    Enables anaphora resolution: when the user says "these people" or "they",
+    the classifier can resolve to entities from prior tool results.
+    """
+
+    def __init__(self, max_entities: int = 10):
+        self.recent: list[dict] = []
+        self.max = max_entities
+
+    def extract(self, tool_output: str):
+        """Parse JSON tool output for entity names and emails."""
+        try:
+            data = json.loads(tool_output)
+        except (json.JSONDecodeError, TypeError):
+            return
+        self._walk(data)
+
+    def _walk(self, obj, depth: int = 0):
+        if depth > 5:
+            return
+        if isinstance(obj, dict):
+            name = obj.get("name") or obj.get("person") or obj.get("entity")
+            email = obj.get("email") or obj.get("corporate_email") or obj.get("sender")
+            if name and isinstance(name, str) and "@" not in name and len(name) > 1:
+                entry = {"name": name}
+                if email and isinstance(email, str):
+                    entry["email"] = email
+                if entry not in self.recent:
+                    self.recent.append(entry)
+                    if len(self.recent) > self.max:
+                        self.recent.pop(0)
+            for v in obj.values():
+                self._walk(v, depth + 1)
+        elif isinstance(obj, list):
+            for item in obj[:20]:
+                self._walk(item, depth + 1)
+
+    def context_for_classifier(self) -> str:
+        """Return a string of recent entity names for the classifier prompt."""
+        if not self.recent:
+            return ""
+        names = [e["name"] for e in self.recent[:5]]
+        return f"\nRecent entities from prior conversation: {', '.join(names)}\n"
+
+    def clear(self):
+        self.recent.clear()
+
+
+# ---------------------------------------------------------------------------
 # Agent
 # ---------------------------------------------------------------------------
 class AgentState(TypedDict):
@@ -4403,6 +4689,7 @@ class GraphRAGAgent(ResponsesAgent):
         self.llm = _get_llm(endpoint=endpoint or LLM_ENDPOINT)
         self.tools = tools or GRAPH_TOOLS
         self.llm_with_tools = self.llm.bind_tools(self.tools)
+        self.entity_memory = EntityMemory()
         if not TOOL_MAP:
             _build_tool_map()
 
@@ -4513,6 +4800,10 @@ class GraphRAGAgent(ResponsesAgent):
             log.warning("Fast path: all tools skipped (no entities?); signaling fallback")
             return
 
+        for result_str in tool_results.values():
+            if isinstance(result_str, str):
+                self.entity_memory.extract(result_str)
+
         context = json.dumps(tool_results, ensure_ascii=False, indent=2)
         synthesis_system = pattern.synthesis_prompt + PROVENANCE_FORMAT + f"\n\nData:\n{context}"
 
@@ -4563,18 +4854,20 @@ class GraphRAGAgent(ResponsesAgent):
             question = last_user["content"] if last_user and last_user.get("content") else ""
 
             # --- Classify + extract (Enron fast path) ---
+            em_context = self.entity_memory.context_for_classifier()
+            classify_question = question + em_context if em_context else question
             h_found: list[str] = []
             h_not_found: list[str] = []
             hnames = _heuristic_entity_names(question) if question else []
             if question and _CLASSIFY_PIPELINE and CORPUS == "enron":
                 with ThreadPoolExecutor(max_workers=2) as pool:
-                    fut_cls = pool.submit(classify_and_extract, question)
+                    fut_cls = pool.submit(classify_and_extract, classify_question)
                     fut_pre = pool.submit(pre_lookup_entities, hnames) if hnames else None
                     classification = fut_cls.result()
                     if fut_pre is not None:
                         h_found, h_not_found = fut_pre.result()
             elif question:
-                classification = classify_and_extract(question)
+                classification = classify_and_extract(classify_question)
             else:
                 classification = {
                     "pattern": "general", "confidence": 0.0, "entities": [],
@@ -4689,11 +4982,13 @@ class GraphRAGAgent(ResponsesAgent):
                                         ),
                                     )
                             elif isinstance(msg, ToolMessage):
+                                tool_content = str(msg.content)
+                                self.entity_memory.extract(tool_content)
                                 yield ResponsesAgentStreamEvent(
                                     type="response.output_item.done",
                                     item=create_function_call_output_item(
                                         call_id=msg.tool_call_id,
-                                        output=str(msg.content),
+                                        output=tool_content,
                                     ),
                                 )
                             else:
