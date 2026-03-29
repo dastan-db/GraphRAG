@@ -63,6 +63,10 @@ ENRON_TABLE_NAMES = [
     "entity_analytics", "entity_paths", "entity_mentions",
     "communication_dyads", "participants", "entity_aliases",
     "person_activity", "investigation_timeline",
+    "extraction_provenance", "pipeline_lineage", "topic_taxonomy",
+    "entity_resolution_audit", "corpus_coverage",
+    "person_role_timeline", "person_identity", "email_classification",
+    "data_quality_report", "threads", "org_hierarchy",
 ]
 
 _wh_id = "399215661843ad19"

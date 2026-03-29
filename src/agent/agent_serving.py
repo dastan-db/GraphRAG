@@ -3307,6 +3307,27 @@ def get_extraction_provenance(thread_id: str = "", entity_name: str = "") -> str
     return json.dumps(result, ensure_ascii=False, default=str)
 
 
+_KNOWN_TABLES = {
+    "emails", "threads", "participants", "entities", "relationships",
+    "entity_mentions", "entity_analytics", "entity_paths", "entity_aliases",
+    "communication_dyads", "person_activity", "org_hierarchy",
+    "investigation_timeline", "extraction_provenance", "pipeline_lineage",
+    "topic_taxonomy", "entity_resolution_audit", "corpus_coverage",
+    "person_role_timeline", "person_identity", "email_classification",
+    "data_quality_report", "ontology_registry",
+}
+
+
+def _extract_table_name(text: str) -> str:
+    """Extract a table name from freeform text by matching known table names."""
+    text_lower = text.lower().replace("-", "_").replace(" ", "_")
+    for t in sorted(_KNOWN_TABLES, key=len, reverse=True):
+        if t in text_lower:
+            return t
+    slug = re.sub(r"[^a-z0-9_]", "_", text_lower).strip("_")
+    return slug if slug else text
+
+
 @tool
 def trace_data_lineage(table_name: str) -> str:
     """Trace how a table was derived through the data pipeline. Shows the
@@ -3314,9 +3335,12 @@ def trace_data_lineage(table_name: str) -> str:
 
     Args:
         table_name: The short table name (e.g., "communication_dyads", "entities").
+                    Can also be a natural language reference — the tool will extract the table name.
     """
     if CORPUS != "enron":
         return "trace_data_lineage is only available for the Enron corpus."
+
+    resolved_name = _extract_table_name(table_name) if table_name not in _KNOWN_TABLES else table_name
 
     lineage_table = f"{CATALOG}.{ENRON_SCHEMA}.pipeline_lineage"
     try:
@@ -3334,7 +3358,7 @@ def trace_data_lineage(table_name: str) -> str:
 
     chain = []
     visited = set()
-    queue = [table_name]
+    queue = [resolved_name]
     while queue and len(visited) < 20:
         current = queue.pop(0)
         if current in visited:
@@ -3352,14 +3376,14 @@ def trace_data_lineage(table_name: str) -> str:
 
     if not chain:
         return json.dumps({
-            "table": table_name,
+            "table": resolved_name,
             "lineage": [],
-            "note": f"No upstream lineage found for '{table_name}'. It may be a raw source table.",
+            "note": f"No upstream lineage found for '{resolved_name}'. It may be a raw source table.",
         })
 
     chain.reverse()
     return json.dumps({
-        "table": table_name,
+        "table": resolved_name,
         "lineage_depth": len(chain),
         "lineage": chain,
     }, ensure_ascii=False, default=str)
@@ -4313,7 +4337,7 @@ except ImportError:
                 _Step("query_and_enrich", {"question": "$QUESTION"}),
             ], 0.75),
             "lineage_query": _Pattern("lineage_query", _LINEAGE_SYNTH + _PROV, [
-                _Step("trace_data_lineage", {"table_name": "$ENTITY"}),
+                _Step("trace_data_lineage", {"table_name": "$QUESTION"}),
                 _Step("get_corpus_coverage", {}),
             ], 0.8),
             "topic_browse": _Pattern("topic_browse", _TOPIC_BROWSE_SYNTH + _PROV, [

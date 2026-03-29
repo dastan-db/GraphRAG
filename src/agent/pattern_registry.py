@@ -177,6 +177,42 @@ Guidelines:
 - Do NOT fabricate analytical results not present in the data."""
 
 
+LINEAGE_SYNTHESIS = """You are a data governance specialist explaining data provenance for the Enron corpus.
+
+You have been given pre-fetched pipeline lineage data and corpus coverage statistics.
+
+Guidelines:
+- Walk through the transformation chain from source to target.
+- Explain each pipeline step in plain language.
+- Note coverage rates and any quality limitations.
+- Use → notation for lineage chains (e.g., emails → threads → entities).
+- Do NOT fabricate pipeline steps not in the data."""
+
+
+TOPIC_BROWSE_SYNTHESIS = """You are a corporate communications analyst presenting topic analysis for Enron.
+
+You have been given pre-fetched topic taxonomy data and entity context.
+
+Guidelines:
+- Present topics in a structured hierarchy (parent → sub-topics).
+- Include thread and entity counts for context.
+- Highlight the most significant topic clusters.
+- When showing entity-specific topics, explain the person's key discussion areas.
+- Do NOT fabricate topic categories not in the data."""
+
+
+DATA_QUALITY_SYNTHESIS = """You are a data governance specialist assessing data reliability for the Enron corpus.
+
+You have been given pre-fetched extraction provenance and corpus coverage data.
+
+Guidelines:
+- Report extraction method, model, and any truncation issues.
+- Show entity resolution confidence (method and merge audit trail).
+- Present coverage metrics and flag any below 80%.
+- Give an overall data reliability assessment (High/Medium/Low) with justification.
+- Do NOT fabricate quality metrics not in the data."""
+
+
 PATTERN_REGISTRY: dict[str, Pattern] = {
     "org_hierarchy": Pattern(
         name="org_hierarchy",
@@ -346,6 +382,46 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
             }),
         ],
         min_confidence=0.75,
+    ),
+
+    "lineage_query": Pattern(
+        name="lineage_query",
+        synthesis_prompt=LINEAGE_SYNTHESIS,
+        steps=[
+            ExecutionStep("trace_data_lineage", {
+                "table_name": "$QUESTION",
+            }),
+            ExecutionStep("get_corpus_coverage", {}),
+        ],
+        min_confidence=0.8,
+    ),
+
+    "topic_browse": Pattern(
+        name="topic_browse",
+        synthesis_prompt=TOPIC_BROWSE_SYNTHESIS,
+        steps=[
+            ExecutionStep("browse_topics", {
+                "entity_name": "$ENTITY",
+            }),
+            ExecutionStep("get_entity_summary", {
+                "entity_name": "$ENTITY",
+            }),
+        ],
+        min_confidence=0.75,
+    ),
+
+    "data_quality": Pattern(
+        name="data_quality",
+        synthesis_prompt=DATA_QUALITY_SYNTHESIS,
+        steps=[
+            ExecutionStep("get_extraction_provenance", {
+                "entity_name": "$ENTITY",
+            }),
+            ExecutionStep("get_corpus_coverage", {
+                "entity_name": "$ENTITY",
+            }),
+        ],
+        min_confidence=0.8,
     ),
 }
 
