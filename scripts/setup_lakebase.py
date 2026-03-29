@@ -146,6 +146,7 @@ ENRON_TABLE_SCHEMAS = {
             )
         """,
         "columns": "message_id, date, sender, to_recipients, cc_recipients, bcc_recipients, subject, body, thread_id, sensitivity",
+        "select_expr": "message_id, date, sender, CONCAT_WS(',', to_recipients) AS to_recipients, CONCAT_WS(',', cc_recipients) AS cc_recipients, CONCAT_WS(',', bcc_recipients) AS bcc_recipients, subject, body, thread_id, COALESCE(sensitivity, 'general') AS sensitivity",
     },
     "enron.entities": {
         "source": f"{CATALOG}.{ENRON_SCHEMA}.entities",
@@ -222,8 +223,9 @@ BIBLE_RLS_POLICIES = [
     # --- relationships: direct book filtering ---
     "ALTER TABLE relationships ENABLE ROW LEVEL SECURITY",
     "ALTER TABLE relationships FORCE ROW LEVEL SECURITY",
+    "DROP POLICY IF EXISTS bible_book_access ON relationships",
     """
-    CREATE POLICY IF NOT EXISTS bible_book_access ON relationships
+    CREATE POLICY bible_book_access ON relationships
         USING (
             COALESCE(NULLIF(current_setting('app.permitted_books', true), ''), NULL) IS NULL
             OR book = ANY(string_to_array(current_setting('app.permitted_books', true), ','))
@@ -233,8 +235,9 @@ BIBLE_RLS_POLICIES = [
     # --- entity_mentions: direct book filtering ---
     "ALTER TABLE entity_mentions ENABLE ROW LEVEL SECURITY",
     "ALTER TABLE entity_mentions FORCE ROW LEVEL SECURITY",
+    "DROP POLICY IF EXISTS bible_book_access ON entity_mentions",
     """
-    CREATE POLICY IF NOT EXISTS bible_book_access ON entity_mentions
+    CREATE POLICY bible_book_access ON entity_mentions
         USING (
             COALESCE(NULLIF(current_setting('app.permitted_books', true), ''), NULL) IS NULL
             OR book = ANY(string_to_array(current_setting('app.permitted_books', true), ','))
@@ -244,8 +247,9 @@ BIBLE_RLS_POLICIES = [
     # --- verses: direct book filtering ---
     "ALTER TABLE verses ENABLE ROW LEVEL SECURITY",
     "ALTER TABLE verses FORCE ROW LEVEL SECURITY",
+    "DROP POLICY IF EXISTS bible_book_access ON verses",
     """
-    CREATE POLICY IF NOT EXISTS bible_book_access ON verses
+    CREATE POLICY bible_book_access ON verses
         USING (
             COALESCE(NULLIF(current_setting('app.permitted_books', true), ''), NULL) IS NULL
             OR book = ANY(string_to_array(current_setting('app.permitted_books', true), ','))
@@ -255,8 +259,9 @@ BIBLE_RLS_POLICIES = [
     # --- entities: cascades through entity_mentions ---
     "ALTER TABLE entities ENABLE ROW LEVEL SECURITY",
     "ALTER TABLE entities FORCE ROW LEVEL SECURITY",
+    "DROP POLICY IF EXISTS bible_book_access ON entities",
     """
-    CREATE POLICY IF NOT EXISTS bible_book_access ON entities
+    CREATE POLICY bible_book_access ON entities
         USING (
             COALESCE(NULLIF(current_setting('app.permitted_books', true), ''), NULL) IS NULL
             OR EXISTS (
@@ -270,8 +275,9 @@ BIBLE_RLS_POLICIES = [
     # --- entity_analytics: cascades through entity_mentions ---
     "ALTER TABLE entity_analytics ENABLE ROW LEVEL SECURITY",
     "ALTER TABLE entity_analytics FORCE ROW LEVEL SECURITY",
+    "DROP POLICY IF EXISTS bible_book_access ON entity_analytics",
     """
-    CREATE POLICY IF NOT EXISTS bible_book_access ON entity_analytics
+    CREATE POLICY bible_book_access ON entity_analytics
         USING (
             COALESCE(NULLIF(current_setting('app.permitted_books', true), ''), NULL) IS NULL
             OR EXISTS (
@@ -287,8 +293,9 @@ ENRON_RLS_POLICIES = [
     # --- emails: tier-based sensitivity filtering ---
     "ALTER TABLE enron.emails ENABLE ROW LEVEL SECURITY",
     "ALTER TABLE enron.emails FORCE ROW LEVEL SECURITY",
+    "DROP POLICY IF EXISTS enron_tier_access ON enron.emails",
     """
-    CREATE POLICY IF NOT EXISTS enron_tier_access ON enron.emails
+    CREATE POLICY enron_tier_access ON enron.emails
         USING (
             COALESCE(NULLIF(current_setting('app.user_tier', true), ''), NULL) IS NULL
             OR CASE current_setting('app.user_tier', true)
@@ -303,8 +310,9 @@ ENRON_RLS_POLICIES = [
     # --- entity_mentions: cascades through emails ---
     "ALTER TABLE enron.entity_mentions ENABLE ROW LEVEL SECURITY",
     "ALTER TABLE enron.entity_mentions FORCE ROW LEVEL SECURITY",
+    "DROP POLICY IF EXISTS enron_tier_access ON enron.entity_mentions",
     """
-    CREATE POLICY IF NOT EXISTS enron_tier_access ON enron.entity_mentions
+    CREATE POLICY enron_tier_access ON enron.entity_mentions
         USING (
             COALESCE(NULLIF(current_setting('app.user_tier', true), ''), NULL) IS NULL
             OR EXISTS (
@@ -317,8 +325,9 @@ ENRON_RLS_POLICIES = [
     # --- entities: cascades through entity_mentions ---
     "ALTER TABLE enron.entities ENABLE ROW LEVEL SECURITY",
     "ALTER TABLE enron.entities FORCE ROW LEVEL SECURITY",
+    "DROP POLICY IF EXISTS enron_tier_access ON enron.entities",
     """
-    CREATE POLICY IF NOT EXISTS enron_tier_access ON enron.entities
+    CREATE POLICY enron_tier_access ON enron.entities
         USING (
             COALESCE(NULLIF(current_setting('app.user_tier', true), ''), NULL) IS NULL
             OR EXISTS (
@@ -331,8 +340,9 @@ ENRON_RLS_POLICIES = [
     # --- relationships: both endpoints must be visible ---
     "ALTER TABLE enron.relationships ENABLE ROW LEVEL SECURITY",
     "ALTER TABLE enron.relationships FORCE ROW LEVEL SECURITY",
+    "DROP POLICY IF EXISTS enron_tier_access ON enron.relationships",
     """
-    CREATE POLICY IF NOT EXISTS enron_tier_access ON enron.relationships
+    CREATE POLICY enron_tier_access ON enron.relationships
         USING (
             COALESCE(NULLIF(current_setting('app.user_tier', true), ''), NULL) IS NULL
             OR (
@@ -351,8 +361,9 @@ ENRON_RLS_POLICIES = [
     # --- entity_analytics: entity must be visible ---
     "ALTER TABLE enron.entity_analytics ENABLE ROW LEVEL SECURITY",
     "ALTER TABLE enron.entity_analytics FORCE ROW LEVEL SECURITY",
+    "DROP POLICY IF EXISTS enron_tier_access ON enron.entity_analytics",
     """
-    CREATE POLICY IF NOT EXISTS enron_tier_access ON enron.entity_analytics
+    CREATE POLICY enron_tier_access ON enron.entity_analytics
         USING (
             COALESCE(NULLIF(current_setting('app.user_tier', true), ''), NULL) IS NULL
             OR EXISTS (
@@ -433,8 +444,50 @@ def create_tables(w: WorkspaceClient, include_enron: bool = False):
     log.info("Tables created")
 
 
+def _fetch_all_rows(w, warehouse_id: str, sql: str) -> list[list] | None:
+    """Execute SQL via Statement Execution API and paginate through all chunks."""
+    from databricks.sdk.service.sql import Disposition, Format
+
+    resp = w.statement_execution.execute_statement(
+        warehouse_id=warehouse_id,
+        statement=sql,
+        wait_timeout="50s",
+        disposition=Disposition.INLINE,
+        format=Format.JSON_ARRAY,
+    )
+
+    if resp.status and resp.status.state == StatementState.FAILED:
+        return None
+
+    if not resp.result or not resp.result.data_array:
+        return None
+
+    all_rows = list(resp.result.data_array)
+    statement_id = resp.statement_id
+    next_chunk = resp.result.next_chunk_index
+
+    while next_chunk is not None:
+        log.info("    Fetching chunk %d ...", next_chunk)
+        chunk = w.statement_execution.get_statement_result_chunk_n(
+            statement_id=statement_id,
+            chunk_index=next_chunk,
+        )
+        if chunk.data_array:
+            all_rows.extend(chunk.data_array)
+        next_chunk = chunk.next_chunk_index
+
+    return all_rows
+
+
+def _coerce_value(v):
+    """Coerce a single cell for COPY text format."""
+    if v is None or v == "null":
+        return None
+    return str(v)
+
+
 def load_data(w: WorkspaceClient, include_enron: bool = False):
-    """Load data from Delta tables into Lakebase via SQL warehouse + psycopg."""
+    """Load data from Delta tables into Lakebase via SQL warehouse + COPY FROM STDIN."""
     warehouse_list = list(w.warehouses.list())
     if not warehouse_list:
         log.error("No SQL warehouses found — cannot load data")
@@ -451,44 +504,37 @@ def load_data(w: WorkspaceClient, include_enron: bool = False):
             for name, spec in schemas.items():
                 log.info("  Loading '%s' from %s ...", name, spec["source"])
 
-                cur.execute(f"DELETE FROM {name}")
-
-                from databricks.sdk.service.sql import Disposition, Format
-
-                resp = w.statement_execution.execute_statement(
-                    warehouse_id=warehouse_id,
-                    statement=f"SELECT {spec['columns']} FROM {spec['source']}",
-                    wait_timeout="50s",
-                    disposition=Disposition.INLINE,
-                    format=Format.JSON_ARRAY,
+                select_cols = spec.get("select_expr", spec["columns"])
+                rows = _fetch_all_rows(
+                    w, warehouse_id,
+                    f"SELECT {select_cols} FROM {spec['source']}",
                 )
 
-                if resp.status and resp.status.state == StatementState.FAILED:
-                    log.warning("  Query failed for %s: %s — skipping", name, resp.status.error)
+                if rows is None:
+                    log.warning("  Query failed or empty for %s — skipping", name)
                     conn.rollback()
                     continue
 
-                if not resp.result or not resp.result.data_array:
-                    log.warning("  No data returned for %s — skipping", name)
-                    conn.rollback()
-                    continue
+                cols = spec["columns"]
+                staging = f"_staging_{name.replace('.', '_')}"
+                cur.execute(f"DROP TABLE IF EXISTS {staging}")
+                cur.execute(f"CREATE TEMP TABLE {staging} (LIKE {name})")
 
-                rows = resp.result.data_array
-                col_count = len(spec["columns"].split(", "))
-                placeholders = ", ".join(["%s"] * col_count)
-                insert_sql = f"INSERT INTO {name} ({spec['columns']}) VALUES ({placeholders}) ON CONFLICT DO NOTHING"
+                copy_sql = f"COPY {staging} ({cols}) FROM STDIN"
+                with cur.copy(copy_sql) as copy:
+                    for row in rows:
+                        copy.write_row([_coerce_value(v) for v in row])
 
-                for row in rows:
-                    coerced = []
-                    for val in row:
-                        if val is None or val == "null":
-                            coerced.append(None)
-                        else:
-                            coerced.append(val)
-                    cur.execute(insert_sql, coerced)
+                cur.execute(f"TRUNCATE {name}")
+                cur.execute(
+                    f"INSERT INTO {name} ({cols}) SELECT {cols} FROM {staging} ON CONFLICT DO NOTHING"
+                )
+                inserted = cur.rowcount
+                cur.execute(f"DROP TABLE {staging}")
 
                 conn.commit()
-                log.info("  Loaded %d rows into '%s'", len(rows), name)
+                log.info("  Loaded %d rows into '%s' (%d source, %d deduped)",
+                         inserted, name, len(rows), len(rows) - inserted)
 
     log.info("Data load complete")
 

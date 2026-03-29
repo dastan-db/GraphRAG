@@ -2,4 +2,4 @@ dash>=2.17
 dash-bootstrap-components>=1.6
 databricks-sql-connector>=3.0
 databricks-sdk>=0.81
-psycopg[binary]>=3.0
+psycopg[binary,pool]>=3.1

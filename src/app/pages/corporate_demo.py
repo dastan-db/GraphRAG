@@ -160,10 +160,12 @@ _TOOL_ICONS = {
     "find_entity": "fas fa-search",
     "find_connections": "fas fa-project-diagram",
     "get_source_emails": "fas fa-envelope-open-text",
+    "get_source_context": "fas fa-envelope-open-text",
     "get_entity_summary": "fas fa-id-card",
     "trace_path": "fas fa-route",
     "list_entities_by_book": "fas fa-list",
     "compare_entity_sets": "fas fa-not-equal",
+    "find_cross_book_entities": "fas fa-sitemap",
     "get_context_verses": "fas fa-book-open",
 }
 
@@ -171,10 +173,12 @@ _TOOL_DESCRIPTIONS = {
     "find_entity": "Entity lookup",
     "find_connections": "Relationship traversal",
     "get_source_emails": "Email source retrieval",
+    "get_source_context": "Source text retrieval",
     "get_entity_summary": "Entity profile",
     "trace_path": "Path discovery",
     "list_entities_by_book": "Entity listing",
     "compare_entity_sets": "Set comparison",
+    "find_cross_book_entities": "Cross-context entities",
     "get_context_verses": "Source text retrieval",
 }
 
@@ -229,6 +233,249 @@ def _redact_for_tier(output_raw: str, tier: str) -> tuple[object, int]:
     return _redact_obj(data), redacted
 
 
+_OUTPUT_STYLE = {
+    "fontSize": "0.7rem", "color": "#c9d1d9",
+    "backgroundColor": "#010409",
+    "padding": "0.5rem", "borderRadius": "4px",
+    "maxHeight": "250px", "overflowY": "auto",
+    "marginBottom": "0",
+}
+
+
+def _summarize_output(tool_name: str, data) -> str:
+    """Produce a one-line summary from structured tool output."""
+    if isinstance(data, list):
+        return f"{len(data)} entities matched"
+    if isinstance(data, dict):
+        total = data.get("total")
+        if tool_name == "find_connections" and "by_type" in data:
+            n_types = len(data["by_type"])
+            return f"{total} connections across {n_types} relationship type{'s' if n_types != 1 else ''}"
+        if tool_name in ("get_context_verses", "get_source_context", "get_source_emails") and "emails" in data:
+            return f"{total} emails found"
+        if tool_name in ("get_context_verses", "get_source_context", "get_source_emails") and "verses" in data:
+            return f"{total} verses found"
+        if tool_name == "get_entity_summary":
+            rels = data.get("relationships", {})
+            n_rels = rels.get("total", 0)
+            return f"{data.get('type', 'Entity')}: {n_rels} relationships"
+        if tool_name == "trace_path":
+            hops = data.get("hops", len(data.get("path", data.get("paths", []))))
+            return f"Path found ({hops} hop{'s' if hops != 1 else ''})"
+        if tool_name == "list_entities_by_book" and "by_type" in data:
+            return f"{total} entities in {len(data['by_type'])} categories"
+        if tool_name == "compare_entity_sets":
+            return f"{data.get('result_count', 0)} entities in result"
+        if tool_name == "find_cross_book_entities":
+            return f"{total} cross-thread entities"
+        if total is not None:
+            return f"{total} results"
+    if isinstance(data, str):
+        first_line = data.split("\n", 1)[0]
+        return first_line[:80]
+    return ""
+
+
+def _render_entity_list(data) -> html.Div:
+    """Render find_entity output as compact entity cards."""
+    items = data if isinstance(data, list) else []
+    children = []
+    for ent in items[:10]:
+        children.append(html.Div([
+            html.Span([
+                html.Strong(ent.get("name", ""), style={"color": "#e6e6e6"}),
+                dbc.Badge(
+                    ent.get("type", ""),
+                    color="info", className="ms-2",
+                    style={"fontSize": "0.6rem", "fontWeight": "normal"},
+                ),
+            ]),
+            html.Div(
+                (ent.get("description") or "")[:120],
+                className="text-muted",
+                style={"fontSize": "0.65rem", "lineHeight": "1.3"},
+            ),
+        ], className="mb-1 pb-1", style={"borderBottom": "1px solid #21262d"}))
+    if len(items) > 10:
+        children.append(html.Span(
+            f"… and {len(items) - 10} more",
+            className="text-muted", style={"fontSize": "0.65rem"},
+        ))
+    return html.Div(children, style=_OUTPUT_STYLE)
+
+
+def _render_connections(data: dict) -> html.Div:
+    """Render find_connections output grouped by relationship type."""
+    by_type = data.get("by_type", {})
+    sections = []
+    for rel_type, items in sorted(by_type.items(), key=lambda x: -len(x[1])):
+        rows = []
+        for item in items[:5]:
+            rows.append(html.Div([
+                html.Span(item.get("source", ""), style={"color": "#e6e6e6", "fontSize": "0.65rem"}),
+                html.Span(" → ", className="text-muted", style={"fontSize": "0.65rem"}),
+                html.Span(item.get("target", ""), style={"color": "#e6e6e6", "fontSize": "0.65rem"}),
+            ]))
+        overflow = len(items) - 5
+        if overflow > 0:
+            rows.append(html.Span(
+                f"… +{overflow} more",
+                className="text-muted", style={"fontSize": "0.6rem"},
+            ))
+        sections.append(html.Details([
+            html.Summary([
+                dbc.Badge(rel_type, color="secondary",
+                          style={"fontSize": "0.6rem", "fontWeight": "normal"}),
+                html.Span(
+                    f" ({len(items)})",
+                    className="text-muted", style={"fontSize": "0.65rem"},
+                ),
+            ], style={"cursor": "pointer", "fontSize": "0.7rem"}, className="mb-1"),
+            html.Div(rows, className="ms-2 mb-1"),
+        ], open=len(by_type) <= 3))
+    return html.Div(sections, style=_OUTPUT_STYLE)
+
+
+def _render_emails(data: dict) -> html.Div:
+    """Render email source context as compact rows."""
+    emails = data.get("emails", [])
+    rows = []
+    for em in emails[:8]:
+        rows.append(html.Div([
+            html.Span(em.get("date", ""), className="text-muted me-2",
+                      style={"fontSize": "0.6rem", "minWidth": "70px", "display": "inline-block"}),
+            html.Span(em.get("sender", ""), style={"color": "#8be9fd", "fontSize": "0.65rem"}),
+            html.Span(f" | {em.get('subject', '')}", className="text-muted",
+                      style={"fontSize": "0.65rem"}),
+        ], className="mb-1"))
+    if len(emails) > 8:
+        rows.append(html.Span(
+            f"… +{len(emails) - 8} more emails",
+            className="text-muted", style={"fontSize": "0.6rem"},
+        ))
+    return html.Div(rows, style=_OUTPUT_STYLE)
+
+
+def _render_entity_summary(data: dict) -> html.Div:
+    """Render get_entity_summary output as an entity card with relationships."""
+    children = [
+        html.Div([
+            html.Strong(data.get("name", ""), style={"color": "#e6e6e6"}),
+            dbc.Badge(data.get("type", ""), color="info", className="ms-2",
+                      style={"fontSize": "0.6rem", "fontWeight": "normal"}),
+        ]),
+        html.Div(
+            (data.get("description") or "")[:200],
+            className="text-muted mb-1",
+            style={"fontSize": "0.65rem"},
+        ),
+    ]
+    if data.get("first_mention"):
+        children.append(html.Div(
+            f"First mention: {data['first_mention']}",
+            style={"fontSize": "0.6rem", "color": "#8b949e"},
+        ))
+    rels = data.get("relationships", {})
+    if rels and rels.get("by_type"):
+        children.append(html.Hr(style={"borderColor": "#21262d", "margin": "0.3rem 0"}))
+        children.append(_render_connections(rels))
+    return html.Div(children, style=_OUTPUT_STYLE)
+
+
+def _render_path(data: dict) -> html.Div:
+    """Render trace_path output as a visual chain."""
+    path_steps = data.get("path", data.get("paths", []))
+    badges = []
+    for i, step in enumerate(path_steps):
+        src = step.get("source", "")
+        rel = step.get("relationship", "")
+        tgt = step.get("target", "")
+        if i == 0:
+            badges.append(dbc.Badge(src, color="primary", className="me-1 mb-1",
+                                    style={"fontSize": "0.65rem"}))
+        badges.append(html.Span(
+            f"—[{rel}]→", className="text-muted mx-1",
+            style={"fontSize": "0.6rem"},
+        ))
+        color = "primary" if i == len(path_steps) - 1 else "secondary"
+        badges.append(dbc.Badge(tgt, color=color, className="me-1 mb-1",
+                                style={"fontSize": "0.65rem"}))
+    return html.Div(badges, style={**_OUTPUT_STYLE, "lineHeight": "2"})
+
+
+def _render_tool_output(tool_name: str, data, redaction_count: int, tier: str):
+    """Dispatch to the appropriate rich renderer based on tool name and data shape."""
+    redaction_warning = None
+    if redaction_count > 0:
+        redaction_warning = html.Div([
+            html.I(className="fas fa-lock me-1"),
+            html.Span(
+                f"{redaction_count} field{'s' if redaction_count != 1 else ''} "
+                f"redacted for {tier.replace('_', ' ')}",
+                className="small",
+            ),
+        ], className="text-warning mt-1", style={"fontSize": "0.7rem"})
+
+    output_widget = None
+
+    if isinstance(data, str):
+        output_widget = dcc.Markdown(
+            data[:1200] + ("\n…" if len(data) > 1200 else ""),
+            style={"fontSize": "0.7rem", "color": "#c9d1d9"},
+        )
+    elif tool_name == "find_entity" and isinstance(data, list):
+        output_widget = _render_entity_list(data)
+    elif tool_name == "find_connections" and isinstance(data, dict) and "by_type" in data:
+        output_widget = _render_connections(data)
+    elif tool_name in ("get_context_verses", "get_source_context", "get_source_emails") and isinstance(data, dict):
+        if "emails" in data:
+            output_widget = _render_emails(data)
+        elif "verses" in data:
+            verses = data["verses"]
+            rows = []
+            for v in verses[:10]:
+                rows.append(html.Div([
+                    html.Strong(v.get("reference", ""), style={"fontSize": "0.65rem", "color": "#8be9fd"}),
+                    html.Span(f" — {v.get('text', '')[:150]}", className="text-muted",
+                              style={"fontSize": "0.65rem"}),
+                ], className="mb-1"))
+            if len(verses) > 10:
+                rows.append(html.Span(f"… +{len(verses) - 10} more", className="text-muted",
+                                      style={"fontSize": "0.6rem"}))
+            output_widget = html.Div(rows, style=_OUTPUT_STYLE)
+    elif tool_name == "get_entity_summary" and isinstance(data, dict):
+        output_widget = _render_entity_summary(data)
+    elif tool_name == "trace_path" and isinstance(data, dict) and ("path" in data or "paths" in data):
+        output_widget = _render_path(data)
+    elif tool_name == "compare_entity_sets" and isinstance(data, dict):
+        result = data.get("result", [])
+        children = [
+            html.Div(f"Set A: {data.get('set_a', {}).get('description', '')} ({data.get('set_a', {}).get('count', 0)})",
+                      className="text-muted", style={"fontSize": "0.65rem"}),
+            html.Div(f"Set B: {data.get('set_b', {}).get('description', '')} ({data.get('set_b', {}).get('count', 0)})",
+                      className="text-muted", style={"fontSize": "0.65rem"}),
+            html.Div(f"Operation: {data.get('operation', '')}", className="text-muted mb-1",
+                      style={"fontSize": "0.65rem"}),
+        ]
+        for name in result[:15]:
+            children.append(dbc.Badge(name, color="secondary", className="me-1 mb-1",
+                                      style={"fontSize": "0.6rem"}))
+        if len(result) > 15:
+            children.append(html.Span(f"… +{len(result) - 15} more", className="text-muted",
+                                      style={"fontSize": "0.6rem"}))
+        output_widget = html.Div(children, style=_OUTPUT_STYLE)
+    else:
+        pretty = json.dumps(data, indent=2, ensure_ascii=False, default=str)
+        if len(pretty) > 1200:
+            pretty = pretty[:1200] + "\n  …"
+        output_widget = html.Pre(pretty, style={**_OUTPUT_STYLE, "whiteSpace": "pre-wrap", "wordBreak": "break-word"})
+
+    parts = [output_widget]
+    if redaction_warning:
+        parts.append(redaction_warning)
+    return html.Div(parts, className="mt-1")
+
+
 def _render_provenance(resp_data):
     if not resp_data:
         return html.P(
@@ -263,7 +510,7 @@ def _render_provenance(resp_data):
                       pill=True, style={"fontSize": "0.7rem"}),
         ], className="text-info mb-2"))
 
-        for idx, tc in enumerate(tool_calls):
+        for tc in tool_calls:
             icon = _TOOL_ICONS.get(tc["name"], "fas fa-cog")
             desc = _TOOL_DESCRIPTIONS.get(tc["name"], tc["name"])
             args = tc.get("arguments", {})
@@ -286,44 +533,22 @@ def _render_provenance(resp_data):
             if output_raw:
                 redacted_obj, redaction_count = _redact_for_tier(output_raw, tier)
                 if redacted_obj is not None:
-                    pretty = json.dumps(
-                        redacted_obj, indent=2, ensure_ascii=False, default=str,
-                    )
-                    if len(pretty) > 1200:
-                        pretty = pretty[:1200] + "\n  …"
-
-                    output_children = [
-                        html.Pre(
-                            pretty,
-                            style={
-                                "fontSize": "0.7rem", "color": "#c9d1d9",
-                                "backgroundColor": "#010409",
-                                "padding": "0.5rem", "borderRadius": "4px",
-                                "maxHeight": "200px", "overflowY": "auto",
-                                "marginBottom": "0", "whiteSpace": "pre-wrap",
-                                "wordBreak": "break-word",
-                            },
-                        ),
-                    ]
-                    if redaction_count > 0:
-                        output_children.append(html.Div([
-                            html.I(className="fas fa-lock me-1"),
-                            html.Span(
-                                f"{redaction_count} field{'s' if redaction_count != 1 else ''} "
-                                f"redacted for {tier.replace('_', ' ')}",
-                                className="small",
-                            ),
-                        ], className="text-warning mt-1",
-                           style={"fontSize": "0.7rem"}))
+                    summary_text = _summarize_output(tc["name"], redacted_obj)
+                    if summary_text:
+                        card_children.append(html.Div(
+                            summary_text,
+                            className="mt-1",
+                            style={"fontSize": "0.7rem", "color": "#8b949e"},
+                        ))
 
                     card_children.append(
                         html.Details([
                             html.Summary(
-                                "Output",
+                                "Show details",
                                 className="small text-muted mt-1",
                                 style={"cursor": "pointer", "fontSize": "0.7rem"},
                             ),
-                            html.Div(output_children, className="mt-1"),
+                            _render_tool_output(tc["name"], redacted_obj, redaction_count, tier),
                         ])
                     )
 

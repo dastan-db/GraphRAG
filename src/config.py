@@ -53,6 +53,11 @@ config['enron_key_custodians'] = [
 
 config['enron_max_emails'] = 20000
 
+config['enron_communication_dyads_table'] = f"{config['catalog']}.{config['enron_schema']}.communication_dyads"
+config['enron_person_activity_table'] = f"{config['catalog']}.{config['enron_schema']}.person_activity"
+config['enron_org_hierarchy_table'] = f"{config['catalog']}.{config['enron_schema']}.org_hierarchy"
+config['enron_investigation_timeline_table'] = f"{config['catalog']}.{config['enron_schema']}.investigation_timeline"
+
 # COMMAND ----------
 
 # DBTITLE 1,Enron ABAC Config

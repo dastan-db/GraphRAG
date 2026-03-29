@@ -159,7 +159,7 @@ class TestPreLookupEntities:
 
     def test_all_found(self):
         mod = _reload_mod()
-        rows = [{"name": "Abraham", "entity_type": "Person"}]
+        rows = [{"entity_id": "abraham", "name": "Abraham", "entity_type": "Person"}]
         mock_backend = MagicMock()
         mock_backend.execute_sql.return_value = rows
         with patch.object(mod, "_backend", mock_backend):
@@ -171,11 +171,12 @@ class TestPreLookupEntities:
 
     def test_mixed(self):
         mod = _reload_mod()
-        rows_ishmael = [{"name": "Ishmael", "entity_type": "Person"}]
 
         def sql_side_effect(query, params=None):
-            if params and "ishmael" in (params.get("eid_pattern", "")):
-                return rows_ishmael
+            if params:
+                for v in params.values():
+                    if "ishmael" in v:
+                        return [{"entity_id": "ishmael", "name": "Ishmael", "entity_type": "Person"}]
             return []
 
         mock_backend = MagicMock()

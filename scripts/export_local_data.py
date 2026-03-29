@@ -18,15 +18,33 @@ import sys
 
 CATALOG = os.environ.get("GRAPHRAG_CATALOG", "serverless_8e8gyh_catalog")
 SCHEMA = os.environ.get("GRAPHRAG_SCHEMA", "graphrag_bible")
+CORPUS = os.environ.get("GRAPHRAG_CORPUS", "bible")
+ENRON_SCHEMA = os.environ.get("GRAPHRAG_ENRON_SCHEMA", "graphrag_enron")
 WAREHOUSE_ID = os.environ.get("DATABRICKS_WAREHOUSE_ID")
 
-TABLES = [
+BIBLE_TABLES = [
     "entities",
     "relationships",
     "verses",
     "agent_prompts",
     "entity_analytics",
 ]
+
+ENRON_TABLES = [
+    "entities",
+    "relationships",
+    "emails",
+    "entity_analytics",
+    "entity_paths",
+    "entity_mentions",
+    "entity_aliases",
+    "communication_dyads",
+    "person_activity",
+    "org_hierarchy",
+    "investigation_timeline",
+]
+
+TABLES = BIBLE_TABLES
 
 
 def _get_warehouse_id(w):
@@ -42,19 +60,20 @@ def _get_warehouse_id(w):
     return target.id
 
 
-def _fetch_table(w, warehouse_id: str, table_name: str) -> tuple[list[str], list[list]]:
+def _fetch_table(w, warehouse_id: str, table_name: str, schema: str = None) -> tuple[list[str], list[list]]:
     """Fetch all rows from a Delta table via Statement Execution API."""
     import time
     from databricks.sdk.service.sql import StatementState
 
-    fqn = f"{CATALOG}.{SCHEMA}.{table_name}"
+    effective_schema = schema or SCHEMA
+    fqn = f"{CATALOG}.{effective_schema}.{table_name}"
     print(f"  Fetching {fqn}...", end="", flush=True)
 
     result = w.statement_execution.execute_statement(
         warehouse_id=warehouse_id,
         statement=f"SELECT * FROM {fqn}",
         catalog=CATALOG,
-        schema=SCHEMA,
+        schema=effective_schema,
         wait_timeout="50s",
     )
     for _ in range(30):
@@ -110,24 +129,43 @@ def main():
     parser.add_argument(
         "--tables", "-t",
         nargs="+",
-        default=TABLES,
-        help=f"Tables to export (default: {' '.join(TABLES)})",
+        default=None,
+        help="Tables to export (defaults depend on --corpus)",
+    )
+    parser.add_argument(
+        "--corpus",
+        choices=["bible", "enron"],
+        default=CORPUS,
+        help=f"Corpus to export (default: {CORPUS})",
     )
     args = parser.parse_args()
 
-    os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
+    if args.corpus == "enron":
+        schema = ENRON_SCHEMA
+        tables = args.tables or ENRON_TABLES
+        default_output = "data/graphrag_enron.duckdb"
+    else:
+        schema = SCHEMA
+        tables = args.tables or BIBLE_TABLES
+        default_output = "data/graphrag.duckdb"
+
+    output_path = args.output if args.output != "data/graphrag.duckdb" else default_output
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
 
     from databricks.sdk import WorkspaceClient
     w = WorkspaceClient()
     warehouse_id = _get_warehouse_id(w)
 
-    print(f"\nExporting to {args.output}:")
-    for table in args.tables:
-        columns, rows = _fetch_table(w, warehouse_id, table)
-        if columns:
-            _write_to_duckdb(args.output, table, columns, rows)
+    print(f"\nExporting {args.corpus} corpus ({len(tables)} tables) to {output_path}:")
+    for table in tables:
+        try:
+            columns, rows = _fetch_table(w, warehouse_id, table, schema=schema)
+            if columns:
+                _write_to_duckdb(output_path, table, columns, rows)
+        except Exception as exc:
+            print(f"    -> {table}: SKIPPED ({exc})")
 
-    print(f"\nDone. Local database: {args.output}")
+    print(f"\nDone. Local database: {output_path}")
     print("Run your agent with: GRAPHRAG_BACKEND=local python scripts/test_local.py")
 
 

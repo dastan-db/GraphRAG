@@ -109,8 +109,7 @@ print(f"Row filter attached to {emails_table}")
 
 spark.sql(f"""
     ALTER TABLE {emails_table}
-    SET COLUMN MASK {catalog}.{schema}.mask_bcc
-    ON bcc_recipients
+    ALTER COLUMN bcc_recipients SET MASK {catalog}.{schema}.mask_bcc
 """)
 print(f"Column mask attached to {emails_table}")
 

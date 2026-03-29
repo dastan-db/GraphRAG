@@ -291,6 +291,187 @@ class TestGetEntitySummary:
         assert "Ruth" in result
 
 
+@skip_no_db
+class TestFindTopContacts:
+    """Tests for the Enron-only find_top_contacts tool.
+
+    Uses a mocked backend since Enron DuckDB is not yet exported locally.
+    """
+
+    def test_returns_ranked_contacts(self, _patch_backend):
+        mod = _patch_backend
+        mock_results = [
+            {"contact": "Karen Denne", "sent": 5, "received": 26, "total": 31},
+            {"contact": "Vanessa Groscrand", "sent": 2, "received": 14, "total": 16},
+            {"contact": "Kathryn Corbally", "sent": 0, "received": 12, "total": 12},
+        ]
+        with patch.object(mod, "CORPUS", "enron"), \
+             patch.object(mod, "_backend") as mock_be:
+            mock_be.execute_sql.return_value = mock_results
+            result = mod.find_top_contacts("Kenneth Lay")
+        import json
+        data = json.loads(result)
+        assert data["entity"] == "Kenneth Lay"
+        assert len(data["top_contacts"]) == 3
+        assert data["top_contacts"][0]["total"] >= data["top_contacts"][1]["total"]
+
+    def test_direction_outbound(self, _patch_backend):
+        mod = _patch_backend
+        mock_results = [
+            {"contact": "Brian Redmond", "sent": 3, "received": 0, "total": 3},
+        ]
+        with patch.object(mod, "CORPUS", "enron"), \
+             patch.object(mod, "_backend") as mock_be:
+            mock_be.execute_sql.return_value = mock_results
+            result = mod.find_top_contacts("Kenneth Lay", direction="outbound")
+        import json
+        data = json.loads(result)
+        assert data["direction"] == "outbound"
+        assert data["top_contacts"][0]["sent"] == 3
+
+    def test_direction_inbound(self, _patch_backend):
+        mod = _patch_backend
+        mock_results = [
+            {"contact": "Karen Denne", "sent": 0, "received": 26, "total": 26},
+        ]
+        with patch.object(mod, "CORPUS", "enron"), \
+             patch.object(mod, "_backend") as mock_be:
+            mock_be.execute_sql.return_value = mock_results
+            result = mod.find_top_contacts("Kenneth Lay", direction="inbound")
+        import json
+        data = json.loads(result)
+        assert data["direction"] == "inbound"
+        assert data["top_contacts"][0]["received"] == 26
+
+    def test_no_contacts_found(self, _patch_backend):
+        mod = _patch_backend
+        with patch.object(mod, "CORPUS", "enron"), \
+             patch.object(mod, "_backend") as mock_be:
+            mock_be.execute_sql.return_value = []
+            result = mod.find_top_contacts("Nobody Here")
+        assert "No email contacts found" in result
+
+    def test_bible_corpus_rejected(self, _patch_backend):
+        mod = _patch_backend
+        with patch.object(mod, "CORPUS", "bible"):
+            result = mod.find_top_contacts("Moses")
+        assert "only available for the Enron corpus" in result
+
+    def test_humanizes_slug_names(self, _patch_backend):
+        mod = _patch_backend
+        mock_results = [
+            {"contact": "karen_denne", "sent": 0, "received": 26, "total": 26},
+        ]
+        with patch.object(mod, "CORPUS", "enron"), \
+             patch.object(mod, "_backend") as mock_be:
+            mock_be.execute_sql.return_value = mock_results
+            result = mod.find_top_contacts("Kenneth Lay")
+        import json
+        data = json.loads(result)
+        assert data["top_contacts"][0]["name"] == "Karen Denne"
+
+
+@skip_no_db
+class TestGetEmailsBetween:
+    """Tests for the Enron-only get_emails_between tool."""
+
+    def test_returns_emails(self, _patch_backend):
+        mod = _patch_backend
+        mock_results = [
+            {"date": "2001-10-25", "sender": "karen.denne@enron.com",
+             "subject": "Meeting Update", "body_preview": "Hi Ken, regarding the meeting..."},
+            {"date": "2001-10-20", "sender": "kenneth.lay@enron.com",
+             "subject": "Re: Meeting Update", "body_preview": "Thanks Karen..."},
+        ]
+        with patch.object(mod, "CORPUS", "enron"), \
+             patch.object(mod, "_backend") as mock_be, \
+             patch.object(mod, "_get_corpus_config", return_value={"source_table": "emails"}):
+            mock_be.execute_sql.return_value = mock_results
+            result = mod.get_emails_between("Karen Denne", "Kenneth Lay")
+        import json
+        data = json.loads(result)
+        assert data["total"] == 2
+        assert data["between"] == ["Karen Denne", "Kenneth Lay"]
+        assert data["emails"][0]["sender"] == "karen.denne@enron.com"
+
+    def test_no_emails_found(self, _patch_backend):
+        mod = _patch_backend
+        with patch.object(mod, "CORPUS", "enron"), \
+             patch.object(mod, "_backend") as mock_be, \
+             patch.object(mod, "_get_corpus_config", return_value={"source_table": "emails"}):
+            mock_be.execute_sql.return_value = []
+            result = mod.get_emails_between("Alice", "Bob")
+        assert "No emails found" in result
+
+    def test_bible_corpus_rejected(self, _patch_backend):
+        mod = _patch_backend
+        with patch.object(mod, "CORPUS", "bible"):
+            result = mod.get_emails_between("Moses", "Aaron")
+        assert "only available for the Enron corpus" in result
+
+    def test_body_preview_truncated(self, _patch_backend):
+        mod = _patch_backend
+        long_body = "x" * 500
+        mock_results = [
+            {"date": "2001-10-25", "sender": "a@enron.com",
+             "subject": "Test", "body_preview": long_body},
+        ]
+        with patch.object(mod, "CORPUS", "enron"), \
+             patch.object(mod, "_backend") as mock_be, \
+             patch.object(mod, "_get_corpus_config", return_value={"source_table": "emails"}):
+            mock_be.execute_sql.return_value = mock_results
+            result = mod.get_emails_between("A", "B")
+        import json
+        data = json.loads(result)
+        assert len(data["emails"][0]["body_preview"]) <= 300
+
+
+class TestMaybeHumanize:
+    """Tests for _maybe_humanize — pure unit tests, no DB needed."""
+
+    def test_email_suffix_enron_com(self):
+        import importlib
+        import src.agent.agent_serving as mod
+        importlib.reload(mod)
+        assert mod._maybe_humanize("andrew_fastow_enron_com") == "Andrew Fastow"
+
+    def test_email_suffix_ect(self):
+        import importlib
+        import src.agent.agent_serving as mod
+        importlib.reload(mod)
+        assert mod._maybe_humanize("john_doe_ect_enron_com") == "John Doe"
+
+    def test_slug_without_domain(self):
+        import importlib
+        import src.agent.agent_serving as mod
+        importlib.reload(mod)
+        assert mod._maybe_humanize("karen_denne") == "Karen Denne"
+
+    def test_slug_with_digits(self):
+        import importlib
+        import src.agent.agent_serving as mod
+        importlib.reload(mod)
+        assert mod._maybe_humanize("user_123_test") == "User 123 Test"
+
+    def test_already_human_readable(self):
+        import importlib
+        import src.agent.agent_serving as mod
+        importlib.reload(mod)
+        assert mod._maybe_humanize("Karen Denne") == "Karen Denne"
+
+    def test_proper_name_untouched(self):
+        import importlib
+        import src.agent.agent_serving as mod
+        importlib.reload(mod)
+        assert mod._maybe_humanize("Kenneth.Lay@Enron.com") == "Kenneth.Lay@Enron.com"
+
+    def test_single_char_not_humanized(self):
+        import importlib
+        import src.agent.agent_serving as mod
+        importlib.reload(mod)
+        assert mod._maybe_humanize("a") == "a"
+
+
 # ===================================================================
 # Layer 2: End-to-End Integration Tests (multi-model matrix)
 # ===================================================================
