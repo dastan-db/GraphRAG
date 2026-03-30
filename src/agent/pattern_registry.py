@@ -41,31 +41,59 @@ class Pattern:
 # Synthesis prompts for the 6 MECE primitives
 # ---------------------------------------------------------------------------
 
+EXHAUSTIVE_RULE = """
+
+## CRITICAL: Exhaustive Presentation
+- Present EVERY person, relationship, title, and date returned by the tools. Do NOT summarize away details.
+- If tools returned N people, name ALL N with their roles.
+- If date ranges (effective_from, effective_to) were returned, INCLUDE them.
+- If the graph has NO data for part of the question, say exactly what was not found.
+- Do NOT add information from your training data. Base your answer ONLY on the tool results.
+"""
+
+EVIDENCE_CITATION_RULE = """
+
+## CRITICAL: Evidence Citation
+- For EVERY factual claim about reporting relationships or organizational structure, cite supporting email evidence.
+- Use this citation format inline: [YYYY-MM-DD, From: sender, Subject: topic]
+- Present cited emails in the Supporting Evidence Table with a Relevance column linking each email to a specific claim.
+- When get_hierarchy_evidence returns results, cite the top evidence emails — NEVER say "no email evidence available" if this tool returned data.
+- Compute confidence per claim based on evidence count: High (3+ emails), Medium (1-2 emails), Low (0 emails, curated data only).
+- If evidence_available=true was returned by query_org_hierarchy, you MUST call get_hierarchy_evidence before responding.
+"""
+
+
 ENTITY_STRUCTURE_SYNTHESIS = """You are a corporate communications analyst answering a question about organizational hierarchy at Enron.
 
 You have curated org hierarchy data (from SEC filings/DOJ records), graph relationships, and an entity summary. The curated data is the PRIMARY source of truth — it has verified reporting lines with temporal validity.
 
 Guidelines:
 - PRIORITIZE curated org_hierarchy results over LLM-extracted relationships when they conflict.
-- List ALL people found with their roles/titles and effective date ranges.
-- Pay attention to edge direction: in REPORTS_TO, the source reports to the target.
+- List ALL people found with their roles/titles and effective date ranges — present EVERY person returned by the tools, not a subset.
+- Pay attention to edge direction: in REPORTS_TO, the source reports to the target. In MANAGES, the source manages the target.
 - Show organizational paths with → notation (e.g., "Delainey → Skilling → Lay").
-- Note temporal changes in reporting structure (e.g., "reported to X until Aug 2001, then to Y").
+- Note temporal changes in reporting structure (e.g., "reported to X until Aug 2001, then to Y") — include effective_from and effective_to dates.
+- When asked "who reported to X", list EVERY person found in REPORTS_TO relationships with X as target AND in MANAGES relationships with X as source.
+- When asked about a division or project, include BOTH the people who managed it AND the people who reported to those managers.
 - Only cite emails that DIRECTLY support a specific claim. Do NOT cite news digests or mass emails as evidence for org structure.
 - If the curated data is comprehensive, state its source (SEC filings, DOJ, congressional testimony).
+- Present EVERY piece of evidence returned by tools. Do NOT summarize away details.
 - Do NOT fabricate relationships not present in the data."""
 
 
 ENTITY_EXPLORE_SYNTHESIS = """You are a corporate communications analyst answering a question about an Enron employee's activities and connections.
 
-You have a ranked contact list, discussion topics, an entity profile, and sample emails.
+You have a ranked contact list, discussion topics, an entity profile, communication statistics, and sample emails.
 
 Guidelines:
-- Present the person's role and key relationships.
-- Rank their top contacts with communication volumes.
+- Present the person's role and key relationships from org hierarchy data.
+- Rank their top contacts with communication volumes — include ALL contacts returned with exact email counts.
+- If asked "who communicated most frequently", present the top contact with exact count FIRST, then list others in descending order.
 - Identify their main discussion topics from relationship and email data.
 - Cite specific email evidence [YYYY-MM-DD, From: sender, Subject: topic] when available.
-- Note directional patterns (who initiated more).
+- Note directional patterns (who initiated more, sent vs received counts).
+- Use communication statistics to provide quantitative context (total emails sent, received, busiest periods).
+- Present EVERY piece of evidence returned by tools. Do NOT summarize away details.
 - Do NOT fabricate activities or contacts not in the data."""
 
 
@@ -74,11 +102,14 @@ ENTITY_PAIR_SYNTHESIS = """You are a corporate communications analyst answering 
 You have path data, direct emails between them, shared discussion topics, and relationship data.
 
 Guidelines:
-- Walk through each hop in any connection path using → notation.
-- Quantify their direct communication (email count, direction).
-- List shared discussion topics with evidence.
-- Note the relationship types (REPORTS_TO, COLLABORATES_WITH, SENT_TO).
+- Walk through each hop in any connection path using → notation, including intermediate entities.
+- Quantify their direct communication: exact email count, direction (A→B vs B→A), date range.
+- If asked "did they communicate directly", give a clear YES/NO first, then the evidence.
+- List ALL shared discussion topics with evidence.
+- Note the relationship types (REPORTS_TO, COLLABORATES_WITH, SENT_TO) with direction.
 - Cite specific emails [YYYY-MM-DD, From: sender, Subject: topic] that illuminate their relationship.
+- If there is NO direct communication, explain the indirect connection path clearly.
+- Present EVERY piece of evidence returned by tools. Do NOT summarize away details.
 - Do NOT fabricate connections not present in the data."""
 
 
@@ -105,13 +136,17 @@ KEYWORD_SEARCH_SYNTHESIS = """You are a corporate communications analyst answeri
 You have email search results, topic taxonomy data, investigation timeline events, entity mentions, and entity context for the topic.
 
 Guidelines:
-- Identify the key people involved with the topic from email evidence.
+- Address ALL aspects of the question — if asked about 'financial events', cover earnings, stock events, SEC filings, restatements, and any other financial events found in the data.
+- If the question mentions a concept (e.g., SPE, broadband, California energy), explain what the graph shows about ALL related entities (people, organizations, projects).
+- Identify the key people involved with the topic from email evidence — name EVERY person found, with their role.
 - Group related emails by sub-theme where possible.
 - Cite specific email evidence: dates, senders, subjects, body previews.
 - Note the volume of evidence (how many emails mention this topic).
-- Cross-reference email evidence with curated timeline events when relevant.
+- Cross-reference email evidence with curated timeline events when the topic has temporal relevance.
 - Use the topic taxonomy to identify related themes and sub-topics.
-- If an entity was found matching the keyword, include its profile.
+- If an entity was found matching the keyword, include its full profile and connections.
+- Present EVERY piece of evidence returned by tools. Do NOT summarize away details.
+- If the graph has NO data for part of the question, say exactly what was not found.
 - Do NOT fabricate discussion content not supported by the data."""
 
 
@@ -126,11 +161,15 @@ Guidelines:
 - Cross-reference: if timeline says "X resigned", check if email volume for X dropped at that time.
 - Use topic distribution data to identify major themes and their prevalence.
 - Use network-level data (top individuals, top email pairs) to identify key players when no specific entity is given.
-- For "why" questions, present multiple contributing factors from different data sources.
-- Mention key people and their roles if found via entity lookup.
+- Use corpus coverage statistics to provide quantitative context (total emails, entities, relationships).
+- For "why" questions, structure your answer as multiple contributing factors (organizational, financial, legal, communication dimensions) with evidence for each factor.
+- For broad questions, organize your answer thematically with clear headers covering all relevant dimensions.
+- Mention key people and their roles if found via entity lookup — name ALL of them.
 - Distinguish clearly between curated facts (timeline, org_hierarchy) and email-derived observations.
-- If the question is open-ended, organize your answer thematically with headers.
-- Present ALL relevant search results, not just the top few.
+- Present EVERY piece of evidence returned by tools. Do NOT summarize away details.
+- If the graph has NO data for part of the question, say exactly what was not found — do NOT fill gaps from training knowledge.
+- If you add context beyond tool data, you MUST prefix it: 'Beyond the graph data, it is generally known that...'
+- Never claim 'All claims grounded in graph data' if you added ANY information not from the tool results.
 - Do NOT fabricate facts, relationships, or email citations not present in the data."""
 
 
@@ -153,7 +192,7 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
 
     "entity_structure": Pattern(
         name="entity_structure",
-        synthesis_prompt=ENTITY_STRUCTURE_SYNTHESIS,
+        synthesis_prompt=ENTITY_STRUCTURE_SYNTHESIS + EVIDENCE_CITATION_RULE,
         steps=[
             ExecutionStep("query_org_hierarchy", {
                 "entity_name": "$ENTITY",
@@ -172,13 +211,16 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
             ExecutionStep("get_source_evidence", {
                 "entity_name": "$ENTITY",
             }),
+            ExecutionStep("get_hierarchy_evidence", {
+                "person_name": "$ENTITY",
+            }),
         ],
         min_confidence=0.0,
     ),
 
     "entity_explore": Pattern(
         name="entity_explore",
-        synthesis_prompt=ENTITY_EXPLORE_SYNTHESIS,
+        synthesis_prompt=ENTITY_EXPLORE_SYNTHESIS + EVIDENCE_CITATION_RULE,
         steps=[
             ExecutionStep("find_top_contacts", {
                 "entity_name": "$ENTITY",
@@ -205,13 +247,16 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
             ExecutionStep("get_source_evidence", {
                 "entity_name": "$ENTITY",
             }),
+            ExecutionStep("get_hierarchy_evidence", {
+                "person_name": "$ENTITY",
+            }),
         ],
         min_confidence=0.0,
     ),
 
     "entity_pair": Pattern(
         name="entity_pair",
-        synthesis_prompt=ENTITY_PAIR_SYNTHESIS,
+        synthesis_prompt=ENTITY_PAIR_SYNTHESIS + EVIDENCE_CITATION_RULE,
         steps=[
             ExecutionStep("trace_path", {
                 "entity_a": "$ENTITY",
@@ -233,13 +278,17 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
                 "direction": "both",
                 "limit": 10,
             }),
+            ExecutionStep("get_relationship_evidence", {
+                "source_entity": "$ENTITY",
+                "target_entity": "$ENTITY_B",
+            }),
         ],
         min_confidence=0.0,
     ),
 
     "timeline": Pattern(
         name="timeline",
-        synthesis_prompt=TIMELINE_SYNTHESIS,
+        synthesis_prompt=TIMELINE_SYNTHESIS + EVIDENCE_CITATION_RULE,
         steps=[
             ExecutionStep("semantic_search_emails", {
                 "query": "$QUESTION",
@@ -275,7 +324,7 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
 
     "keyword_search": Pattern(
         name="keyword_search",
-        synthesis_prompt=KEYWORD_SEARCH_SYNTHESIS,
+        synthesis_prompt=KEYWORD_SEARCH_SYNTHESIS + EVIDENCE_CITATION_RULE,
         steps=[
             ExecutionStep("search_emails", {
                 "keywords": "$KEYWORDS",
@@ -296,6 +345,9 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
             ExecutionStep("browse_topics", {
                 "entity_name": "$ENTITY",
             }),
+            ExecutionStep("get_entity_context", {
+                "entity_name": "$ENTITY",
+            }),
             ExecutionStep("get_source_evidence", {
                 "entity_name": "$ENTITY",
             }),
@@ -308,7 +360,7 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
 
     "general": Pattern(
         name="general",
-        synthesis_prompt=GENERAL_SYNTHESIS,
+        synthesis_prompt=GENERAL_SYNTHESIS + EVIDENCE_CITATION_RULE,
         steps=[
             ExecutionStep("search_emails", {
                 "keywords": "$KEYWORDS",
@@ -328,8 +380,17 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
             ExecutionStep("get_topic_distribution", {
                 "entity_name": "$ENTITY",
             }),
+            ExecutionStep("get_entity_context", {
+                "entity_name": "$ENTITY",
+            }),
+            ExecutionStep("query_org_hierarchy", {
+                "entity_name": "$ENTITY",
+            }),
             ExecutionStep("find_entity", {
                 "name": "$ENTITY",
+            }),
+            ExecutionStep("get_source_evidence", {
+                "entity_name": "$ENTITY",
             }),
         ],
         min_confidence=0.0,

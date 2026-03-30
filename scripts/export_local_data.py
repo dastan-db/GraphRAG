@@ -42,6 +42,7 @@ ENRON_TABLES = [
     "person_activity",
     "participants",
     "org_hierarchy",
+    "org_hierarchy_evidence",
     "investigation_timeline",
     "person_identity",
     "ontology_registry",

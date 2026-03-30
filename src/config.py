@@ -69,6 +69,53 @@ config['enron_person_role_timeline_table'] = f"{config['catalog']}.{config['enro
 config['enron_topic_taxonomy_table'] = f"{config['catalog']}.{config['enron_schema']}.topic_taxonomy"
 config['enron_pipeline_lineage_table'] = f"{config['catalog']}.{config['enron_schema']}.pipeline_lineage"
 config['enron_agent_query_log_table'] = f"{config['catalog']}.{config['enron_schema']}.agent_query_log"
+config['enron_org_hierarchy_evidence_table'] = f"{config['catalog']}.{config['enron_schema']}.org_hierarchy_evidence"
+
+# COMMAND ----------
+
+# DBTITLE 1,Evidence Traceability Config (tunable knobs)
+config['evidence_config'] = {
+    # C1: Build-time evidence linking (K1-K8)
+    "strategy_weights": {"A": 1.0, "B": 0.7, "C": 0.9, "D": 0.4},
+    "snippet_length": 500,
+    "max_emails_per_pair": 20,
+    "date_proximity_boost": 0.0,
+    "date_proximity_window_days": 90,
+    "recipient_type_weights": {"TO": 1.0, "CC": 0.6, "BCC": 0.3},
+    "mass_mail_threshold": 5,
+    "org_keyword_boost": 0.0,
+    "min_relevance_threshold": 0.3,
+    # C2: Evidence retrieval (K9-K14)
+    "default_sort_order": "relevance",
+    "body_preview_length": 1200,
+    "thread_cap": 20,
+    "email_type_thresholds": {"direct": 3, "group": 10},
+    "expose_vector_scores": True,
+    "preserve_source_threads": True,
+    # C3: Evidence ranking (K15-K18)
+    "signal_weights": {
+        "direct_recipient": 1.0,
+        "cc_recipient": 0.6,
+        "body_mention": 0.55,
+        "thread_cooccurrence": 0.3,
+        "temporal_proximity": 0.2,
+        "email_type_penalty": -0.3,
+        "vector_similarity": 0.5,
+        "org_keyword": 0.0,
+    },
+    "min_display_threshold": 0.2,
+    "reranking_mode": "heuristic",
+    "evidence_dedup": "thread-level",
+    # C4: Pattern orchestration (K19-K24)
+    "auto_evidence_mode": "always",
+    "evidence_step_position": "late",
+    "citation_depth": "both",
+    "confidence_calibration": "hybrid",
+    "evidence_sufficiency_threshold": 2,
+    # C5: Evaluation (K25-K28)
+    "plateau_window": 2,
+    "plateau_threshold_pp": 2,
+}
 
 # COMMAND ----------
 

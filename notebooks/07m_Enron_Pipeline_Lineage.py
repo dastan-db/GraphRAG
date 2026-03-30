@@ -71,6 +71,30 @@ rows = [
         "07h",
         "Retroactive provenance built from threads, entities, and relationships",
     ),
+    (
+        "org_hierarchy",
+        "org_hierarchy_evidence",
+        "07d2",
+        "Evidence linking: curated hierarchy claims → corroborating emails via 4 strategies (direct comms, co-mention, graph edges, keyword)",
+    ),
+    (
+        "emails",
+        "org_hierarchy_evidence",
+        "07d2",
+        "Source emails matched to hierarchy claims by sender/recipient, body keyword, and thread co-occurrence",
+    ),
+    (
+        "entity_mentions",
+        "org_hierarchy_evidence",
+        "07d2",
+        "Entity co-mention in threads used as Strategy B for evidence linking",
+    ),
+    (
+        "relationships",
+        "org_hierarchy_evidence",
+        "07d2",
+        "REPORTS_TO/MANAGES edges with source_threads used as Strategy C for evidence linking",
+    ),
 ]
 
 import pyspark.sql.functions as F

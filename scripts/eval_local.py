@@ -129,6 +129,19 @@ EVAL_DATA = [
     {"question": "Who were the key whistleblowers in the Enron scandal?", "expected_entities": ["Sherron Watkins"], "category": "general", "graph_ground_truth": "Sherron Watkins appears in the graph. The investigation_timeline shows her warning letter (Aug 15 2001) and congressional testimony (Feb 7 2002).", "historical_ground_truth": "Sherron Watkins (VP Corporate Development) was the most prominent internal whistleblower, sending a warning letter to Lay in Aug 2001.", "evidence_required": True},
     {"question": "What role did the board of directors play?", "expected_entities": [], "category": "general", "graph_ground_truth": "The graph may contain board-related entities. find_entity('board') or get_context_verses('board of directors') should surface relevant evidence.", "historical_ground_truth": "The board approved key financial structures including Fastow's partnerships and waived conflict-of-interest rules.", "evidence_required": False},
     {"question": "Why did Enron fail?", "expected_entities": [], "category": "general", "graph_ground_truth": "The graph captures communication patterns, relationships, and discussed topics. Some failure indicators are visible: partnership entities, executive departures on the timeline, crisis-period email patterns.", "historical_ground_truth": "Enron failed due to accounting fraud (mark-to-market abuse, SPE manipulation), executive conflicts of interest, inadequate board oversight, and auditor complicity.", "evidence_required": False},
+    {"question": "Who reported to Andrew Fastow? Show me the email evidence for each direct report.", "expected_entities": ["Andrew Fastow", "Michael Kopper", "Jeff McMahon", "Ben Glisan", "Richard Causey", "Sherron Watkins"], "category": "org_hierarchy_evidence", "graph_ground_truth": "org_hierarchy shows: Kopper, McMahon, Causey, Watkins, Glisan. get_hierarchy_evidence should return corroborating emails.", "historical_ground_truth": "Fastow's direct reports included Kopper, McMahon, Causey, Watkins, and Glisan.", "evidence_required": True},
+    {"question": "What email evidence supports Michael Kopper reporting to Andrew Fastow?", "expected_entities": ["Michael Kopper", "Andrew Fastow"], "category": "org_hierarchy_evidence", "graph_ground_truth": "org_hierarchy has Kopper->Fastow. get_hierarchy_evidence should find direct emails between them.", "historical_ground_truth": "Kopper was Fastow's right-hand man in Global Finance.", "evidence_required": True},
+    {"question": "Show me emails that prove Jeff Skilling managed David Delainey.", "expected_entities": ["Jeff Skilling", "David Delainey"], "category": "org_hierarchy_evidence", "graph_ground_truth": "org_hierarchy shows Delainey->Skilling. get_hierarchy_evidence and get_relationship_evidence should find corroborating emails.", "historical_ground_truth": "Delainey was CEO of EES reporting to Skilling.", "evidence_required": True},
+    {"question": "What is the email evidence for Kenneth Lay's position at the top of Enron?", "expected_entities": ["Kenneth Lay"], "category": "org_hierarchy_evidence", "graph_ground_truth": "org_hierarchy shows Lay as Chairman & CEO. get_hierarchy_evidence should find emails demonstrating his authority.", "historical_ground_truth": "Lay was the founder and longest-serving executive.", "evidence_required": True},
+    {"question": "Show me the reporting chain from Tim Belden to Kenneth Lay with email evidence.", "expected_entities": ["Tim Belden", "Jeff Skilling", "Kenneth Lay"], "category": "org_hierarchy_evidence", "graph_ground_truth": "org_hierarchy shows: Belden->Skilling->Lay. get_hierarchy_evidence for each pair should find supporting emails.", "historical_ground_truth": "Belden led West Power Trading, reported to Skilling, who reported to Lay.", "evidence_required": True},
+    {"question": "What emails did Jeff Skilling and Andrew Fastow exchange?", "expected_entities": ["Jeff Skilling", "Andrew Fastow"], "category": "entity_pair_evidence", "graph_ground_truth": "get_emails_between should find direct emails. get_relationship_evidence should show REPORTS_TO edge.", "historical_ground_truth": "Fastow reported to Skilling; they communicated about financial structures.", "evidence_required": True},
+    {"question": "Show me the evidence for communication between Vince Kaminski and Rick Buy.", "expected_entities": ["Vince Kaminski", "Rick Buy"], "category": "entity_pair_evidence", "graph_ground_truth": "org_hierarchy shows Kaminski->Buy. get_emails_between should find direct emails.", "historical_ground_truth": "Kaminski (MD Research) reported to Buy (CRO).", "evidence_required": True},
+    {"question": "What emails show the relationship between Sherron Watkins and Kenneth Lay?", "expected_entities": ["Sherron Watkins", "Kenneth Lay"], "category": "entity_pair_evidence", "graph_ground_truth": "get_emails_between should find the warning letter and follow-up emails.", "historical_ground_truth": "Watkins sent Lay a warning letter Aug 15, 2001.", "evidence_required": True},
+    {"question": "What is the source evidence for REPORTS_TO relationships involving Jeff Skilling?", "expected_entities": ["Jeff Skilling", "Kenneth Lay", "Andrew Fastow"], "category": "relationship_evidence", "graph_ground_truth": "find_connections with REPORTS_TO should show relationships. get_relationship_evidence should return source_threads.", "historical_ground_truth": "Skilling reported to Lay. Multiple executives reported to Skilling.", "evidence_required": True},
+    {"question": "Can you trace the evidence for Enron's management hierarchy from emails?", "expected_entities": ["Kenneth Lay", "Jeff Skilling", "Andrew Fastow"], "category": "relationship_evidence", "graph_ground_truth": "org_hierarchy has the full chain. get_hierarchy_evidence should provide email evidence at each level.", "historical_ground_truth": "The core hierarchy: Lay->Skilling->Fastow.", "evidence_required": True},
+    {"question": "What emails discuss the resignation of Jeff Skilling?", "expected_entities": ["Jeff Skilling", "Kenneth Lay"], "category": "keyword_evidence", "graph_ground_truth": "search_emails for 'resign' + 'Skilling' should find relevant emails.", "historical_ground_truth": "Skilling resigned Aug 14, 2001 citing personal reasons.", "evidence_required": True},
+    {"question": "Find emails about the Arthur Andersen document destruction.", "expected_entities": ["Arthur Andersen"], "category": "keyword_evidence", "graph_ground_truth": "search_emails for 'shred', 'destroy', 'Andersen' should find relevant emails.", "historical_ground_truth": "Andersen began shredding Enron documents around Oct 12, 2001.", "evidence_required": True},
+    {"question": "Show me emails from the period when Fastow was removed as CFO.", "expected_entities": ["Andrew Fastow", "Jeff McMahon"], "category": "keyword_evidence", "graph_ground_truth": "search_emails around Oct 24, 2001 mentioning Fastow/CFO should find relevant emails.", "historical_ground_truth": "Fastow was removed as CFO Oct 24, 2001. McMahon replaced him.", "evidence_required": True},
 ]
 
 
@@ -384,6 +397,103 @@ Return ONLY a JSON object with keys "score" (float) and "justification" (string)
         return Feedback(value=0.0, rationale=f"Judge failed: {e}")
 
 
+@scorer
+def provenance_completeness(inputs, outputs, expectations=None):
+    """Check that responses include verifiable email citations."""
+    text = outputs if isinstance(outputs, str) else str(outputs)
+    if text.startswith("ERROR:") or len(text.strip()) < 20:
+        return Feedback(value=0.0, rationale=f"Agent error: {text[:100]}")
+    evidence_required = (expectations or {}).get("evidence_required", True)
+    if evidence_required is False:
+        return Feedback(value=1.0, rationale="Evidence not required for this question")
+    citation_pattern = re.compile(
+        r'\[\d{4}-\d{2}-\d{2},\s*From:.*?,\s*Subject:.*?\]'
+        r'|'
+        r'\d{4}-\d{2}-\d{2}\s*\|?\s*\S+@\S+\s*\|?\s*.{5,}'
+    )
+    table_pattern = re.compile(r'\|\s*\d+\s*\|\s*\d{4}-\d{2}-\d{2}')
+    citations = citation_pattern.findall(text)
+    table_rows = table_pattern.findall(text)
+    total = len(citations) + len(table_rows)
+    if total >= 3:
+        score = 1.0
+    elif total == 2:
+        score = 0.8
+    elif total == 1:
+        score = 0.5
+    else:
+        score = 0.1
+    return Feedback(value=score, rationale=f"Found {len(citations)} inline citations, {len(table_rows)} table rows")
+
+
+@scorer
+def citation_accuracy(inputs, outputs, expectations=None):
+    """Verify that cited emails have valid date/sender/subject format."""
+    text = outputs if isinstance(outputs, str) else str(outputs)
+    if text.startswith("ERROR:") or len(text.strip()) < 20:
+        return Feedback(value=0.0, rationale=f"Agent error: {text[:100]}")
+    evidence_required = (expectations or {}).get("evidence_required", True)
+    if evidence_required is False:
+        return Feedback(value=1.0, rationale="Evidence not required")
+    prompt = f"""{DATA_CONTEXT}
+
+Evaluate the ACCURACY of email citations in this response. Check:
+1. Do cited dates fall within the Enron corpus period (1999-2002)?
+2. Do cited senders appear to be real Enron employees (not fabricated)?
+3. Are cited subject lines specific and plausible?
+4. Does each citation support the claim it's attached to?
+5. If no citations are present, that itself is a failure.
+
+Scoring rubric (0.0 to 1.0):
+- 1.0: All citations have valid dates (1999-2002), real senders, specific subjects.
+- 0.7: Most citations valid; one or two imprecise.
+- 0.5: Some valid, others suspicious.
+- 0.3: Few valid citations.
+- 0.0: No citations, or all fabricated.
+
+Agent Response:
+{text[:3000]}
+
+Return ONLY a JSON object with keys "score" (float) and "justification" (string)."""
+    try:
+        parsed = _call_judge(prompt)
+        return Feedback(value=float(parsed["score"]), rationale=parsed.get("justification", ""))
+    except Exception as e:
+        return Feedback(value=0.0, rationale=f"Judge failed: {e}")
+
+
+@scorer
+def retrieval_relevance(inputs, outputs, expectations=None):
+    """Judge whether evidence is relevant to the specific question."""
+    text = outputs if isinstance(outputs, str) else str(outputs)
+    if text.startswith("ERROR:") or len(text.strip()) < 20:
+        return Feedback(value=0.0, rationale=f"Agent error: {text[:100]}")
+    question = inputs.get("question", "") if isinstance(inputs, dict) else str(inputs)
+    prompt = f"""{DATA_CONTEXT}
+
+Evaluate whether the evidence cited in this response is RELEVANT to the question.
+Irrelevant evidence includes: mass newsletters, unrelated topics, emails between unrelated people.
+
+User Question: {question}
+
+Scoring rubric (0.0 to 1.0):
+- 1.0: All cited evidence directly supports answering the question.
+- 0.7: Most evidence relevant; one or two tangential.
+- 0.5: Mixed relevant and irrelevant evidence.
+- 0.3: Most evidence tangential.
+- 0.0: No evidence or all irrelevant.
+
+Agent Response:
+{text[:3000]}
+
+Return ONLY a JSON object with keys "score" (float) and "justification" (string)."""
+    try:
+        parsed = _call_judge(prompt)
+        return Feedback(value=float(parsed["score"]), rationale=parsed.get("justification", ""))
+    except Exception as e:
+        return Feedback(value=0.0, rationale=f"Judge failed: {e}")
+
+
 ALL_SCORERS = [
     evidence_quality,
     participant_verification,
@@ -392,6 +502,9 @@ ALL_SCORERS = [
     factual_accuracy,
     hallucination_detection,
     answer_completeness,
+    provenance_completeness,
+    citation_accuracy,
+    retrieval_relevance,
 ]
 
 
