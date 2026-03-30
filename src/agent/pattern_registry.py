@@ -34,6 +34,7 @@ class Pattern:
     synthesis_prompt: str
     steps: list[ExecutionStep]
     min_confidence: float = 0.0
+    parallel_steps: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -83,28 +84,54 @@ Guidelines:
 
 TIMELINE_SYNTHESIS = """You are a corporate communications analyst answering a question about events and timelines at Enron.
 
-You have curated investigation timeline events, communication timeline data, and email evidence.
+You have curated investigation timeline events, communication timeline data, email search results, and semantic search results.
 
 Guidelines:
 - Present events in strict chronological order.
 - For each event, cite the source: curated timeline (verified) or email evidence (derived).
 - Distinguish clearly between curated facts and email-derived observations.
-- If asking about communication patterns over time, include volume trends.
+- If asking about communication patterns over time, include volume trends and compare before/after periods.
+- Cross-reference investigation timeline events with email volume data when both are available.
+- Name specific people involved in each event with their roles (e.g., "Jeff Skilling (CEO)" not just "the CEO").
+- When multiple executives are involved, present each person's role and actions.
 - Note any gaps in temporal coverage.
-- Do NOT fabricate dates or events not present in the data."""
+- If limited data was returned, state clearly what evidence IS available and what is missing.
+- Do NOT fabricate dates, events, or participants not present in the data.
+- Do NOT fill gaps with general knowledge — only report what the data shows."""
 
 
 KEYWORD_SEARCH_SYNTHESIS = """You are a corporate communications analyst answering a question about a topic, project, or theme at Enron.
 
-You have email search results, entity mentions, and entity context for the topic.
+You have email search results, topic taxonomy data, investigation timeline events, entity mentions, and entity context for the topic.
 
 Guidelines:
 - Identify the key people involved with the topic from email evidence.
 - Group related emails by sub-theme where possible.
 - Cite specific email evidence: dates, senders, subjects, body previews.
 - Note the volume of evidence (how many emails mention this topic).
+- Cross-reference email evidence with curated timeline events when relevant.
+- Use the topic taxonomy to identify related themes and sub-topics.
 - If an entity was found matching the keyword, include its profile.
 - Do NOT fabricate discussion content not supported by the data."""
+
+
+GENERAL_SYNTHESIS = """You are a corporate communications analyst answering a broad question about Enron.
+
+You have email search results, entity profiles, topic distributions, investigation timeline events, network-level summaries (top individuals, top email pairs), and graph coverage statistics.
+
+Guidelines:
+- Synthesize ACROSS entity types: connect Person activities to Organization structures to Financial_Events.
+- Open with curated timeline facts (verified public record) when available.
+- Support claims with email evidence: cite dates, senders, subjects, and body previews.
+- Cross-reference: if timeline says "X resigned", check if email volume for X dropped at that time.
+- Use topic distribution data to identify major themes and their prevalence.
+- Use network-level data (top individuals, top email pairs) to identify key players when no specific entity is given.
+- For "why" questions, present multiple contributing factors from different data sources.
+- Mention key people and their roles if found via entity lookup.
+- Distinguish clearly between curated facts (timeline, org_hierarchy) and email-derived observations.
+- If the question is open-ended, organize your answer thematically with headers.
+- Present ALL relevant search results, not just the top few.
+- Do NOT fabricate facts, relationships, or email citations not present in the data."""
 
 
 GENIE_ANALYTICS_SYNTHESIS = """You are a corporate communications analyst presenting Genie Space analytical results about Enron.
@@ -142,6 +169,9 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
             ExecutionStep("get_entity_summary", {
                 "entity_name": "$ENTITY",
             }),
+            ExecutionStep("get_source_evidence", {
+                "entity_name": "$ENTITY",
+            }),
         ],
         min_confidence=0.0,
     ),
@@ -159,10 +189,20 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
                 "entity_name": "$ENTITY",
                 "relationship_type": "DISCUSSES",
             }),
+            ExecutionStep("query_org_hierarchy", {
+                "entity_name": "$ENTITY",
+            }),
             ExecutionStep("get_entity_summary", {
                 "entity_name": "$ENTITY",
             }),
-            ExecutionStep("get_context_verses", {
+            ExecutionStep("get_topic_distribution", {
+                "entity_name": "$ENTITY",
+            }),
+            ExecutionStep("get_communication_stats", {
+                "entity_name": "$ENTITY",
+                "group_by": "contact",
+            }),
+            ExecutionStep("get_source_evidence", {
                 "entity_name": "$ENTITY",
             }),
         ],
@@ -188,6 +228,11 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
             ExecutionStep("find_connections", {
                 "entity_name": "$ENTITY",
             }),
+            ExecutionStep("find_top_contacts", {
+                "entity_name": "$ENTITY",
+                "direction": "both",
+                "limit": 10,
+            }),
         ],
         min_confidence=0.0,
     ),
@@ -196,6 +241,17 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
         name="timeline",
         synthesis_prompt=TIMELINE_SYNTHESIS,
         steps=[
+            ExecutionStep("semantic_search_emails", {
+                "query": "$QUESTION",
+            }),
+            ExecutionStep("query_timeline", {
+                "person_name": "",
+                "date_from": "$DATE_FROM",
+                "date_to": "$DATE_TO",
+            }),
+            ExecutionStep("search_emails", {
+                "keywords": "$KEYWORDS",
+            }),
             ExecutionStep("query_timeline", {
                 "person_name": "$ENTITY",
                 "date_from": "$DATE_FROM",
@@ -206,7 +262,11 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
                 "date_from": "$DATE_FROM",
                 "date_to": "$DATE_TO",
             }),
-            ExecutionStep("get_context_verses", {
+            ExecutionStep("get_communication_stats", {
+                "entity_name": "$ENTITY",
+                "group_by": "month",
+            }),
+            ExecutionStep("get_source_evidence", {
                 "entity_name": "$ENTITY",
             }),
         ],
@@ -220,7 +280,23 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
             ExecutionStep("search_emails", {
                 "keywords": "$KEYWORDS",
             }),
-            ExecutionStep("get_context_verses", {
+            ExecutionStep("semantic_search_emails", {
+                "query": "$QUESTION",
+            }),
+            ExecutionStep("browse_topics", {}),
+            ExecutionStep("query_timeline", {
+                "person_name": "",
+                "date_from": "",
+                "date_to": "",
+            }),
+            ExecutionStep("find_connections", {
+                "entity_name": "$ENTITY",
+                "relationship_type": "DISCUSSES",
+            }),
+            ExecutionStep("browse_topics", {
+                "entity_name": "$ENTITY",
+            }),
+            ExecutionStep("get_source_evidence", {
                 "entity_name": "$ENTITY",
             }),
             ExecutionStep("find_entity", {
@@ -232,8 +308,30 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
 
     "general": Pattern(
         name="general",
-        synthesis_prompt="",
-        steps=[],
+        synthesis_prompt=GENERAL_SYNTHESIS,
+        steps=[
+            ExecutionStep("search_emails", {
+                "keywords": "$KEYWORDS",
+            }),
+            ExecutionStep("semantic_search_emails", {
+                "query": "$QUESTION",
+            }),
+            ExecutionStep("browse_topics", {}),
+            ExecutionStep("query_timeline", {
+                "person_name": "",
+                "date_from": "",
+                "date_to": "",
+            }),
+            ExecutionStep("get_top_individuals", {}),
+            ExecutionStep("get_top_email_pairs", {}),
+            ExecutionStep("get_corpus_coverage", {}),
+            ExecutionStep("get_topic_distribution", {
+                "entity_name": "$ENTITY",
+            }),
+            ExecutionStep("find_entity", {
+                "name": "$ENTITY",
+            }),
+        ],
         min_confidence=0.0,
     ),
 

@@ -374,9 +374,8 @@ class TestPatternRegistry:
     def test_all_patterns_exist(self):
         from src.agent.pattern_registry import PATTERN_REGISTRY
         expected = {
-            "entity_profile", "org_hierarchy", "communication", "communication_comparison",
-            "path", "temporal", "topic", "topic_pair",
-            "corpus_ranking_pairs", "individual_ranking", "genie_analytics",
+            "entity_structure", "entity_explore", "entity_pair",
+            "timeline", "keyword_search", "general", "genie_analytics",
         }
         assert expected.issubset(set(PATTERN_REGISTRY.keys()))
 
@@ -385,17 +384,21 @@ class TestPatternRegistry:
         for name, pattern in PATTERN_REGISTRY.items():
             assert len(pattern.steps) > 0, f"Pattern {name} has no steps"
 
-    def test_individual_ranking_uses_correct_tool(self):
+    def test_general_pattern_has_entity_free_tools(self):
         from src.agent.pattern_registry import PATTERN_REGISTRY
-        pattern = PATTERN_REGISTRY["individual_ranking"]
+        pattern = PATTERN_REGISTRY["general"]
         tool_names = [s.tool_name for s in pattern.steps]
         assert "get_top_individuals" in tool_names
-
-    def test_corpus_ranking_pairs_uses_correct_tool(self):
-        from src.agent.pattern_registry import PATTERN_REGISTRY
-        pattern = PATTERN_REGISTRY["corpus_ranking_pairs"]
-        tool_names = [s.tool_name for s in pattern.steps]
         assert "get_top_email_pairs" in tool_names
+        assert "browse_topics" in tool_names
+
+    def test_keyword_search_has_entity_free_tools(self):
+        from src.agent.pattern_registry import PATTERN_REGISTRY
+        pattern = PATTERN_REGISTRY["keyword_search"]
+        entity_free = [s for s in pattern.steps
+                       if "entity_name" not in s.params
+                       and "entity_a" not in s.params]
+        assert len(entity_free) >= 3, "keyword_search needs at least 3 entity-free steps"
 
     def test_resolve_params_primary_entity(self):
         from src.agent.pattern_registry import resolve_params
@@ -1090,26 +1093,26 @@ class TestFindEmails:
 # entity_profile pattern Tests
 # ===================================================================
 
-class TestEntityProfilePattern:
-    """Test the entity_profile pattern in the registry."""
+class TestEntityExplorePattern:
+    """Test the entity_explore pattern in the registry."""
 
-    def test_entity_profile_pattern_exists(self):
+    def test_entity_explore_pattern_exists(self):
         from src.agent.pattern_registry import PATTERN_REGISTRY
-        assert "entity_profile" in PATTERN_REGISTRY
+        assert "entity_explore" in PATTERN_REGISTRY
 
-    def test_entity_profile_steps(self):
+    def test_entity_explore_steps(self):
         from src.agent.pattern_registry import PATTERN_REGISTRY
-        pattern = PATTERN_REGISTRY["entity_profile"]
+        pattern = PATTERN_REGISTRY["entity_explore"]
         tool_names = [s.tool_name for s in pattern.steps]
         assert "get_entity_summary" in tool_names
         assert "find_top_contacts" in tool_names
         assert "find_connections" in tool_names
         assert "get_context_verses" in tool_names
 
-    def test_entity_profile_min_confidence(self):
+    def test_entity_explore_min_confidence(self):
         from src.agent.pattern_registry import PATTERN_REGISTRY
-        pattern = PATTERN_REGISTRY["entity_profile"]
-        assert pattern.min_confidence == 0.8
+        pattern = PATTERN_REGISTRY["entity_explore"]
+        assert pattern.min_confidence == 0.0
 
 
 class TestQueryAndEnrichEnhanced:

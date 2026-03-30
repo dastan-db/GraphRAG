@@ -166,7 +166,7 @@ _TOOL_ICONS = {
     "list_entities_by_book": "fas fa-list",
     "compare_entity_sets": "fas fa-not-equal",
     "find_cross_book_entities": "fas fa-sitemap",
-    "get_context_verses": "fas fa-book-open",
+    "get_source_evidence": "fas fa-book-open",
 }
 
 _TOOL_DESCRIPTIONS = {
@@ -179,7 +179,7 @@ _TOOL_DESCRIPTIONS = {
     "list_entities_by_book": "Entity listing",
     "compare_entity_sets": "Set comparison",
     "find_cross_book_entities": "Cross-context entities",
-    "get_context_verses": "Source text retrieval",
+    "get_source_evidence": "Source text retrieval",
 }
 
 
@@ -251,9 +251,9 @@ def _summarize_output(tool_name: str, data) -> str:
         if tool_name == "find_connections" and "by_type" in data:
             n_types = len(data["by_type"])
             return f"{total} connections across {n_types} relationship type{'s' if n_types != 1 else ''}"
-        if tool_name in ("get_context_verses", "get_source_context", "get_source_emails") and "emails" in data:
+        if tool_name in ("get_source_evidence", "get_source_context", "get_source_emails") and "emails" in data:
             return f"{total} emails found"
-        if tool_name in ("get_context_verses", "get_source_context", "get_source_emails") and "verses" in data:
+        if tool_name in ("get_source_evidence", "get_source_context", "get_source_emails") and "verses" in data:
             return f"{total} verses found"
         if tool_name == "get_entity_summary":
             rels = data.get("relationships", {})
@@ -427,7 +427,7 @@ def _render_tool_output(tool_name: str, data, redaction_count: int, tier: str):
         output_widget = _render_entity_list(data)
     elif tool_name == "find_connections" and isinstance(data, dict) and "by_type" in data:
         output_widget = _render_connections(data)
-    elif tool_name in ("get_context_verses", "get_source_context", "get_source_emails") and isinstance(data, dict):
+    elif tool_name in ("get_source_evidence", "get_source_context", "get_source_emails") and isinstance(data, dict):
         if "emails" in data:
             output_widget = _render_emails(data)
         elif "verses" in data:

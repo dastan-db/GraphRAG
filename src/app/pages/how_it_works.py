@@ -37,7 +37,7 @@ STEPS = [
         "color": "#9b59b6",
         "desc": (
             "A LangGraph agent is equipped with five graph traversal tools: find_entity, "
-            "find_connections, trace_path, get_context_verses, and get_entity_summary. "
+            "find_connections, trace_path, get_source_evidence, and get_entity_summary. "
             "Each tool issues SQL queries against the Delta tables."
         ),
         "notebook": "03_Build_Agent.py",

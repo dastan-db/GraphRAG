@@ -54,7 +54,10 @@ for t in enron_tables:
 
 # DBTITLE 1,Log Model
 import mlflow
-from mlflow.models.resources import DatabricksServingEndpoint, DatabricksTable, DatabricksSQLWarehouse
+from mlflow.models.resources import (
+    DatabricksServingEndpoint, DatabricksTable,
+    DatabricksSQLWarehouse, DatabricksGenieSpace,
+)
 
 mlflow.set_registry_uri("databricks-uc")
 
@@ -83,6 +86,9 @@ resources = [
         for t in ENRON_TABLE_NAMES
     ],
     DatabricksSQLWarehouse(warehouse_id=_wh_id),
+    DatabricksGenieSpace(genie_space_id="01f12b3ef5121d88be4f23d2dfe2d770"),
+    DatabricksGenieSpace(genie_space_id="01f12b3ef5521f078ba8438cc94e108b"),
+    DatabricksGenieSpace(genie_space_id="01f12b3ef56e198e828cd8b59f646430"),
 ]
 
 with mlflow.start_run(run_name="graphrag_enron_agent"):

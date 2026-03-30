@@ -197,7 +197,7 @@ def _trace_path(entity_a: str, entity_b: str, permitted_books: list = None) -> s
 # COMMAND ----------
 
 # DBTITLE 1,Tool: Get Context Verses
-def _get_context_verses(entity_name: str, book: str = "", permitted_books: list = None) -> str:
+def _get_source_evidence(entity_name: str, book: str = "", permitted_books: list = None) -> str:
     """Get actual Bible verses that mention a specific entity. Provides source text for grounding answers.
 
     Args:
@@ -348,14 +348,14 @@ def trace_path(entity_a: str, entity_b: str) -> str:
     return _trace_path(entity_a, entity_b)
 
 @tool
-def get_context_verses(entity_name: str, book: str = "") -> str:
+def get_source_evidence(entity_name: str, book: str = "") -> str:
     """Get actual Bible verses that mention a specific entity. Provides source text for grounding answers.
 
     Args:
         entity_name: The entity name to find verses for (e.g., "Moses")
         book: Optional — filter to a specific book (e.g., "Genesis"). Leave empty for all books.
     """
-    return _get_context_verses(entity_name, book)
+    return _get_source_evidence(entity_name, book)
 
 @tool
 def get_entity_summary(entity_name: str) -> str:
@@ -367,7 +367,7 @@ def get_entity_summary(entity_name: str) -> str:
     """
     return _get_entity_summary(entity_name)
 
-GRAPH_TOOLS = [find_entity, find_connections, trace_path, get_context_verses, get_entity_summary]
+GRAPH_TOOLS = [find_entity, find_connections, trace_path, get_source_evidence, get_entity_summary]
 
 # COMMAND ----------
 
@@ -545,14 +545,14 @@ def build_scoped_tools(permitted_books: list):
         return _trace_path(entity_a, entity_b, permitted_books=permitted_books)
 
     @tool
-    def get_context_verses(entity_name: str, book: str = "") -> str:
+    def get_source_evidence(entity_name: str, book: str = "") -> str:
         """Get actual Bible verses that mention a specific entity. Provides source text for grounding answers.
 
         Args:
             entity_name: The entity name to find verses for (e.g., "Moses")
             book: Optional — filter to a specific book (e.g., "Genesis"). Leave empty for all books.
         """
-        return _get_context_verses(entity_name, book, permitted_books=permitted_books)
+        return _get_source_evidence(entity_name, book, permitted_books=permitted_books)
 
     @tool
     def get_entity_summary(entity_name: str) -> str:
@@ -564,7 +564,7 @@ def build_scoped_tools(permitted_books: list):
         """
         return _get_entity_summary(entity_name, permitted_books=permitted_books)
 
-    return [find_entity, find_connections, trace_path, get_context_verses, get_entity_summary]
+    return [find_entity, find_connections, trace_path, get_source_evidence, get_entity_summary]
 
 # COMMAND ----------
 
@@ -788,7 +788,7 @@ def build_corpus_tools(corpus: str = "bible"):
                 entity_name: The entity name to find verses for (e.g., "Moses")
                 book: Optional — filter to a specific book (e.g., "Genesis"). Leave empty for all books.
             """
-            return _get_context_verses(entity_name, book)
+            return _get_source_evidence(entity_name, book)
 
     @tool
     def get_entity_summary(entity_name: str) -> str:

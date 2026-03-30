@@ -59,6 +59,10 @@ _CLASSIFY_PIPELINE = os.environ.get("GRAPHRAG_CLASSIFY_PIPELINE", "true").lower(
 
 CORPUS = os.environ.get("GRAPHRAG_CORPUS", "bible")
 
+VS_ENDPOINT = os.environ.get("GRAPHRAG_VS_ENDPOINT", "")
+VS_INDEX_NAME = os.environ.get("GRAPHRAG_VS_INDEX_NAME", "")
+EMBEDDING_ENDPOINT = os.environ.get("GRAPHRAG_EMBEDDING_ENDPOINT", "databricks-gte-large-en")
+
 ENRON_SCHEMA = os.environ.get("GRAPHRAG_ENRON_SCHEMA", "graphrag_enron")
 ENRON_ENTITIES_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.entities"
 ENRON_RELATIONSHIPS_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.relationships"
@@ -262,8 +266,15 @@ _backend: DataBackend = _get_backend()
 # ---------------------------------------------------------------------------
 # LLM factory — pluggable LLM provider
 # ---------------------------------------------------------------------------
+_DEFAULT_SEED = int(os.environ.get("GRAPHRAG_LLM_SEED", "42"))
+
+_SEED_SUPPORTED_PROVIDERS = {"openai", "gateway"}
+
+
 def _get_llm(endpoint: str = LLM_ENDPOINT, **kwargs):
     """Return a LangChain chat model for the configured provider."""
+    if _DEFAULT_SEED and "seed" not in kwargs and LLM_PROVIDER in _SEED_SUPPORTED_PROVIDERS:
+        kwargs["seed"] = _DEFAULT_SEED
     if LLM_PROVIDER == "openai":
         from langchain_openai import ChatOpenAI
         model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
@@ -494,46 +505,124 @@ _TEMPORAL_DATE_RE = re.compile(
 )
 
 
+def _truncate_json_aware(raw: str, limit: int = 8000) -> str:
+    """Truncate a JSON string at a clean boundary (end of a JSON object or array element)."""
+    if len(raw) <= limit:
+        return raw
+    cut = raw[:limit]
+    for end_char in ('},', '"]', '}', ']'):
+        pos = cut.rfind(end_char)
+        if pos > limit // 2:
+            cut = cut[:pos + len(end_char)]
+            break
+    if cut.count('[') > cut.count(']'):
+        cut += ' ... ]'
+    if cut.count('{') > cut.count('}'):
+        cut += ' ... }'
+    return cut
+
+
 def _extract_temporal_metadata(question: str) -> dict:
-    """Parse date references from a question to build date_from/date_to filters."""
+    """Parse date references from a question to build date_from/date_to filters.
+
+    Supports two modes:
+    1. Literal dates: "August 2001", "in 2001", "between January 2001 and March 2001"
+    2. Event references: "after Skilling resigned", "between SEC inquiry and bankruptcy"
+       Uses ENRON_EVENT_DATES for event-to-date resolution.
+    """
     matches = list(_TEMPORAL_DATE_RE.finditer(question))
-    if not matches:
-        return {}
-
-    dates = []
-    for m in matches:
-        year = m.group("year")
-        month_name = m.group("month")
-        if month_name:
-            mm = _MONTH_MAP[month_name.lower()]
-            dates.append((year, mm))
-        else:
-            dates.append((year, None))
-
-    if len(dates) == 1:
-        year, mm = dates[0]
-        if mm:
-            date_from = f"{year}-{mm}-01"
-            month_int = int(mm)
-            if month_int == 12:
-                date_to = f"{int(year) + 1}-01-01"
+    if matches:
+        dates = []
+        for m in matches:
+            year = m.group("year")
+            month_name = m.group("month")
+            if month_name:
+                mm = _MONTH_MAP[month_name.lower()]
+                dates.append((year, mm))
             else:
-                date_to = f"{year}-{month_int + 1:02d}-01"
+                dates.append((year, None))
+
+        if len(dates) == 1:
+            year, mm = dates[0]
+            if mm:
+                date_from = f"{year}-{mm}-01"
+                month_int = int(mm)
+                if month_int == 12:
+                    date_to = f"{int(year) + 1}-01-01"
+                else:
+                    date_to = f"{year}-{month_int + 1:02d}-01"
+            else:
+                date_from = f"{year}-01-01"
+                date_to = f"{year}-12-31"
+            return {"date_from": date_from, "date_to": date_to}
+
+        years_months = sorted(dates)
+        first_y, first_m = years_months[0]
+        last_y, last_m = years_months[-1]
+        date_from = f"{first_y}-{first_m or '01'}-01"
+        if last_m:
+            m_int = int(last_m)
+            date_to = f"{last_y}-{m_int + 1:02d}-01" if m_int < 12 else f"{int(last_y) + 1}-01-01"
         else:
-            date_from = f"{year}-01-01"
-            date_to = f"{year}-12-31"
+            date_to = f"{last_y}-12-31"
         return {"date_from": date_from, "date_to": date_to}
 
-    years_months = sorted(dates)
-    first_y, first_m = years_months[0]
-    last_y, last_m = years_months[-1]
-    date_from = f"{first_y}-{first_m or '01'}-01"
-    if last_m:
-        m_int = int(last_m)
-        date_to = f"{last_y}-{m_int + 1:02d}-01" if m_int < 12 else f"{int(last_y) + 1}-01-01"
-    else:
-        date_to = f"{last_y}-12-31"
-    return {"date_from": date_from, "date_to": date_to}
+    return _resolve_event_dates(question)
+
+
+def _resolve_event_dates(question: str) -> dict:
+    """Resolve event references in a question to date_from/date_to using ENRON_EVENT_DATES."""
+    q_lower = question.lower()
+
+    between_match = re.search(r"between\s+(?:the\s+)?(.+?)\s+and\s+(?:the\s+)?(.+?)(?:\?|$|,)", q_lower)
+    if between_match:
+        event_a = between_match.group(1).strip()
+        event_b = between_match.group(2).strip()
+        date_a = _find_event_date(event_a)
+        date_b = _find_event_date(event_b)
+        if date_a and date_b:
+            return {"date_from": date_a[0], "date_to": date_b[1]}
+
+    after_match = re.search(r"after\s+(?:the\s+)?(.+?)(?:\?|$|,|\s+(?:how|what|who|when|did))", q_lower)
+    if after_match:
+        event = after_match.group(1).strip()
+        dates = _find_event_date(event)
+        if dates:
+            return {"date_from": dates[1], "date_to": "2002-06-30"}
+
+    before_match = re.search(r"before\s+(?:the\s+)?(.+?)(?:\?|$|,|\s+(?:how|what|who|when|did))", q_lower)
+    if before_match:
+        event = before_match.group(1).strip()
+        dates = _find_event_date(event)
+        if dates:
+            return {"date_from": "1999-01-01", "date_to": dates[0]}
+
+    since_match = re.search(r"since\s+(?:the\s+)?(.+?)(?:\?|$|,)", q_lower)
+    if since_match:
+        event = since_match.group(1).strip()
+        dates = _find_event_date(event)
+        if dates:
+            return {"date_from": dates[0], "date_to": "2002-06-30"}
+
+    for event_key, (d_from, d_to) in ENRON_EVENT_DATES.items():
+        if event_key in q_lower:
+            return {"date_from": d_from, "date_to": d_to}
+
+    return {}
+
+
+def _find_event_date(event_text: str) -> tuple[str, str] | None:
+    """Look up an event phrase in ENRON_EVENT_DATES, using substring matching."""
+    event_lower = event_text.lower().strip()
+    for event_key, dates in ENRON_EVENT_DATES.items():
+        if event_key in event_lower or event_lower in event_key:
+            return dates
+    for event_key, dates in ENRON_EVENT_DATES.items():
+        key_words = set(event_key.split())
+        text_words = set(event_lower.split())
+        if len(key_words & text_words) >= max(1, len(key_words) - 1):
+            return dates
+    return None
 
 
 def _heuristic_entity_names(question: str) -> list[str]:
@@ -897,16 +986,12 @@ def find_connections(entity_name: str, book: str = "", relationship_type: str = 
                 f"SELECT source_name, relationship_type, target_name,"
                 f" MAX(description) as description,"
                 f" SUM(COALESCE(edge_count, 1)) as frequency,"
-                f" SUM(COALESCE(thread_cnt, 0)) as evidence_count,"
-                f" MIN(first_observed) as first_observed,"
-                f" MAX(last_observed) as last_observed,"
-                f" ROUND(AVG(confidence), 3) as confidence"
+                f" SUM(COALESCE(thread_cnt, 0)) as evidence_count"
                 f" FROM ("
                 f"   SELECT COALESCE(e1.name, r.source_entity) as source_name,"
                 f"   r.relationship_type, COALESCE(e2.name, r.target_entity) as target_name,"
                 f"   r.description, r.edge_count,"
-                f"   COALESCE(SIZE(r.source_threads), 0) as thread_cnt,"
-                f"   r.first_observed, r.last_observed, r.confidence"
+                f"   COALESCE(SIZE(r.source_threads), 0) as thread_cnt"
                 f"   FROM {RELATIONSHIPS_TABLE} r"
                 f"   LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
                 f"   LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
@@ -1808,7 +1893,7 @@ def get_relationship_evidence(
             "source": source_entity,
             "target": target_entity,
             "error": f"No relationship found between '{source_entity}' and '{target_entity}'."
-                + (" Try get_context_verses with 'A AND B' syntax to find emails mentioning both." if not relationship_type else ""),
+                + (" Try get_source_evidence with 'A AND B' syntax to find emails mentioning both." if not relationship_type else ""),
         })
 
     all_threads: list[str] = []
@@ -1834,7 +1919,7 @@ def get_relationship_evidence(
             "target": target_entity,
             "relationships": rel_descriptions,
             "evidence": "No source thread IDs recorded for this relationship. "
-                "Try get_context_verses with 'A AND B' syntax to find emails mentioning both.",
+                "Try get_source_evidence with 'A AND B' syntax to find emails mentioning both.",
         }, ensure_ascii=False)
 
     thread_params = {f"t{i}": tid for i, tid in enumerate(all_threads)}
@@ -1869,7 +1954,7 @@ def get_relationship_evidence(
 
 
 @tool
-def get_context_verses(entity_name: str, book: str = "") -> str:
+def get_source_evidence(entity_name: str, book: str = "") -> str:
     """Get source text that mentions a specific entity. For Bible: returns verses. For Enron: returns emails.
 
     Args:
@@ -1895,7 +1980,8 @@ def get_context_verses(entity_name: str, book: str = "") -> str:
         src_table = _get_corpus_config()["source_table"]
 
         results = _backend.execute_sql(
-            f"SELECT sender, subject, date,"
+            f"SELECT message_id, sender, date, subject,"
+            f" ARRAY_JOIN(SLICE(to_recipients, 1, 3), ', ') AS to_list,"
             f" SUBSTRING(body, 1, 500) AS body_preview,"
             f" COALESCE(SIZE(to_recipients), 0) + COALESCE(SIZE(cc_recipients), 0) AS recipient_count"
             f" FROM {src_table}"
@@ -1909,10 +1995,12 @@ def get_context_verses(entity_name: str, book: str = "") -> str:
         emails = []
         for r in results:
             entry = {
+                "id": r.get("message_id", ""),
                 "date": str(r.get("date", ""))[:10],
-                "sender": r.get("sender", ""),
+                "from": r.get("sender", ""),
+                "to": r.get("to_list", ""),
                 "subject": r.get("subject", ""),
-                "body_preview": (r.get("body_preview", "") or "")[:200],
+                "snippet": (r.get("body_preview", "") or "")[:200],
             }
             rc = r.get("recipient_count")
             if rc is not None:
@@ -2200,6 +2288,123 @@ def find_cross_book_entities(min_books: int = 2, entity_type: str = "") -> str:
     }, ensure_ascii=False)
 
 
+_org_hierarchy_cache: dict = {"rows": None, "ts": 0.0}
+_ORG_HIERARCHY_CACHE_TTL = 600  # 10 minutes
+
+
+def _get_org_hierarchy_rows() -> list[dict] | None:
+    """Cached loader for the org_hierarchy table (24 rows, static curated data)."""
+    import time
+    now = time.time()
+    if _org_hierarchy_cache["rows"] is None or (now - _org_hierarchy_cache["ts"]) > _ORG_HIERARCHY_CACHE_TTL:
+        oh_table = f"{CATALOG}.{ENRON_SCHEMA}.org_hierarchy"
+        try:
+            rows = _backend.execute_sql(
+                f"SELECT DISTINCT person_id, name, title, reports_to_id FROM {oh_table}"
+            )
+        except Exception:
+            return None
+        _org_hierarchy_cache["rows"] = rows if rows else None
+        _org_hierarchy_cache["ts"] = now
+    return _org_hierarchy_cache["rows"]
+
+
+def _trace_path_via_org_hierarchy(entity_a: str, entity_b: str) -> str | None:
+    """Try to find a reporting-chain path using the org_hierarchy table.
+
+    Returns a JSON result string if a path is found, or None to fall back to CTE.
+    This is fast (24-row table) and reliable for Enron person-to-person paths.
+    """
+    rows = _get_org_hierarchy_rows()
+    if not rows:
+        return None
+
+    by_id: dict[str, dict] = {}
+    for r in rows:
+        pid = r["person_id"]
+        if pid not in by_id:
+            by_id[pid] = r
+
+    def _find_id(name: str) -> str | None:
+        slug = "_".join(name.lower().split())
+        for pid in by_id:
+            if slug in pid or pid in slug:
+                return pid
+        for pid, info in by_id.items():
+            if name.lower() in info["name"].lower() or info["name"].lower() in name.lower():
+                return pid
+        return None
+
+    id_a = _find_id(entity_a)
+    id_b = _find_id(entity_b)
+    if not id_a or not id_b:
+        return None
+
+    def _chain_to_root(pid: str) -> list[str]:
+        chain = [pid]
+        visited = {pid}
+        current = pid
+        while current:
+            parent = by_id.get(current, {}).get("reports_to_id")
+            if not parent or parent in visited:
+                break
+            chain.append(parent)
+            visited.add(parent)
+            current = parent
+        return chain
+
+    chain_a = _chain_to_root(id_a)
+    chain_b = _chain_to_root(id_b)
+
+    set_a = set(chain_a)
+    set_b = set(chain_b)
+    common = set_a & set_b
+
+    if not common:
+        return None
+
+    best_ancestor = None
+    for node in chain_a:
+        if node in common:
+            best_ancestor = node
+            break
+
+    if best_ancestor is None:
+        return None
+
+    path_up = chain_a[: chain_a.index(best_ancestor) + 1]
+    path_down = chain_b[: chain_b.index(best_ancestor) + 1]
+    path_down.reverse()
+
+    full_path = path_up + path_down[1:]
+
+    steps = []
+    for i in range(len(full_path) - 1):
+        src = full_path[i]
+        tgt = full_path[i + 1]
+        src_info = by_id.get(src, {})
+        tgt_info = by_id.get(tgt, {})
+        if tgt == by_id.get(src, {}).get("reports_to_id"):
+            rel = "REPORTS_TO"
+        elif src == by_id.get(tgt, {}).get("reports_to_id"):
+            rel = "MANAGES"
+        else:
+            rel = "REPORTS_TO"
+        steps.append({
+            "source": src_info.get("name", src),
+            "relationship": rel,
+            "target": tgt_info.get("name", tgt),
+        })
+
+    return json.dumps({
+        "from": by_id.get(id_a, {}).get("name", entity_a),
+        "to": by_id.get(id_b, {}).get("name", entity_b),
+        "hops": len(steps),
+        "path": steps,
+        "source": "curated_org_hierarchy (SEC filings, DOJ records)",
+    }, ensure_ascii=False)
+
+
 @tool
 def trace_path(entity_a: str, entity_b: str, max_hops: int = 5) -> str:
     """Find the shortest path between two entities by traversing relationships.
@@ -2211,6 +2416,9 @@ def trace_path(entity_a: str, entity_b: str, max_hops: int = 5) -> str:
         max_hops: Maximum number of hops to search (default: 5)
     """
     if CORPUS == "enron":
+        oh_result = _trace_path_via_org_hierarchy(entity_a, entity_b)
+        if oh_result is not None:
+            return oh_result
         a_patterns = _resolve_enron_entity_id(entity_a)
         b_patterns = _resolve_enron_entity_id(entity_b)
     else:
@@ -2219,25 +2427,44 @@ def trace_path(entity_a: str, entity_b: str, max_hops: int = 5) -> str:
         a_patterns = [f"%{eid_a}%"]
         b_patterns = [f"%{eid_b}%"]
 
+    _person_filter = " AND entity_type = 'Person'" if CORPUS == "enron" else ""
     start_rows = []
     for pat in a_patterns:
         start_rows = _backend.execute_sql(
             f"SELECT entity_id, name FROM {ENTITIES_TABLE}"
-            " WHERE entity_id LIKE :pattern LIMIT 3",
+            f" WHERE entity_id LIKE :pattern{_person_filter} LIMIT 1",
             params={"pattern": pat},
         )
         if start_rows:
             break
+    if not start_rows:
+        for pat in a_patterns:
+            start_rows = _backend.execute_sql(
+                f"SELECT entity_id, name FROM {ENTITIES_TABLE}"
+                " WHERE entity_id LIKE :pattern LIMIT 1",
+                params={"pattern": pat},
+            )
+            if start_rows:
+                break
 
     end_rows = []
     for pat in b_patterns:
         end_rows = _backend.execute_sql(
             f"SELECT entity_id, name FROM {ENTITIES_TABLE}"
-            " WHERE entity_id LIKE :pattern LIMIT 3",
+            f" WHERE entity_id LIKE :pattern{_person_filter} LIMIT 1",
             params={"pattern": pat},
         )
         if end_rows:
             break
+    if not end_rows:
+        for pat in b_patterns:
+            end_rows = _backend.execute_sql(
+                f"SELECT entity_id, name FROM {ENTITIES_TABLE}"
+                " WHERE entity_id LIKE :pattern LIMIT 1",
+                params={"pattern": pat},
+            )
+            if end_rows:
+                break
 
     if not start_rows:
         return f"Entity '{entity_a}' not found in the knowledge graph."
@@ -2248,7 +2475,7 @@ def trace_path(entity_a: str, entity_b: str, max_hops: int = 5) -> str:
     end_ids = {r["entity_id"] for r in end_rows}
     eid_a = next(iter(start_ids))
     eid_b = next(iter(end_ids))
-    max_h = min(int(max_hops), 6)
+    max_h = min(int(max_hops), 4 if CORPUS == "enron" else 6)
 
     # Slugified IDs contain only [a-z0-9_], safe for inline SQL values
     start_list = ", ".join(f"'{s}'" for s in start_ids)
@@ -2278,8 +2505,9 @@ def trace_path(entity_a: str, entity_b: str, max_hops: int = 5) -> str:
         f"   ELSE b.path_rels || '|' || r.relationship_type END"
         f" FROM bfs b"
         f" JOIN {RELATIONSHIPS_TABLE} r"
-        f"  ON r.source_entity = b.current_id OR r.target_entity = b.current_id"
-        f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
+        f"  ON (r.source_entity = b.current_id OR r.target_entity = b.current_id)"
+        + (f"  AND r.relationship_type IN ('REPORTS_TO','MANAGES')" if CORPUS == "enron" else "")
+        + f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
         f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
         f" WHERE b.depth < {max_h}"
         f"  AND b.visited NOT LIKE"
@@ -3106,6 +3334,86 @@ def search_emails(
     }, ensure_ascii=False)
 
 
+@tool
+def semantic_search_emails(query: str, limit: int = 10) -> str:
+    """Search emails by semantic meaning using vector similarity.
+    Better than keyword search for conceptual queries like 'financial irregularities',
+    'corporate governance failures', or 'accounting concerns'.
+
+    Args:
+        query: Natural language query describing what you're looking for.
+        limit: Max results (default 10).
+    """
+    if CORPUS != "enron":
+        return "semantic_search_emails is only available for the Enron corpus."
+
+    if VS_ENDPOINT and VS_INDEX_NAME:
+        try:
+            from databricks.vector_search.client import VectorSearchClient
+            vsc = VectorSearchClient()
+            idx = vsc.get_index(VS_ENDPOINT, VS_INDEX_NAME)
+            vs_results = idx.similarity_search(
+                query_text=query,
+                columns=["date", "sender", "subject", "body"],
+                num_results=limit,
+            )
+            rows = vs_results.get("result", {}).get("data_array", [])
+            cols = [c["name"] for c in vs_results.get("manifest", {}).get("columns", [])]
+            emails = []
+            for row in rows:
+                item = dict(zip(cols, row))
+                emails.append({
+                    "date": str(item.get("date", "")),
+                    "sender": item.get("sender", ""),
+                    "subject": item.get("subject", ""),
+                    "body_preview": str(item.get("body", ""))[:300],
+                })
+            return json.dumps({
+                "query": query, "method": "vector_search",
+                "total": len(emails), "emails": emails,
+            }, ensure_ascii=False)
+        except Exception as exc:
+            log.warning("Vector search failed, falling back to SQL: %s", exc)
+
+    cfg = _get_corpus_config()
+    source_table = cfg["source_table"]
+    words = [w.strip().lower() for w in query.split() if len(w.strip()) > 2]
+    if not words:
+        return "No meaningful terms in query."
+    kw_conditions = []
+    params: dict = {}
+    for i, w in enumerate(words[:8]):
+        p = f"sem{i}"
+        kw_conditions.append(f"(LOWER(subject) LIKE :{p} OR LOWER(body) LIKE :{p})")
+        params[p] = f"%{w}%"
+    where = " OR ".join(kw_conditions)
+    sql = (
+        f"SELECT date, sender, subject, SUBSTR(body, 1, 300) AS body_preview"
+        f" FROM {source_table}"
+        f" WHERE ({where})"
+        f" ORDER BY date DESC"
+        f" LIMIT {int(limit)}"
+    )
+    try:
+        results = _backend.execute_sql(sql, params=params)
+    except Exception as exc:
+        return f"Semantic search fallback failed: {exc}"
+    if not results:
+        return f"No emails found matching semantic query: {query}"
+    emails = []
+    for r in results:
+        emails.append({
+            "date": str(r.get("date", "")),
+            "sender": r.get("sender", ""),
+            "subject": r.get("subject", ""),
+            "body_preview": r.get("body_preview", ""),
+        })
+    return json.dumps({
+        "query": query, "method": "sql_fallback",
+        "total": len(emails), "emails": emails,
+    }, ensure_ascii=False)
+
+
 def _genie_sql_fallback(question: str, space_name: str) -> dict | None:
     """Direct SQL fallback when Genie is unavailable (e.g. Model Serving identity issues).
 
@@ -3210,13 +3518,59 @@ def query_and_enrich(question: str, space_name: str = "auto") -> str:
         from databricks.sdk import WorkspaceClient
 
         w = WorkspaceClient()
-        genie_msg = w.genie.start_conversation_and_wait(space_id=space_id, content=question)
-        genie_result = {
-            "source": "genie",
-            "space": space_name,
-            "query": question,
-            "response": genie_msg.as_dict(),
-        }
+        host = w.config.host.rstrip("/")
+
+        conv_resp = w.api_client.do(
+            "POST",
+            f"/api/2.0/genie/spaces/{space_id}/start-conversation",
+            body={"content": question},
+        )
+        conversation_id = conv_resp.get("conversation_id", "")
+        message_id = conv_resp.get("message_id", "")
+
+        import time as _time
+        genie_result = None
+        for _attempt in range(30):
+            _time.sleep(2)
+            msg_resp = w.api_client.do(
+                "GET",
+                f"/api/2.0/genie/spaces/{space_id}/conversations/{conversation_id}/messages/{message_id}",
+            )
+            status = msg_resp.get("status", "")
+            if status in ("COMPLETED", "COMPLETED_WITH_ERROR"):
+                attachments = msg_resp.get("attachments", [])
+                sql_query = ""
+                result_data = []
+                for att in attachments:
+                    query_info = att.get("query", {})
+                    if query_info.get("query"):
+                        sql_query = query_info["query"]
+                    att_desc = att.get("text", {}).get("content", "")
+                    if att_desc:
+                        result_data.append(att_desc)
+                genie_result = {
+                    "source": "genie",
+                    "space": space_name,
+                    "query": question,
+                    "sql_generated": sql_query,
+                    "response_text": "\n".join(result_data) if result_data else str(msg_resp),
+                    "status": status,
+                }
+                break
+            elif status == "FAILED":
+                genie_result = {
+                    "source": "genie",
+                    "space": space_name,
+                    "error": f"Genie query failed: {msg_resp.get('error', status)}",
+                }
+                break
+
+        if genie_result is None:
+            genie_result = {
+                "source": "genie",
+                "space": space_name,
+                "error": "Genie query timed out after 60s",
+            }
     except Exception as exc:
         genie_result = {
             "source": "genie",
@@ -3554,6 +3908,235 @@ def browse_topics(category: str = "", entity_name: str = "") -> str:
 
 
 @tool
+def get_topic_distribution(entity_name: str = "", limit: int = 20) -> str:
+    """Get ranked topic distribution from email threads, optionally filtered by entity.
+    Returns topics ranked by thread count with sample subjects.
+
+    Args:
+        entity_name: Optional entity name to filter topics for (e.g., "Kenneth Lay").
+        limit: Maximum number of topics to return (default 20).
+    """
+    if CORPUS != "enron":
+        return "get_topic_distribution is only available for the Enron corpus."
+
+    threads_table = f"{CATALOG}.{ENRON_SCHEMA}.threads"
+    mentions_table = f"{CATALOG}.{ENRON_SCHEMA}.entity_mentions"
+
+    if entity_name:
+        pattern = f"%{'_'.join(entity_name.lower().split())}%"
+        try:
+            rows = _backend.execute_sql(
+                f"SELECT topic, COUNT(DISTINCT t.thread_id) AS thread_count,"
+                f" COLLECT_LIST(t.subject)[0] AS sample_subject"
+                f" FROM {mentions_table} em"
+                f" JOIN {threads_table} t ON em.thread_id = t.thread_id"
+                f" LATERAL VIEW EXPLODE(t.key_topics) kt AS topic"
+                f" WHERE LOWER(em.entity_id) LIKE :pattern"
+                f" GROUP BY topic"
+                f" ORDER BY thread_count DESC"
+                f" LIMIT :lim",
+                params={"pattern": pattern, "lim": limit},
+            )
+        except Exception:
+            try:
+                rows = _backend.execute_sql(
+                    f"WITH exploded AS ("
+                    f"  SELECT t.thread_id, t.subject, EXPLODE(t.key_topics) AS topic"
+                    f"  FROM {mentions_table} em"
+                    f"  JOIN {threads_table} t ON em.thread_id = t.thread_id"
+                    f"  WHERE LOWER(em.entity_id) LIKE :pattern"
+                    f")"
+                    f" SELECT topic, COUNT(DISTINCT thread_id) AS thread_count,"
+                    f"   FIRST(subject) AS sample_subject"
+                    f" FROM exploded"
+                    f" GROUP BY topic"
+                    f" ORDER BY thread_count DESC"
+                    f" LIMIT :lim",
+                    params={"pattern": pattern, "lim": limit},
+                )
+            except Exception as exc:
+                return f"Topic distribution query failed: {exc}"
+    else:
+        try:
+            rows = _backend.execute_sql(
+                f"SELECT topic, COUNT(DISTINCT thread_id) AS thread_count,"
+                f" COLLECT_LIST(subject)[0] AS sample_subject"
+                f" FROM {threads_table}"
+                f" LATERAL VIEW EXPLODE(key_topics) kt AS topic"
+                f" GROUP BY topic"
+                f" ORDER BY thread_count DESC"
+                f" LIMIT :lim",
+                params={"lim": limit},
+            )
+        except Exception:
+            try:
+                rows = _backend.execute_sql(
+                    f"WITH exploded AS ("
+                    f"  SELECT thread_id, subject, EXPLODE(key_topics) AS topic"
+                    f"  FROM {threads_table}"
+                    f")"
+                    f" SELECT topic, COUNT(DISTINCT thread_id) AS thread_count,"
+                    f"   FIRST(subject) AS sample_subject"
+                    f" FROM exploded"
+                    f" GROUP BY topic"
+                    f" ORDER BY thread_count DESC"
+                    f" LIMIT :lim",
+                    params={"lim": limit},
+                )
+            except Exception as exc:
+                return f"Topic distribution query failed: {exc}"
+
+    return json.dumps({
+        "entity": entity_name or "all",
+        "topic_count": len(rows) if rows else 0,
+        "topics": rows if rows else [],
+    }, ensure_ascii=False, default=str)
+
+
+@tool
+def get_communication_stats(entity_name: str = "", group_by: str = "contact", limit: int = 20) -> str:
+    """Get communication volume statistics: top contacts, sent/received ratio, monthly trends.
+
+    Args:
+        entity_name: Entity name to get stats for (e.g., "Kenneth Lay").
+        group_by: How to aggregate — "contact" (top contacts), "month" (monthly trend), "direction" (sent vs received).
+        limit: Maximum rows to return (default 20).
+    """
+    if CORPUS != "enron":
+        return "get_communication_stats is only available for the Enron corpus."
+
+    dyads_table = f"{CATALOG}.{ENRON_SCHEMA}.communication_dyads"
+    activity_table = f"{CATALOG}.{ENRON_SCHEMA}.person_activity"
+
+    if not entity_name:
+        try:
+            rows = _backend.execute_sql(
+                f"SELECT display_name, total_sent, total_received,"
+                f" total_sent + total_received AS total_volume,"
+                f" ROUND(total_sent * 100.0 / NULLIF(total_sent + total_received, 0), 1) AS sent_pct"
+                f" FROM {activity_table}"
+                f" ORDER BY total_sent + total_received DESC"
+                f" LIMIT :lim",
+                params={"lim": limit},
+            )
+        except Exception as exc:
+            return f"Communication stats query failed: {exc}"
+        return json.dumps({
+            "group_by": "top_senders",
+            "stats": rows if rows else [],
+        }, ensure_ascii=False, default=str)
+
+    pattern = f"%{entity_name.lower()}%"
+
+    if group_by == "contact":
+        try:
+            rows = _backend.execute_sql(
+                f"SELECT contact_name, email_count, direction,"
+                f" first_email_date, last_email_date"
+                f" FROM {dyads_table}"
+                f" WHERE LOWER(display_name) LIKE :pattern"
+                f" ORDER BY email_count DESC"
+                f" LIMIT :lim",
+                params={"pattern": pattern, "lim": limit},
+            )
+        except Exception as exc:
+            return f"Communication stats query failed: {exc}"
+        return json.dumps({
+            "entity": entity_name,
+            "group_by": "contact",
+            "contacts": rows if rows else [],
+        }, ensure_ascii=False, default=str)
+
+    elif group_by == "month":
+        try:
+            rows = _backend.execute_sql(
+                f"SELECT DATE_FORMAT(first_email_date, 'yyyy-MM') AS month,"
+                f" SUM(email_count) AS total_emails,"
+                f" COUNT(DISTINCT contact_name) AS unique_contacts"
+                f" FROM {dyads_table}"
+                f" WHERE LOWER(display_name) LIKE :pattern"
+                f" GROUP BY DATE_FORMAT(first_email_date, 'yyyy-MM')"
+                f" ORDER BY month",
+                params={"pattern": pattern},
+            )
+        except Exception:
+            try:
+                rows = _backend.execute_sql(
+                    f"SELECT SUBSTR(CAST(first_email_date AS STRING), 1, 7) AS month,"
+                    f" SUM(email_count) AS total_emails,"
+                    f" COUNT(DISTINCT contact_name) AS unique_contacts"
+                    f" FROM {dyads_table}"
+                    f" WHERE LOWER(display_name) LIKE :pattern"
+                    f" GROUP BY SUBSTR(CAST(first_email_date AS STRING), 1, 7)"
+                    f" ORDER BY month",
+                    params={"pattern": pattern},
+                )
+            except Exception as exc:
+                return f"Communication stats query failed: {exc}"
+        return json.dumps({
+            "entity": entity_name,
+            "group_by": "month",
+            "monthly_trend": rows if rows else [],
+        }, ensure_ascii=False, default=str)
+
+    else:
+        try:
+            rows = _backend.execute_sql(
+                f"SELECT display_name, total_sent, total_received,"
+                f" total_sent + total_received AS total_volume,"
+                f" ROUND(total_sent * 100.0 / NULLIF(total_sent + total_received, 0), 1) AS sent_pct"
+                f" FROM {activity_table}"
+                f" WHERE LOWER(display_name) LIKE :pattern",
+                params={"pattern": pattern},
+            )
+        except Exception as exc:
+            return f"Communication stats query failed: {exc}"
+        return json.dumps({
+            "entity": entity_name,
+            "group_by": "direction",
+            "activity": rows if rows else [],
+        }, ensure_ascii=False, default=str)
+
+
+@tool
+def get_entity_context(entity_name: str) -> str:
+    """Get comprehensive context for an entity: summary, org position, top contacts, and topics.
+    Bundles 4 lookups into one call for richer context.
+
+    Args:
+        entity_name: The entity name to get full context for.
+    """
+    result = {}
+
+    summary_raw = get_entity_summary.invoke({"entity_name": entity_name})
+    try:
+        result["summary"] = json.loads(summary_raw)
+    except (json.JSONDecodeError, TypeError):
+        result["summary"] = summary_raw
+
+    if CORPUS == "enron":
+        org_raw = query_org_hierarchy.invoke({"entity_name": entity_name})
+        try:
+            result["org_position"] = json.loads(org_raw)
+        except (json.JSONDecodeError, TypeError):
+            result["org_position"] = org_raw
+
+        contacts_raw = find_top_contacts.invoke({"entity_name": entity_name, "direction": "both", "limit": 5})
+        try:
+            result["top_contacts"] = json.loads(contacts_raw)
+        except (json.JSONDecodeError, TypeError):
+            result["top_contacts"] = contacts_raw
+
+        topics_raw = get_topic_distribution.invoke({"entity_name": entity_name, "limit": 10})
+        try:
+            result["topics"] = json.loads(topics_raw)
+        except (json.JSONDecodeError, TypeError):
+            result["topics"] = topics_raw
+
+    return json.dumps(result, ensure_ascii=False, default=str)
+
+
+@tool
 def get_corpus_coverage(entity_name: str = "") -> str:
     """Get corpus coverage statistics and data quality context. Shows extraction
     rates, relationship density, and coverage gaps. When given an entity, shows
@@ -3833,13 +4416,15 @@ def query_org_hierarchy(entity_name: str) -> str:
 
 LOCAL_TOOLS = [find_entity, find_connections, find_top_contacts, get_top_email_pairs,
                get_top_individuals, get_emails_between, get_dyad_topics,
-               get_relationship_evidence, get_context_verses, get_entity_summary,
+               get_relationship_evidence, get_source_evidence, get_entity_summary,
                list_entities_by_book, find_cross_book_entities, trace_path, compare_entity_sets,
                query_timeline, query_org_hierarchy,
                detect_self_emails, get_external_contacts, get_communication_timeline,
-               get_activity_anomalies, search_emails, find_emails, query_and_enrich,
+               get_activity_anomalies, search_emails, semantic_search_emails,
+               find_emails, query_and_enrich,
                get_extraction_provenance, trace_data_lineage, browse_topics,
-               get_corpus_coverage]
+               get_topic_distribution, get_communication_stats,
+               get_entity_context, get_corpus_coverage]
 
 
 def build_scoped_tools_local(permitted_books: list):
@@ -3938,7 +4523,7 @@ def build_scoped_tools_local(permitted_books: list):
         )
 
     @tool
-    def get_context_verses(entity_name: str, book: str = "") -> str:
+    def get_source_evidence(entity_name: str, book: str = "") -> str:
         """Get actual Bible verses that mention a specific entity.
 
         Args:
@@ -4129,7 +4714,7 @@ def build_scoped_tools_local(permitted_books: list):
             "result": result_set,
         }, ensure_ascii=False)
 
-    return [find_entity, find_connections, get_context_verses, get_entity_summary,
+    return [find_entity, find_connections, get_source_evidence, get_entity_summary,
             list_entities_by_book, compare_entity_sets]
 
 
@@ -4199,7 +4784,7 @@ You have tools that let you search the knowledge graph for entities, relationshi
 ## Available Tools
 - **find_entity(name)** — search for an entity by name (automatically checks KJV spelling variants)
 - **find_connections(entity_name, book="", relationship_type="")** — find relationships for an entity, optionally filtered by book and/or relationship type
-- **get_context_verses(entity_name, book="")** — retrieve actual Bible verses mentioning an entity
+- **get_source_evidence(entity_name, book="")** — retrieve actual Bible verses mentioning an entity
 - **get_entity_summary(entity_name)** — get a comprehensive entity profile with all relationships
 - **list_entities_by_book(book, entity_type="")** — list all entities in a specific book, optionally by type
 - **find_cross_book_entities(min_books=2)** — find entities appearing across multiple books
@@ -4213,7 +4798,7 @@ You have tools that let you search the knowledge graph for entities, relationshi
 - For entity-specific questions, use **find_connections** with the **book** filter to get targeted results.
 - For broad entity questions, use **get_entity_summary** for a full profile.
 - For multi-entity or multi-book questions, **call tools multiple times** — once per entity or per book — to build a complete picture. Do not rely on a single tool call.
-- After gathering entity/relationship data, call **get_context_verses** for key claims you want to ground with verse references.
+- After gathering entity/relationship data, call **get_source_evidence** for key claims you want to ground with verse references.
 - For constraint/set-difference questions ("X but not Y", "in book A but not B"), use **compare_entity_sets** with the appropriate operation. Example: "Who did Moses COMMAND but not SPOKE_TO?" → `compare_entity_sets(entity_name="Moses", rel_type_a="COMMANDED", rel_type_b="SPOKE_TO", operation="difference")`.
 - For intersection questions ("entities connected to BOTH X and Y"), use **compare_entity_sets** with `operation="intersection"`.
 - For shortest-path questions ("How is Ruth connected to Jesus?"), use **trace_path** to find the path automatically.
@@ -4246,10 +4831,10 @@ You have tools that let you search the knowledge graph for entities, relationshi
 - **find_top_contacts(entity_name, direction, limit)** — ranked list of who communicated most with an entity (sent/received/total counts). Automatically deduplicates aliased entities.
 - **get_top_email_pairs(limit)** — corpus-wide ranking of the pairs of people who exchanged the most emails. Returns `is_self_email` flag for pairs that are the same person emailing themselves across domains.
 - **get_emails_between(entity_a, entity_b)** — retrieve emails between two people. Check `match_type`: "header" = direct, "body_mention" = both mentioned in same email.
-- **find_emails(person_a="", person_b="", keywords="", date_from="", date_to="", hour_from=-1, hour_to=-1, limit=15)** — unified email search: find emails by people, keywords, date range, and/or time of day. Use `hour_from=18` for after-hours emails, `hour_to=8` for early morning. Replaces separate search_emails/get_emails_between/get_context_verses for flexible queries.
+- **find_emails(person_a="", person_b="", keywords="", date_from="", date_to="", hour_from=-1, hour_to=-1, limit=15)** — unified email search: find emails by people, keywords, date range, and/or time of day. Use `hour_from=18` for after-hours emails, `hour_to=8` for early morning. Replaces separate search_emails/get_emails_between/get_source_evidence for flexible queries.
 - **get_dyad_topics(entity_a, entity_b)** — discussion topics between two people using AI-generated thread summaries.
 - **get_relationship_evidence(source_entity, target_entity, relationship_type="")** — retrieve original emails where a graph relationship was extracted from.
-- **get_context_verses(entity_name)** — find emails mentioning an entity in the body text; supports 'A AND B' syntax.
+- **get_source_evidence(entity_name)** — find emails mentioning an entity in the body text; supports 'A AND B' syntax.
 - **get_entity_summary(entity_name)** — comprehensive entity profile: relationships, and for Enron Person entities: email addresses, title, department, graph centrality (pagerank, degree).
 - **trace_path(entity_a, entity_b)** — find shortest path between two entities via relationship traversal.
 - **query_timeline(person_name="", date_from="", date_to="", category="")** — query curated Enron investigation timeline for key events.
@@ -4272,9 +4857,9 @@ You have tools that let you search the knowledge graph for entities, relationshi
 - For general relationship exploration, use **find_connections** without a type filter. Results are capped at 10 per type; specify relationship_type to get full results for a specific type.
 - After identifying key contacts, call **get_emails_between** to ground claims with email evidence.
 - **For validating relationships with source evidence**, use **get_relationship_evidence** — it fetches the exact emails where the relationship was originally extracted. This is the best tool when the user asks "can you provide original email sources?" or "what evidence supports this claim?".
-- If **get_emails_between** returns empty, do NOT say "no evidence exists". Instead: (1) try **get_relationship_evidence** to fetch source thread emails, or (2) try **get_context_verses** with both entity names to find emails mentioning both. Explain the distinction: the people may not have emailed each other directly but are mentioned together in emails sent by others.
+- If **get_emails_between** returns empty, do NOT say "no evidence exists". Instead: (1) try **get_relationship_evidence** to fetch source thread emails, or (2) try **get_source_evidence** with both entity names to find emails mentioning both. Explain the distinction: the people may not have emailed each other directly but are mentioned together in emails sent by others.
 - For questions about how two people or entities are connected, use **trace_path**.
-- For temporal questions ("what happened in August 2001?", "timeline of events"), use **query_timeline** with date range filters. Combine with **get_context_verses** to find emails from the same period.
+- For temporal questions ("what happened in August 2001?", "timeline of events"), use **query_timeline** with date range filters. Combine with **get_source_evidence** to find emails from the same period.
 - For multi-entity questions, **call tools multiple times** — once per entity — to build a complete picture.
 
 ## Investigative Analysis Strategy
@@ -4299,7 +4884,7 @@ For any substantive question:
 6. For corpus-wide questions without specific names ("who sent the most?", "top pairs"), use get_top_email_pairs — do NOT pass generic phrases as entity names
 7. Cross-reference results from multiple tools before writing your answer
 8. Always call at least 2 different tools for any non-trivial question. For complex questions, use 3-4 tools
-9. If a tool returns limited data, try a complementary tool (e.g., if find_connections is sparse, try get_context_verses or get_emails_between for supporting evidence)
+9. If a tool returns limited data, try a complementary tool (e.g., if find_connections is sparse, try get_source_evidence or get_emails_between for supporting evidence)
 10. After finding connections, call get_emails_between or get_relationship_evidence to obtain specific email citations for your answer
 11. For any "how are X and Y connected?" question, ALWAYS call trace_path(X, Y) to show the organizational path
 
@@ -4333,9 +4918,18 @@ Before you received this message, entities from the user's question were automat
 PROVENANCE_FORMAT = """
 
 ## Response Format (MANDATORY)
-End EVERY response with a Provenance section using this exact format:
+
+### Supporting Evidence Table
+When citing email evidence, present it as a markdown table BEFORE the Provenance section:
+
+| # | Date | From | To | Subject | Relevance |
+|---|------|------|----|---------|-----------|
+| 1 | YYYY-MM-DD | sender@enron.com | recipient@enron.com | Subject line | How this email supports a specific claim |
+
+Only include emails that DIRECTLY support a claim in your answer. Each row must link to a specific claim above.
 
 ### Provenance
+End EVERY response with a Provenance section using this exact format:
 - **Sources**: [list each tool called and what it returned, e.g., "find_connections(Jeff Skilling, REPORTS_TO) → 5 relationships"]
 - **Data Lineage**: [table origins for key claims, e.g., "communication_dyads ← emails via sender/recipient aggregation (07c)"]
 - **Grounding**: [One of: "All claims grounded in graph data" | "Partially grounded — some claims from graph, some from general knowledge" | "Not found in graph"]
@@ -4457,6 +5051,15 @@ except ImportError:
             steps: list
             min_confidence: float = 0.8
 
+        _EXHAUSTIVE_RULE = (
+            "\n\n## CRITICAL: Exhaustive Presentation\n"
+            "- Present EVERY person, relationship, title, and date returned by the tools. Do NOT summarize away details.\n"
+            "- If tools returned N people, name ALL N with their roles.\n"
+            "- If date ranges (effective_from, effective_to) were returned, INCLUDE them.\n"
+            "- If the graph has NO data for part of the question, say exactly what was not found — do NOT fill gaps from training knowledge.\n"
+            "- If you add context beyond tool data, you MUST prefix it: 'Beyond the graph data, it is generally known that...'\n"
+            "- Never claim 'All claims grounded in graph data' if you added ANY information not from the tool results.\n"
+        )
         _ENTITY_STRUCT_SYNTH = (
             "You are a corporate communications analyst answering about organizational "
             "hierarchy at Enron.\n\nYou have curated org hierarchy data (from SEC filings/DOJ records), "
@@ -4466,45 +5069,66 @@ except ImportError:
             "- Edge direction: in REPORTS_TO source reports to target; in MANAGES source manages target.\n"
             "- Show org paths with → notation. Note temporal changes in reporting structure.\n"
             "- Only cite emails that DIRECTLY support a specific claim.\n"
-            "- Do NOT fabricate relationships not in the data."
-        )
+            "- Do NOT fabricate relationships not in the data.\n"
+            "- If no REPORTS_TO edges exist for a person (e.g., the CEO), state that explicitly rather than guessing."
+        ) + _EXHAUSTIVE_RULE
         _ENTITY_EXPLORE_SYNTH = (
             "You are a corporate communications analyst answering about an Enron employee's "
             "activities and connections.\n\nYou have a ranked contact list, discussion topics, "
             "an entity profile, and sample emails.\n\n"
             "Guidelines:\n- Present role and key relationships.\n"
-            "- Rank top contacts with communication volumes.\n"
+            "- Rank top contacts with communication volumes — include ALL contacts returned, not just top 3.\n"
             "- Identify main discussion topics from relationship and email data.\n"
             "- Cite email evidence [YYYY-MM-DD, From: sender, Subject: topic] when available.\n"
             "- Do NOT fabricate activities or contacts not in the data."
-        )
+        ) + _EXHAUSTIVE_RULE
         _ENTITY_PAIR_SYNTH = (
             "You are a corporate communications analyst answering about the relationship "
             "between two people at Enron.\n\nYou have path data, direct emails, shared topics, "
             "and relationship data.\n\n"
-            "Guidelines:\n- Walk through connection path hops with → notation.\n"
+            "Guidelines:\n- Walk through EVERY connection path hop with → notation, including intermediate entities.\n"
             "- Quantify direct communication (email count, direction).\n"
-            "- List shared discussion topics with evidence.\n"
+            "- List ALL shared discussion topics with evidence.\n"
             "- Cite specific emails [YYYY-MM-DD, From: sender, Subject: topic].\n"
+            "- If trace_path found a multi-hop path, describe each hop with relationship types.\n"
             "- Do NOT fabricate connections not in the data."
-        )
+        ) + _EXHAUSTIVE_RULE
         _TIMELINE_SYNTH = (
             "You are a corporate communications analyst answering about events and timelines "
             "at Enron.\n\nYou have curated investigation timeline events, communication timeline data, "
             "and email evidence.\n\n"
-            "Guidelines:\n- Present events in strict chronological order.\n"
+            "Guidelines:\n- Present ALL events returned by tools in strict chronological order.\n"
             "- Cite source: curated timeline (verified) or email (derived).\n"
             "- Distinguish curated facts from email-derived observations.\n"
+            "- Include event dates, categories, and descriptions exactly as returned.\n"
             "- Do NOT fabricate dates or events."
-        )
+        ) + _EXHAUSTIVE_RULE
         _KEYWORD_SYNTH = (
             "You are a corporate communications analyst answering about a topic, project, or "
             "theme at Enron.\n\nYou have email search results, entity mentions, and entity context.\n\n"
-            "Guidelines:\n- Identify key people involved from email evidence.\n"
+            "Guidelines:\n- Identify ALL people mentioned in the email evidence.\n"
             "- Group related emails by sub-theme where possible.\n"
             "- Cite specific email evidence: dates, senders, subjects, body previews.\n"
-            "- Note the volume of evidence.\n"
+            "- Note the volume of evidence found (e.g., 'found N emails mentioning X').\n"
+            "- Present ALL search results, not just the top few.\n"
             "- Do NOT fabricate discussion content not in the data."
+        ) + _EXHAUSTIVE_RULE
+        _GENERAL_SYNTH = (
+            "You are a corporate communications analyst answering a broad question about Enron.\n\n"
+            "You have email search results, entity profiles, topic distributions, and investigation "
+            "timeline events.\n\n"
+            "Guidelines:\n- Synthesize ACROSS entity types: connect Person activities to Organization "
+            "structures to Financial_Events.\n"
+            "- Open with curated timeline facts (verified public record) when available.\n"
+            "- Support claims with email evidence: cite dates, senders, subjects, and body previews.\n"
+            "- Cross-reference: if timeline says 'X resigned', check if email volume for X dropped.\n"
+            "- Use topic distribution data to identify major themes and their prevalence.\n"
+            "- For 'why' questions, present multiple contributing factors from different data sources.\n"
+            "- Mention key people and their roles if found via entity lookup.\n"
+            "- Distinguish clearly between curated facts and email-derived observations.\n"
+            "- If the question is open-ended, organize your answer thematically with headers.\n"
+            "- Present ALL relevant search results, not just the top few.\n"
+            "- Do NOT fabricate facts, relationships, or email citations not present in the data."
         )
         _GENIE_SYNTH = (
             "You are a corporate communications analyst presenting Genie Space analytical results about Enron.\n\n"
@@ -4515,9 +5139,13 @@ except ImportError:
         )
         _PROV = (
             "\n\n## Response Format (MANDATORY)\nEnd EVERY response with:\n\n"
-            "### Provenance\n- **Sources**: [tools called and results]\n"
-            "- **Data Lineage**: [table origins for key claims]\n"
-            "- **Grounding**: [All claims grounded in graph data | Partially grounded]\n"
+            "### Provenance\n- **Sources**: [tools called and results, e.g. 'query_org_hierarchy(Jeff Skilling) → 8 subordinates']\n"
+            "- **Data Lineage**: [table origins for key claims, e.g. 'org_hierarchy ← SEC filings/DOJ records']\n"
+            "- **Grounding**: CHOOSE ONE:\n"
+            "  - 'All claims grounded in graph data' — ONLY if every single claim comes from tool results\n"
+            "  - 'Partially grounded — some claims from graph, some from general knowledge' — if ANY claim uses training data\n"
+            "  - 'Not found in graph' — if tools returned no relevant data\n"
+            "  CRITICAL: Claiming 'All claims grounded' when you used training knowledge is a grounding violation.\n"
             "- **Confidence per claim**: [Claim: level (reason)]\n"
             "- **Coverage caveats**: [data quality or coverage limitations]"
         )
@@ -4528,30 +5156,44 @@ except ImportError:
                 _Step("find_connections", {"entity_name": "$ENTITY", "relationship_type": "REPORTS_TO"}),
                 _Step("find_connections", {"entity_name": "$ENTITY", "relationship_type": "MANAGES"}),
                 _Step("get_entity_summary", {"entity_name": "$ENTITY"}),
+                _Step("get_source_evidence", {"entity_name": "$ENTITY"}),
             ]),
             "entity_explore": _Pattern("entity_explore", _ENTITY_EXPLORE_SYNTH + _PROV, [
                 _Step("find_top_contacts", {"entity_name": "$ENTITY", "direction": "both", "limit": 15}),
                 _Step("find_connections", {"entity_name": "$ENTITY", "relationship_type": "DISCUSSES"}),
+                _Step("query_org_hierarchy", {"entity_name": "$ENTITY"}),
                 _Step("get_entity_summary", {"entity_name": "$ENTITY"}),
-                _Step("get_context_verses", {"entity_name": "$ENTITY"}),
+                _Step("get_topic_distribution", {"entity_name": "$ENTITY"}),
+                _Step("get_communication_stats", {"entity_name": "$ENTITY", "group_by": "contact"}),
+                _Step("get_source_evidence", {"entity_name": "$ENTITY"}),
             ]),
             "entity_pair": _Pattern("entity_pair", _ENTITY_PAIR_SYNTH + _PROV, [
                 _Step("trace_path", {"entity_a": "$ENTITY", "entity_b": "$ENTITY_B"}),
                 _Step("get_emails_between", {"entity_a": "$ENTITY", "entity_b": "$ENTITY_B"}),
                 _Step("get_dyad_topics", {"entity_a": "$ENTITY", "entity_b": "$ENTITY_B"}),
                 _Step("find_connections", {"entity_name": "$ENTITY"}),
+                _Step("find_top_contacts", {"entity_name": "$ENTITY", "direction": "both", "limit": 10}),
             ]),
             "timeline": _Pattern("timeline", _TIMELINE_SYNTH + _PROV, [
                 _Step("query_timeline", {"person_name": "$ENTITY", "date_from": "$DATE_FROM", "date_to": "$DATE_TO"}),
                 _Step("get_communication_timeline", {"entity_name": "$ENTITY", "date_from": "$DATE_FROM", "date_to": "$DATE_TO"}),
-                _Step("get_context_verses", {"entity_name": "$ENTITY"}),
+                _Step("get_communication_stats", {"entity_name": "$ENTITY", "group_by": "month"}),
+                _Step("get_source_evidence", {"entity_name": "$ENTITY"}),
             ]),
             "keyword_search": _Pattern("keyword_search", _KEYWORD_SYNTH + _PROV, [
                 _Step("search_emails", {"keywords": "$KEYWORDS"}),
-                _Step("get_context_verses", {"entity_name": "$ENTITY"}),
+                _Step("find_connections", {"entity_name": "$ENTITY", "relationship_type": "DISCUSSES"}),
+                _Step("browse_topics", {"entity_name": "$ENTITY"}),
+                _Step("get_source_evidence", {"entity_name": "$ENTITY"}),
                 _Step("find_entity", {"name": "$ENTITY"}),
             ]),
-            "general": _Pattern("general", "", []),
+            "general": _Pattern("general", _GENERAL_SYNTH + _PROV, [
+                _Step("search_emails", {"keywords": "$KEYWORDS"}),
+                _Step("browse_topics", {}),
+                _Step("get_topic_distribution", {"entity_name": "$ENTITY"}),
+                _Step("find_entity", {"name": "$ENTITY"}),
+                _Step("query_timeline", {"person_name": "", "date_from": "", "date_to": ""}),
+            ]),
             "genie_analytics": _Pattern("genie_analytics", _GENIE_SYNTH + _PROV, [
                 _Step("query_and_enrich", {"question": "$QUESTION"}),
             ]),
@@ -4602,7 +5244,9 @@ def _fast_path_invoke_tool(payload: tuple) -> tuple:
 # ---------------------------------------------------------------------------
 # Query Planner — PDES architecture
 # ---------------------------------------------------------------------------
-PLANNER_ENDPOINT = os.environ.get("GRAPHRAG_PLANNER_ENDPOINT", SMALL_LLM_ENDPOINT)
+PLANNER_ENDPOINT = os.environ.get("GRAPHRAG_PLANNER_ENDPOINT", LLM_ENDPOINT)
+PLANNER_MAX_TOKENS = int(os.environ.get("GRAPHRAG_PLANNER_MAX_TOKENS", "1024"))
+PLANNER_TEMPERATURE = float(os.environ.get("GRAPHRAG_PLANNER_TEMPERATURE", "0.0"))
 
 VALID_PATTERNS = {"entity_structure", "entity_explore", "entity_pair", "timeline", "keyword_search", "general", "genie_analytics"}
 
@@ -4619,12 +5263,12 @@ Break the resolved question into 1-N sub-questions. Each sub-question should be 
 ## Available Primitives
 
 - **entity_structure**: Answers "who reports to X?", "what is X's title?", "X's org chart position". Requires: entity name. Tools: query_org_hierarchy, find_connections(REPORTS_TO/MANAGES), get_entity_summary.
-- **entity_explore**: Answers "who did X email most?", "what did X discuss?", "X's activities". Requires: entity name. Tools: find_top_contacts, find_connections(DISCUSSES), get_entity_summary, get_context_verses.
+- **entity_explore**: Answers "who did X email most?", "what did X discuss?", "X's activities". Requires: entity name. Tools: find_top_contacts, find_connections(DISCUSSES), get_entity_summary, get_source_evidence.
 - **entity_pair**: Answers "how are A and B connected?", "did A and B email each other?", "what did A and B discuss?". Requires: two entity names. Tools: trace_path, get_emails_between, get_dyad_topics, find_connections.
-- **timeline**: Answers "what happened in August 2001?", "when did X resign?", "events between dates". Requires: optional entity name + date range. Tools: query_timeline, get_communication_timeline, get_context_verses.
-- **keyword_search**: Answers "what was Project Raptor?", "emails about California energy crisis". Requires: keywords. Tools: search_emails, get_context_verses, find_entity.
-- **general**: Complex questions that don't fit any primitive. Falls to the flexible ReAct agent loop.
-- **genie_analytics**: SQL aggregation questions like "who sent the most emails?", "top email pairs", statistics. Tools: query_and_enrich.
+- **timeline**: Answers "what happened in August 2001?", "when did X resign?", "events between dates". Requires: optional entity name + date range. Tools: query_timeline, get_communication_timeline, get_source_evidence.
+- **keyword_search**: Answers "what was Project Raptor?", "emails about California energy crisis". Requires: keywords. Tools: search_emails, get_source_evidence, find_entity.
+- **general**: Complex questions that don't fit any primitive. Falls to the flexible ReAct agent loop. Use ONLY when no other primitive fits.
+- **genie_analytics**: Questions requiring SQL aggregation, rankings, percentages, comparisons, or statistics. Trigger phrases: "how many", "what percentage", "most/least", "top N", "compare", "trend over time", "email volume", "communication frequency", "who sent the most", "top email pairs", "email volume by month", "what percentage of emails were internal", "busiest", "least active", "average", "total count". Tools: query_and_enrich. PREFER this over general for any question that could be answered with a COUNT, SUM, AVG, or ranking SQL query.
 
 ## Step 3: Dependencies
 If sub-question B depends on the answer to sub-question A (e.g., "find X's reports, then check their emails"), mark B as depending on A.
@@ -4657,6 +5301,7 @@ Rules:
 - For timeline questions, extract date_from/date_to in YYYY-MM-DD format when present.
 - For keyword_search, put the search terms in the "keywords" field.
 - Use "general" ONLY when no other primitive fits.
+- PREFER "genie_analytics" over "general" for any question about email statistics, counts, rankings, percentages, comparisons, trends, or volumes. If a question asks "how many", "who sent the most", "top N", "what percentage", or "compare X and Y", it is almost certainly genie_analytics.
 """
 
 
@@ -4708,6 +5353,90 @@ def _resolve_coreference(question: str, conversation_history: list[dict], entity
     return resolved
 
 
+ENRON_DOMAIN_SYNONYMS: dict[str, list[str]] = {
+    "special purpose entities": ["LJM", "Raptors", "Chewco", "JEDI", "SPE"],
+    "spe": ["LJM", "Raptors", "Chewco", "JEDI", "special purpose entities"],
+    "partnerships": ["LJM", "Raptors", "Chewco", "JEDI"],
+    "california energy crisis": ["California", "FERC", "energy crisis", "West Power", "Tim Belden"],
+    "energy crisis": ["California", "FERC", "West Power", "Tim Belden"],
+    "energy trading": ["California", "West Power", "Tim Belden", "Enron Energy Trading"],
+    "accounting fraud": ["mark-to-market", "SPE", "Arthur Andersen", "earnings restatement"],
+    "mark-to-market": ["accounting fraud", "earnings", "financial restatement"],
+    "whistleblower": ["Sherron Watkins", "warning letter"],
+    "document destruction": ["Arthur Andersen", "shredding", "document retention"],
+    "broadband": ["Enron Broadband Services", "EBS", "Kenneth Rice", "fiber"],
+    "bankruptcy": ["Chapter 11", "Dynegy", "creditors"],
+    "board of directors": ["board", "directors", "oversight", "governance", "fiduciary"],
+    "board directors": ["board of directors", "oversight", "governance", "fiduciary"],
+    "financial events": ["earnings", "stock", "SEC", "restatement", "quarterly"],
+    "projects": ["Project Raptor", "Dabhol Power", "Enron Online", "Enron Broadband Services"],
+    "initiatives": ["Project Raptor", "Dabhol Power", "Enron Online", "Enron Broadband Services"],
+    "audit": ["Arthur Andersen", "audit committee", "accounting", "review"],
+    "fail": ["bankruptcy", "fraud", "accounting", "SPE", "collapse"],
+    "collapse": ["bankruptcy", "fraud", "accounting", "SPE"],
+    "scandal": ["fraud", "Sherron Watkins", "SEC", "Arthur Andersen"],
+    "resign": ["departure", "left", "stepped down", "resigned"],
+    "resigned": ["departure", "left", "stepped down", "resign"],
+    "departure": ["resign", "left", "removed", "fired", "stepped down"],
+    "crisis": ["bankruptcy", "collapse", "SEC investigation", "California energy"],
+    "investigation": ["SEC", "inquiry", "probe", "subpoena", "congressional"],
+    "executive departures": ["resign", "fired", "removed", "left", "Skilling", "Fastow", "Baxter", "Pai"],
+    "problems become public": ["SEC inquiry", "Q3 loss", "earnings restatement", "investigation"],
+    "communication patterns": ["email volume", "sent received", "contacts", "activity"],
+}
+
+ENRON_EVENT_DATES: dict[str, tuple[str, str]] = {
+    "skilling resigned": ("2001-08-14", "2001-08-14"),
+    "skilling resign": ("2001-08-14", "2001-08-14"),
+    "skilling departure": ("2001-08-14", "2001-08-14"),
+    "watkins letter": ("2001-08-15", "2001-08-22"),
+    "watkins whistleblower": ("2001-08-15", "2001-08-22"),
+    "whistleblower": ("2001-08-15", "2001-08-22"),
+    "sec inquiry": ("2001-10-22", "2001-10-31"),
+    "sec investigation": ("2001-10-31", "2001-12-02"),
+    "bankruptcy": ("2001-12-02", "2001-12-02"),
+    "chapter 11": ("2001-12-02", "2001-12-02"),
+    "bankruptcy filing": ("2001-12-02", "2001-12-02"),
+    "fastow removed": ("2001-10-24", "2001-10-24"),
+    "fastow fired": ("2001-10-24", "2001-10-24"),
+    "dynegy merger": ("2001-11-09", "2001-11-28"),
+    "dynegy deal": ("2001-11-09", "2001-11-28"),
+    "earnings restatement": ("2001-11-08", "2001-11-08"),
+    "document destruction": ("2001-10-23", "2001-10-23"),
+    "shredding": ("2001-10-23", "2001-10-23"),
+    "baxter resigned": ("2001-05-02", "2001-05-02"),
+    "baxter departure": ("2001-05-02", "2001-05-02"),
+    "pai left": ("2001-06-28", "2001-06-28"),
+    "pai departure": ("2001-06-28", "2001-06-28"),
+    "lay resigned": ("2002-01-23", "2002-01-23"),
+    "q3 loss": ("2001-10-16", "2001-10-16"),
+    "problems become public": ("2001-10-16", "2001-12-02"),
+    "enron collapse": ("2001-10-16", "2001-12-02"),
+}
+
+
+def _expand_keywords(keywords: str) -> str:
+    """Expand keywords using the Enron domain synonym map.
+
+    Checks if any phrase in the keywords matches a synonym key, and appends
+    the first 3 expansion terms that aren't already present.
+    """
+    if not keywords:
+        return keywords
+    kw_lower = keywords.lower()
+    expansions: list[str] = []
+    for trigger, synonyms in ENRON_DOMAIN_SYNONYMS.items():
+        if trigger in kw_lower:
+            for syn in synonyms:
+                if syn.lower() not in kw_lower and syn not in expansions:
+                    expansions.append(syn)
+                    if len(expansions) >= 4:
+                        break
+    if expansions:
+        return keywords + ", " + ", ".join(expansions)
+    return keywords
+
+
 def _plan_from_classification(question: str, classification: dict, entity_memory_context: str) -> QueryPlan:
     """Build a QueryPlan from the classifier output (fast fallback when planner LLM fails)."""
     resolved = _resolve_coreference(question, [], entity_memory_context)
@@ -4717,6 +5446,16 @@ def _plan_from_classification(question: str, classification: dict, entity_memory
 
     temporal_meta = _extract_temporal_metadata(resolved) if pattern == "timeline" else {}
 
+    keywords = ""
+    if pattern in ("keyword_search", "general", "timeline"):
+        _stop = {"what", "who", "how", "why", "when", "where", "did", "does", "was", "were",
+                 "is", "are", "the", "a", "an", "at", "in", "on", "of", "to", "and", "or",
+                 "for", "about", "from", "with", "by", "can", "you", "tell", "me", "do",
+                 "happened", "between", "after", "before", "during", "change", "changed"}
+        words = [w for w in re.split(r'\W+', resolved) if w.lower() not in _stop and len(w) > 1]
+        keywords = " ".join(words[:6])
+        keywords = _expand_keywords(keywords)
+
     return QueryPlan(
         resolved_question=resolved,
         sub_questions=[SubQuestion(
@@ -4724,7 +5463,7 @@ def _plan_from_classification(question: str, classification: dict, entity_memory
             question=resolved,
             pattern=pattern,
             entities=entities,
-            keywords="",
+            keywords=keywords,
             date_from=temporal_meta.get("date_from", ""),
             date_to=temporal_meta.get("date_to", ""),
             depends_on=[],
@@ -4762,7 +5501,11 @@ def _plan_query(
     )
 
     try:
-        llm = _get_llm(endpoint=PLANNER_ENDPOINT, temperature=0.0, max_tokens=1024)
+        log.info("PDES planner: endpoint=%s, max_tokens=%d, temp=%.1f",
+                 PLANNER_ENDPOINT, PLANNER_MAX_TOKENS, PLANNER_TEMPERATURE)
+        llm = _get_llm(endpoint=PLANNER_ENDPOINT,
+                        temperature=PLANNER_TEMPERATURE,
+                        max_tokens=PLANNER_MAX_TOKENS)
         response = llm.invoke([
             {"role": "system", "content": QUERY_PLANNER_PROMPT},
             {"role": "user", "content": user_block},
@@ -4800,12 +5543,15 @@ def _plan_query(
         if pattern not in VALID_PATTERNS:
             log.warning("Planner returned invalid pattern %r, mapping to general", pattern)
             pattern = "general"
+        raw_keywords = sq_data.get("keywords", "")
+        if pattern in ("keyword_search", "general"):
+            raw_keywords = _expand_keywords(raw_keywords)
         sqs.append(SubQuestion(
             id=sq_data.get("id", f"sq{len(sqs)+1}"),
             question=sq_data.get("question", resolved_question),
             pattern=pattern,
             entities=sq_data.get("entities", []),
-            keywords=sq_data.get("keywords", ""),
+            keywords=raw_keywords,
             date_from=sq_data.get("date_from", ""),
             date_to=sq_data.get("date_to", ""),
             depends_on=sq_data.get("depends_on", []),
@@ -4991,15 +5737,69 @@ class GraphRAGAgent(ResponsesAgent):
                 )
 
         if not tool_results:
-            log.warning("Fast path: all tools skipped (no entities?); signaling fallback")
-            return
+            log.warning("Fast path: all tools skipped (no entities?); trying keyword fallback")
+            fallback_tools = []
+            keywords = (metadata or {}).get("keywords", "")
+            _generic = {"enron", "company", "corporation", "email", "emails"}
+            words = [w for w in question.split()
+                     if len(w) > 3 and w[0].isupper() and w.lower() not in _generic]
+            if not keywords:
+                keywords = ", ".join(words[:5]) if words else ""
+            if keywords:
+                se_fn = TOOL_MAP.get("search_emails")
+                if se_fn:
+                    fallback_tools.append(("search_emails", {"keywords": keywords, "limit": 10}, se_fn))
+                fe_fn = TOOL_MAP.get("find_entity")
+                if fe_fn and words:
+                    fallback_tools.append(("find_entity", {"name": words[0]}, fe_fn))
+            if not fallback_tools:
+                log.warning("Fast path: keyword fallback also empty; signaling fallback to slow path")
+                return
+            for fb_name, fb_params, fb_fn in fallback_tools:
+                fb_call_id = f"fp_fallback_{fb_name}"
+                try:
+                    fb_result = fb_fn.invoke(fb_params)
+                except Exception as exc:
+                    log.exception("Fast path fallback tool %s failed", fb_name)
+                    fb_result = f"Error: {exc}"
+                tool_results[f"{fb_name}({json.dumps(fb_params)})"] = fb_result
+                if tools_invoked_out is not None:
+                    tools_invoked_out.append(fb_name)
+                yield ResponsesAgentStreamEvent(
+                    type="response.output_item.done",
+                    item=create_function_call_item(
+                        id=fb_call_id, call_id=fb_call_id,
+                        name=fb_name, arguments=json.dumps(fb_params),
+                    ),
+                )
+                yield ResponsesAgentStreamEvent(
+                    type="response.output_item.done",
+                    item=create_function_call_output_item(
+                        call_id=fb_call_id,
+                        output=str(fb_result)[:4000],
+                    ),
+                )
+            if not tool_results:
+                return
 
         for result_str in tool_results.values():
             if isinstance(result_str, str):
                 self.entity_memory.extract(result_str)
 
         context = json.dumps(tool_results, ensure_ascii=False, indent=2)
-        synthesis_system = pattern.synthesis_prompt + PROVENANCE_FORMAT + f"\n\nData:\n{context}"
+        useful_tools = sum(1 for v in tool_results.values()
+                           if v and isinstance(v, str) and len(v) > 50)
+        fp_evidence_block = ""
+        if useful_tools < 3:
+            strength = "MODERATE" if useful_tools >= 2 else "LIMITED"
+            fp_evidence_block = (
+                f"\n\n## Evidence Strength: {strength}\n"
+                "The data retrieval returned fewer results than usual. "
+                "Base your answer ONLY on the data provided below. "
+                "Explicitly state when information is not available. "
+                "Do NOT compensate with general knowledge.\n"
+            )
+        synthesis_system = pattern.synthesis_prompt + fp_evidence_block + PROVENANCE_FORMAT + f"\n\nData:\n{context}"
 
         response = self.llm.invoke([
             {"role": "system", "content": synthesis_system},
@@ -5036,42 +5836,127 @@ class GraphRAGAgent(ResponsesAgent):
         dependent = [sq for sq in plan.sub_questions if sq.depends_on and sq.pattern != "general"]
         general_sqs = [sq for sq in plan.sub_questions if sq.pattern == "general"]
 
+        def _invoke_step(step, entities, metadata, sq):
+            """Invoke a single tool step, returning (key, result, tool_name) or None."""
+            _req = ["entity_name", "entity_a", "entity_b"]
+            resolved = resolve_params(step.params, entities, metadata=metadata, question=sq.question)
+            tool_fn = TOOL_MAP.get(step.tool_name)
+            if not tool_fn:
+                return None
+            if any(resolved.get(p) == "" for p in _req if p in resolved):
+                return None
+            try:
+                result = tool_fn.invoke(resolved)
+            except Exception as exc:
+                log.exception("PDES tool %s failed for sq %s", step.tool_name, sq.id)
+                result = f"Error: {exc}"
+            key = f"{step.tool_name}({json.dumps(resolved)})"
+            return (key, result, step.tool_name)
+
+        def _run_steps(steps, entities, metadata, sq, tool_results):
+            """Run a list of ExecutionSteps, appending results to tool_results."""
+            pattern = PATTERN_REGISTRY.get(sq.pattern)
+            use_parallel = (
+                _PARALLEL_TOOLS
+                and pattern is not None
+                and getattr(pattern, "parallel_steps", False)
+                and len(steps) > 1
+            )
+            if use_parallel:
+                ordered_results = [None] * len(steps)
+                with ThreadPoolExecutor(max_workers=min(8, len(steps))) as pool:
+                    future_to_idx = {
+                        pool.submit(_invoke_step, step, entities, metadata, sq): i
+                        for i, step in enumerate(steps)
+                    }
+                    for fut in as_completed(future_to_idx):
+                        idx = future_to_idx[fut]
+                        ordered_results[idx] = fut.result()
+                for item in ordered_results:
+                    if item is not None:
+                        key, result, tool_name = item
+                        tool_results[key] = result
+                        if tools_invoked_out is not None:
+                            tools_invoked_out.append(tool_name)
+            else:
+                for step in steps:
+                    item = _invoke_step(step, entities, metadata, sq)
+                    if item is not None:
+                        key, result, tool_name = item
+                        tool_results[key] = result
+                        if tools_invoked_out is not None:
+                            tools_invoked_out.append(tool_name)
+
+        def _extract_entities_from_results(tool_results: dict) -> list[dict]:
+            """Parse tool results to discover entity names for the enrichment pass."""
+            discovered: list[dict] = []
+            seen: set[str] = set()
+            for result_str in tool_results.values():
+                if not isinstance(result_str, str):
+                    continue
+                try:
+                    data = json.loads(result_str)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                items = data if isinstance(data, list) else [data]
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    for key in ("name", "person", "entity", "entity_name",
+                                "person_a", "person_b", "sender", "from_name"):
+                        val = item.get(key, "")
+                        if val and isinstance(val, str) and val not in seen and len(val) > 1:
+                            seen.add(val)
+                            discovered.append({"name": val, "entity_type": "Person"})
+                            if len(discovered) >= 3:
+                                return discovered
+            return discovered
+
         def _execute_sub_question(sq: SubQuestion) -> str:
             pattern = PATTERN_REGISTRY.get(sq.pattern)
             if not pattern or not pattern.steps:
                 return ""
             entities = sq.entities or []
             metadata = {}
-            if sq.date_from:
+            _date_re = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+            if sq.date_from and _date_re.match(sq.date_from):
                 metadata["date_from"] = sq.date_from
-            if sq.date_to:
+            if sq.date_to and _date_re.match(sq.date_to):
                 metadata["date_to"] = sq.date_to
+            if sq.pattern == "timeline" and "date_from" not in metadata:
+                auto_dates = _extract_temporal_metadata(sq.question)
+                metadata.update(auto_dates)
             if sq.keywords:
                 metadata["keywords"] = sq.keywords
 
             tool_results = {}
-            for step in pattern.steps:
-                resolved = resolve_params(step.params, entities, metadata=metadata, question=sq.question)
-                tool_fn = TOOL_MAP.get(step.tool_name)
-                if not tool_fn:
-                    continue
-                required_str_params = ["entity_name", "entity_a", "entity_b"]
-                if any(resolved.get(p) == "" for p in required_str_params if p in resolved):
-                    continue
-                try:
-                    result = tool_fn.invoke(resolved)
-                except Exception as exc:
-                    log.exception("PDES tool %s failed for sq %s", step.tool_name, sq.id)
-                    result = f"Error: {exc}"
-                tool_results[f"{step.tool_name}({json.dumps(resolved)})"] = result
-                if tools_invoked_out is not None:
-                    tools_invoked_out.append(step.tool_name)
+            has_entity = bool(entities and entities[0].get("name"))
+            needs_discovery = (
+                sq.pattern in ("keyword_search", "general", "timeline")
+                and not has_entity
+            )
+
+            if needs_discovery:
+                _req = ["entity_name", "entity_a", "entity_b"]
+                entity_free = [s for s in pattern.steps
+                               if not any(k in s.params for k in _req)]
+                entity_dep = [s for s in pattern.steps
+                              if any(k in s.params for k in _req)]
+                _run_steps(entity_free, entities, metadata, sq, tool_results)
+                discovered = _extract_entities_from_results(tool_results)
+                if discovered:
+                    log.info("PDES discovery: found entities %s for sq %s",
+                             [e["name"] for e in discovered], sq.id)
+                    _run_steps(entity_dep, discovered, metadata, sq, tool_results)
+            else:
+                _run_steps(pattern.steps, entities, metadata, sq, tool_results)
 
             for result_str in tool_results.values():
                 if isinstance(result_str, str):
                     self.entity_memory.extract(result_str)
 
-            return json.dumps(tool_results, ensure_ascii=False) if tool_results else ""
+            raw = json.dumps(tool_results, ensure_ascii=False) if tool_results else ""
+            return _truncate_json_aware(raw, 8000)
 
         if _PARALLEL_TOOLS and len(independent) > 1:
             with ThreadPoolExecutor(max_workers=min(8, len(independent))) as pool:
@@ -5106,22 +5991,70 @@ class GraphRAGAgent(ResponsesAgent):
             return
 
         sub_answers_block = "\n\n---\n\n".join(
-            f"### Sub-question: {v}" for v in all_sub_results.values()
+            f"### Sub-question: {all_sub_results[k]}" for k in sorted(all_sub_results.keys())
         )
 
-        synthesis_prompt = (
-            "You are a corporate communications analyst synthesizing answers from multiple data queries about Enron.\n\n"
-            "Below are the results from specialized sub-queries. Combine them into a single, coherent answer.\n\n"
-            "Guidelines:\n"
-            "- Integrate information from all sub-queries into a unified narrative.\n"
-            "- Prioritize curated data (source: curated_org_hierarchy) over LLM-extracted relationships.\n"
-            "- Cite specific evidence: emails [YYYY-MM-DD, From: sender, Subject: topic], timeline entries, relationship data.\n"
-            "- Only cite emails that DIRECTLY support a specific claim.\n"
-            "- If sub-queries returned conflicting information, note the discrepancy.\n"
-            "- Do NOT fabricate information not present in any sub-query result.\n"
-            + PROVENANCE_FORMAT
-            + f"\n\n## Sub-Query Results\n\n{sub_answers_block}"
+        tool_count = sum(1 for v in all_sub_results.values()
+                         if v and len(v) > 50)
+        evidence_strength = (
+            "STRONG" if tool_count >= 3
+            else "MODERATE" if tool_count >= 2
+            else "LIMITED"
         )
+        evidence_block = ""
+        if evidence_strength != "STRONG":
+            evidence_block = (
+                f"\n\n## Evidence Strength: {evidence_strength}\n"
+                "The data retrieval returned fewer results than usual. "
+                "Base your answer ONLY on the data provided below. "
+                "Explicitly state when information is not available in the retrieved data. "
+                "Do NOT compensate with general knowledge — say 'the available data shows...' "
+                "rather than making unsupported claims.\n"
+            )
+
+        non_general_sqs = [sq for sq in plan.sub_questions if sq.pattern != "general"]
+        if len(non_general_sqs) == 1:
+            sole_pattern = PATTERN_REGISTRY.get(non_general_sqs[0].pattern)
+            if sole_pattern and sole_pattern.synthesis_prompt:
+                synthesis_prompt = (
+                    sole_pattern.synthesis_prompt
+                    + evidence_block
+                    + PROVENANCE_FORMAT
+                    + f"\n\n## Data Retrieved\n\n{sub_answers_block}"
+                )
+            else:
+                synthesis_prompt = (
+                    "You are a corporate communications analyst synthesizing answers from data queries about Enron.\n\n"
+                    + evidence_block
+                    + PROVENANCE_FORMAT
+                    + f"\n\n## Data Retrieved\n\n{sub_answers_block}"
+                )
+        else:
+            pattern_hints = []
+            seen = set()
+            for sq in plan.sub_questions:
+                if sq.pattern not in seen:
+                    seen.add(sq.pattern)
+                    p = PATTERN_REGISTRY.get(sq.pattern)
+                    if p and p.synthesis_prompt:
+                        first_line = p.synthesis_prompt.strip().split("\n")[0]
+                        pattern_hints.append(f"- **{sq.pattern}**: {first_line}")
+            hints_block = "\n".join(pattern_hints) if pattern_hints else ""
+            synthesis_prompt = (
+                "You are a corporate communications analyst synthesizing answers from multiple data queries about Enron.\n\n"
+                "Below are the results from specialized sub-queries. Combine them into a single, coherent answer.\n\n"
+                + (f"## Pattern-specific guidance\n{hints_block}\n\n" if hints_block else "")
+                + evidence_block
+                + "Guidelines:\n"
+                "- Integrate information from all sub-queries into a unified narrative.\n"
+                "- Prioritize curated data (source: curated_org_hierarchy) over LLM-extracted relationships.\n"
+                "- Cite specific evidence: emails [YYYY-MM-DD, From: sender, Subject: topic], timeline entries, relationship data.\n"
+                "- Only cite emails that DIRECTLY support a specific claim.\n"
+                "- If sub-queries returned conflicting information, note the discrepancy.\n"
+                "- Do NOT fabricate information not present in any sub-query result.\n"
+                + PROVENANCE_FORMAT
+                + f"\n\n## Sub-Query Results\n\n{sub_answers_block}"
+            )
 
         response = self.llm.invoke([
             {"role": "system", "content": synthesis_prompt},
@@ -5174,8 +6107,16 @@ class GraphRAGAgent(ResponsesAgent):
             em_context = self.entity_memory.context_for_classifier()
 
             if question and CORPUS == "enron" and TOOL_MAP:
-                log.info("PDES: planning query decomposition")
-                plan = _plan_query(question, messages, em_context)
+                pre_classification = classify_and_extract(question + em_context if em_context else question)
+                pre_conf = pre_classification.get("confidence", 0.0)
+                pre_pattern = pre_classification.get("pattern", "general")
+                if pre_conf >= 0.85 and pre_pattern != "general":
+                    log.info("PDES: high-confidence bypass (%.2f %s), skipping planner LLM",
+                             pre_conf, pre_pattern)
+                    plan = _plan_from_classification(question, pre_classification, em_context)
+                else:
+                    log.info("PDES: planning query decomposition")
+                    plan = _plan_query(question, messages, em_context)
                 classified_intent = ",".join(sq.pattern for sq in plan.sub_questions)
 
                 non_general = [sq for sq in plan.sub_questions if sq.pattern != "general"]
@@ -5191,6 +6132,7 @@ class GraphRAGAgent(ResponsesAgent):
                     try:
                         mlflow.update_current_trace(tags={
                             "execution_path": "pdes",
+                            "planner_model": PLANNER_ENDPOINT,
                             "planner_patterns": classified_intent,
                             "resolved_question": plan.resolved_question[:200],
                             "sub_question_count": str(len(plan.sub_questions)),
