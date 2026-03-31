@@ -11,9 +11,139 @@
 # COMMAND ----------
 
 import json
+import time
+import logging
 
 from langchain_core.tools import tool
-from functools import partial
+from functools import partial, wraps
+
+
+def _row_get(row, key, default=None):
+    """Safely get a field from a PySpark Row or dict.
+
+    PySpark Row objects don't support .get(), so bracket-access with a try/except
+    is needed for optional columns.
+    """
+    try:
+        val = row[key]
+        return val if val is not None else default
+    except (KeyError, IndexError, ValueError):
+        return default
+
+# COMMAND ----------
+
+# DBTITLE 1,Tool Latency Instrumentation
+_latency_log = logging.getLogger(__name__ + ".latency")
+_tool_latency_buffer: list[dict] = []
+
+
+def _instrument_tool(fn, tool_name: str):
+    """Wrap a tool implementation to record per-invocation latency.
+
+    Records timing via:
+    1. In-process buffer (for local eval within a single process)
+    2. MLflow trace span (persists to tracking server — survives Model Serving restarts)
+    3. MLflow run metric (backward compat with Cycle 5)
+    """
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        import mlflow
+
+        start = time.perf_counter()
+        span = None
+        try:
+            span = mlflow.start_span(name=f"tool.{tool_name}")
+            span.set_attributes({
+                "tool.name": tool_name,
+                "tool.args": json.dumps(
+                    {k: str(v)[:200] for k, v in (kwargs or {}).items()},
+                    default=str,
+                ),
+            })
+        except Exception:
+            span = None
+
+        try:
+            result = fn(*args, **kwargs)
+        finally:
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            _tool_latency_buffer.append({"tool": tool_name, "latency_ms": elapsed_ms})
+            _latency_log.debug("tool=%s latency=%.1fms", tool_name, elapsed_ms)
+
+            if span is not None:
+                try:
+                    span.set_attributes({
+                        "tool.latency_ms": elapsed_ms,
+                        "tool.sla_threshold_ms": config.get("tool_sla_thresholds_ms", {}).get(tool_name, -1),
+                    })
+                    span.end()
+                except Exception:
+                    pass
+
+            try:
+                if mlflow.active_run():
+                    mlflow.log_metric(f"tool_latency_{tool_name}_ms", elapsed_ms)
+            except Exception:
+                pass
+        return result
+    return wrapper
+
+
+def get_latency_report(from_traces: bool = False, experiment_id: str = None,
+                       max_traces: int = 100) -> dict:
+    """Aggregate p50/p95/p99 latency with percentile stats and SLA compliance.
+
+    Sources (tried in order):
+    1. In-process buffer (always available during local eval)
+    2. MLflow trace spans (when from_traces=True or buffer is empty)
+       Requires an active MLflow experiment or explicit experiment_id.
+    """
+    from collections import defaultdict
+    import math
+
+    by_tool: dict[str, list[float]] = defaultdict(list)
+
+    for entry in _tool_latency_buffer:
+        by_tool[entry["tool"]].append(entry["latency_ms"])
+
+    if (from_traces or not by_tool):
+        try:
+            import mlflow
+            traces = mlflow.search_traces(
+                experiment_ids=[experiment_id] if experiment_id else None,
+                max_results=max_traces,
+            )
+            for trace in traces if traces is not None else []:
+                for span in getattr(trace, "data", {}).get("spans", []):
+                    attrs = getattr(span, "attributes", {}) or {}
+                    tname = attrs.get("tool.name")
+                    lat = attrs.get("tool.latency_ms")
+                    if tname and lat is not None:
+                        by_tool[tname].append(float(lat))
+        except Exception:
+            pass
+
+    sla = config.get("tool_sla_thresholds_ms", {})
+    report = {}
+    for tool_name, latencies in by_tool.items():
+        latencies.sort()
+        n = len(latencies)
+
+        def _percentile(pct, _lats=latencies, _n=n):
+            idx = math.ceil(pct / 100 * _n) - 1
+            return round(_lats[max(0, min(idx, _n - 1))], 1)
+
+        p95 = _percentile(95)
+        threshold = sla.get(tool_name)
+        report[tool_name] = {
+            "count": n,
+            "p50_ms": _percentile(50),
+            "p95_ms": p95,
+            "p99_ms": _percentile(99),
+            "sla_threshold_ms": threshold,
+            "sla_compliant": p95 <= threshold if threshold else None,
+        }
+    return report
 
 # COMMAND ----------
 
@@ -118,7 +248,7 @@ def _find_connections(entity_name: str, permitted_books: list = None) -> str:
 
     lines = [f"Connections for '{entity_name}' ({len(results)} found, ranked by frequency):"]
     for r in results:
-        freq = int(r['frequency']) if r.get('frequency') else 1
+        freq = int(r['frequency']) if _row_get(r, 'frequency') else 1
         lines.append(
             f"- {r['source_name']} --[{r['relationship_type']}]--> {r['target_name']}: "
             f"{r['description']} ({r['book']} ch.{r['chapter']}) [freq={freq}]"
@@ -315,6 +445,15 @@ def _get_entity_summary(entity_name: str, permitted_books: list = None) -> str:
 
 # COMMAND ----------
 
+# DBTITLE 1,Instrumented Internal Functions
+_find_entity_i = _instrument_tool(_find_entity, "find_entity")
+_find_connections_i = _instrument_tool(_find_connections, "find_connections")
+_trace_path_i = _instrument_tool(_trace_path, "trace_path")
+_get_source_evidence_i = _instrument_tool(_get_source_evidence, "get_source_evidence")
+_get_entity_summary_i = _instrument_tool(_get_entity_summary, "get_entity_summary")
+
+# COMMAND ----------
+
 # DBTITLE 1,Tool Registration — Default (Unscoped) Tools
 @tool
 def find_entity(name: str) -> str:
@@ -324,7 +463,7 @@ def find_entity(name: str) -> str:
     Args:
         name: The name to search for (e.g., "Moses", "Jerusalem", "covenant")
     """
-    return _find_entity(name)
+    return _find_entity_i(name)
 
 @tool
 def find_connections(entity_name: str) -> str:
@@ -334,7 +473,7 @@ def find_connections(entity_name: str) -> str:
     Args:
         entity_name: The entity name to find connections for (e.g., "Abraham", "Egypt")
     """
-    return _find_connections(entity_name)
+    return _find_connections_i(entity_name)
 
 @tool
 def trace_path(entity_a: str, entity_b: str) -> str:
@@ -345,7 +484,7 @@ def trace_path(entity_a: str, entity_b: str) -> str:
         entity_a: Starting entity name (e.g., "Ruth")
         entity_b: Ending entity name (e.g., "Jesus")
     """
-    return _trace_path(entity_a, entity_b)
+    return _trace_path_i(entity_a, entity_b)
 
 @tool
 def get_source_evidence(entity_name: str, book: str = "") -> str:
@@ -355,7 +494,7 @@ def get_source_evidence(entity_name: str, book: str = "") -> str:
         entity_name: The entity name to find verses for (e.g., "Moses")
         book: Optional — filter to a specific book (e.g., "Genesis"). Leave empty for all books.
     """
-    return _get_source_evidence(entity_name, book)
+    return _get_source_evidence_i(entity_name, book)
 
 @tool
 def get_entity_summary(entity_name: str) -> str:
@@ -365,9 +504,96 @@ def get_entity_summary(entity_name: str) -> str:
     Args:
         entity_name: The entity to summarize (e.g., "Abraham", "Jerusalem")
     """
-    return _get_entity_summary(entity_name)
+    return _get_entity_summary_i(entity_name)
 
-GRAPH_TOOLS = [find_entity, find_connections, trace_path, get_source_evidence, get_entity_summary]
+
+# COMMAND ----------
+
+# DBTITLE 1,Tool: Graph Exhaustion Check
+def _graph_exhaustion_check(entity_name: str, max_depth: int = 3,
+                            tables: dict = None, permitted_books: list = None) -> str:
+    """BFS reachability report from a starting entity.
+
+    Returns JSON with nodes visited, frontier size, evidence density, and
+    whether the traversal is exhausted (frontier == 0).
+    """
+    from pyspark.sql import SparkSession
+    spark = SparkSession.builder.getOrCreate()
+
+    ent_table = (tables or {}).get("entities", config["entities_table"])
+    rel_table = (tables or {}).get("relationships", config["relationships_table"])
+    books_clause = _books_in_clause(permitted_books) if permitted_books else None
+    book_filter = f"AND r.book IN {books_clause}" if books_clause else ""
+
+    entity_id = "_".join(entity_name.lower().split())
+    seed_rows = spark.sql(f"""
+        SELECT entity_id FROM {ent_table}
+        WHERE entity_id LIKE '%{entity_id}%' LIMIT 1
+    """).collect()
+    if not seed_rows:
+        return json.dumps({"error": f"Entity '{entity_name}' not found.", "exhausted": False})
+
+    seed_id = seed_rows[0]["entity_id"]
+    visited: set[str] = {seed_id}
+    current_frontier: set[str] = {seed_id}
+    evidence_count = 0
+
+    for depth in range(max_depth):
+        if not current_frontier:
+            break
+        frontier_ids = ", ".join(f"'{eid}'" for eid in current_frontier)
+        neighbors = spark.sql(f"""
+            SELECT DISTINCT
+                CASE WHEN r.source_entity IN ({frontier_ids}) THEN r.target_entity
+                     ELSE r.source_entity END AS neighbor_id
+            FROM {rel_table} r
+            WHERE (r.source_entity IN ({frontier_ids}) OR r.target_entity IN ({frontier_ids}))
+            {book_filter}
+        """).collect()
+
+        evidence_count += len(neighbors)
+        next_frontier: set[str] = set()
+        for row in neighbors:
+            nid = row["neighbor_id"]
+            if nid not in visited:
+                visited.add(nid)
+                next_frontier.add(nid)
+        current_frontier = next_frontier
+
+    density = round(evidence_count / len(visited), 2) if visited else 0
+    exhausted = len(current_frontier) == 0
+
+    return json.dumps({
+        "entity": entity_name,
+        "max_depth": max_depth,
+        "nodes_visited": len(visited),
+        "frontier_size": len(current_frontier),
+        "evidence_edges": evidence_count,
+        "evidence_density": density,
+        "exhausted": exhausted,
+        "status": "ALL_REACHABLE_NODES_TRAVERSED" if exhausted else "FRONTIER_REMAINING",
+    })
+
+
+_graph_exhaustion_check_i = _instrument_tool(_graph_exhaustion_check, "graph_exhaustion_check")
+
+
+@tool
+def graph_exhaustion_check(entity_name: str, max_depth: int = 3) -> str:
+    """Check graph traversal completeness from a starting entity.
+
+    Returns a reachability report: nodes visited, frontier size, evidence density,
+    and whether all reachable nodes have been traversed. Use this when the attorney
+    workflow needs to confirm a search thread is exhausted.
+
+    Args:
+        entity_name: The entity to start the reachability check from (e.g., "Moses")
+        max_depth: Maximum BFS depth (default 3)
+    """
+    return _graph_exhaustion_check_i(entity_name, max_depth)
+
+
+GRAPH_TOOLS = [find_entity, find_connections, trace_path, get_source_evidence, get_entity_summary, graph_exhaustion_check]
 
 # COMMAND ----------
 
@@ -513,6 +739,16 @@ def build_scoped_tools(permitted_books: list):
     Returns:
         List of 5 LangChain tools with document-scoped queries.
     """
+    _fe = _instrument_tool(lambda n: _find_entity(n, permitted_books=permitted_books), "find_entity")
+    _fc = _instrument_tool(lambda n: _find_connections(n, permitted_books=permitted_books), "find_connections")
+    _tp = _instrument_tool(lambda a, b: _trace_path(a, b, permitted_books=permitted_books), "trace_path")
+    _se = _instrument_tool(lambda n, bk="": _get_source_evidence(n, bk, permitted_books=permitted_books), "get_source_evidence")
+    _es = _instrument_tool(lambda n: _get_entity_summary(n, permitted_books=permitted_books), "get_entity_summary")
+    _gec = _instrument_tool(
+        lambda n, d=3: _graph_exhaustion_check(n, d, permitted_books=permitted_books),
+        "graph_exhaustion_check",
+    )
+
     @tool
     def find_entity(name: str) -> str:
         """Search for a biblical entity by name. Returns matching entities with their type, description, and first mention.
@@ -521,7 +757,7 @@ def build_scoped_tools(permitted_books: list):
         Args:
             name: The name to search for (e.g., "Moses", "Jerusalem", "covenant")
         """
-        return _find_entity(name, permitted_books=permitted_books)
+        return _fe(name)
 
     @tool
     def find_connections(entity_name: str) -> str:
@@ -531,7 +767,7 @@ def build_scoped_tools(permitted_books: list):
         Args:
             entity_name: The entity name to find connections for (e.g., "Abraham", "Egypt")
         """
-        return _find_connections(entity_name, permitted_books=permitted_books)
+        return _fc(entity_name)
 
     @tool
     def trace_path(entity_a: str, entity_b: str) -> str:
@@ -542,7 +778,7 @@ def build_scoped_tools(permitted_books: list):
             entity_a: Starting entity name (e.g., "Ruth")
             entity_b: Ending entity name (e.g., "Jesus")
         """
-        return _trace_path(entity_a, entity_b, permitted_books=permitted_books)
+        return _tp(entity_a, entity_b)
 
     @tool
     def get_source_evidence(entity_name: str, book: str = "") -> str:
@@ -552,7 +788,7 @@ def build_scoped_tools(permitted_books: list):
             entity_name: The entity name to find verses for (e.g., "Moses")
             book: Optional — filter to a specific book (e.g., "Genesis"). Leave empty for all books.
         """
-        return _get_source_evidence(entity_name, book, permitted_books=permitted_books)
+        return _se(entity_name, book)
 
     @tool
     def get_entity_summary(entity_name: str) -> str:
@@ -562,9 +798,19 @@ def build_scoped_tools(permitted_books: list):
         Args:
             entity_name: The entity to summarize (e.g., "Abraham", "Jerusalem")
         """
-        return _get_entity_summary(entity_name, permitted_books=permitted_books)
+        return _es(entity_name)
 
-    return [find_entity, find_connections, trace_path, get_source_evidence, get_entity_summary]
+    @tool
+    def graph_exhaustion_check(entity_name: str, max_depth: int = 3) -> str:
+        """Check graph traversal completeness from a starting entity.
+
+        Args:
+            entity_name: The entity to start the reachability check from
+            max_depth: Maximum BFS depth (default 3)
+        """
+        return _gec(entity_name, max_depth)
+
+    return [find_entity, find_connections, trace_path, get_source_evidence, get_entity_summary, graph_exhaustion_check]
 
 # COMMAND ----------
 
@@ -635,7 +881,7 @@ def _get_source_emails(entity_name: str, thread_id: str = "") -> str:
     lines = [f"Emails mentioning '{search_desc}' ({len(results)} found):"]
     for r in results:
         date_str = str(r['date'])[:10] if r['date'] else "unknown date"
-        rc = r['recipient_count'] if r.get('recipient_count') else 0
+        rc = r['recipient_count'] if _row_get(r, 'recipient_count') else 0
         email_type = "direct" if rc <= 5 else "group" if rc <= 20 else "mass"
         lines.append(f"  [{date_str}] From: {r['sender']} | Subject: {r['subject']} | [{email_type}, {rc} recipients]")
         lines.append(f"    {r['body_preview']}...")
@@ -721,7 +967,7 @@ def build_corpus_tools(corpus: str = "bible"):
                 "source": r["source_name"], "target": r["target_name"],
                 "description": r["description"],
             }
-            freq = r.get("frequency")
+            freq = _row_get(r, "frequency")
             if freq is not None:
                 try:
                     entry["frequency"] = int(freq)
@@ -834,7 +1080,22 @@ def build_corpus_tools(corpus: str = "bible"):
             summary["relationships"] = {"total": len(rels), "by_type": dict(groups)}
         return json.dumps(summary, ensure_ascii=False)
 
-    return [find_entity, find_connections, trace_path, get_source_context, get_entity_summary]
+    _gec_corpus = _instrument_tool(
+        lambda n, d=3: _graph_exhaustion_check(n, d, tables=tables),
+        "graph_exhaustion_check",
+    )
+
+    @tool
+    def graph_exhaustion_check(entity_name: str, max_depth: int = 3) -> str:
+        """Check graph traversal completeness from a starting entity.
+
+        Args:
+            entity_name: The entity to start the reachability check from
+            max_depth: Maximum BFS depth (default 3)
+        """
+        return _gec_corpus(entity_name, max_depth)
+
+    return [find_entity, find_connections, trace_path, get_source_context, get_entity_summary, graph_exhaustion_check]
 
 # COMMAND ----------
 
@@ -1053,4 +1314,19 @@ def build_abac_tools(tier: str = "legal_team"):
             summary["relationships"] = {"total": len(rels), "by_type": dict(groups)}
         return json.dumps(summary, ensure_ascii=False)
 
-    return [find_entity, find_connections, trace_path, get_source_context, get_entity_summary]
+    _gec_abac = _instrument_tool(
+        lambda n, d=3: _graph_exhaustion_check(n, d, tables=tables),
+        "graph_exhaustion_check",
+    )
+
+    @tool
+    def graph_exhaustion_check(entity_name: str, max_depth: int = 3) -> str:
+        """Check graph traversal completeness from a starting entity in the access-controlled graph.
+
+        Args:
+            entity_name: The entity to start the reachability check from
+            max_depth: Maximum BFS depth (default 3)
+        """
+        return _gec_abac(entity_name, max_depth)
+
+    return [find_entity, find_connections, trace_path, get_source_context, get_entity_summary, graph_exhaustion_check]

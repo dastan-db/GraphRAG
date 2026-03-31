@@ -1,10 +1,14 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # 05 — Evaluation: Governance, Auditability, and Quality
+# MAGIC # 05 — Evaluation: Governance, Auditability, and Quality (DEVELOPMENT/DEBUG CORPUS)
+# MAGIC
+# MAGIC **Note (Cycle 5):** This notebook uses the Bible corpus as a **development and debug** benchmark.
+# MAGIC The PRIMARY evaluation benchmark is the Enron corpus in `08_Enron_Evaluation.py`.
 # MAGIC
 # MAGIC This notebook answers the question enterprises actually care about: **can your AI show its work, cite its sources, and produce the same answer every time?**
 # MAGIC
 # MAGIC We evaluate five configurations on 20 ground-truth questions, measuring **governance metrics first** (hallucination check, citation completeness, provenance chain), then quality (correctness, relevance), then cost. A standalone **reproducibility test** checks citation and path consistency across repeated runs.
+# MAGIC Cycle 5 additions: `citation_accuracy` scorer, Jaccard reproducibility with threshold=0.90.
 # MAGIC
 # MAGIC | Config | Retrieval | LLM | What It Proves |
 # MAGIC |--------|-----------|-----|----------------|
@@ -134,7 +138,7 @@ def predict_direct_llm(question):
                     "role": "system",
                     "content": (
                         "You are a biblical scholar. Answer based on your knowledge of "
-                        "Genesis, Exodus, Ruth, Matthew, and Acts from the King James Bible. "
+                        "all 66 books of the King James Bible. "
                         "Cite specific verses when possible."
                     ),
                 },
@@ -160,7 +164,7 @@ def predict_direct_external(question):
                     "role": "system",
                     "content": (
                         "You are a biblical scholar. Answer based on your knowledge of "
-                        "Genesis, Exodus, Ruth, Matthew, and Acts from the King James Bible. "
+                        "all 66 books of the King James Bible. "
                         "Cite specific verses when possible."
                     ),
                 },
@@ -188,8 +192,9 @@ import mlflow
 mlflow.set_experiment(f"/Shared/graphrag_bible_evaluation")
 
 judge_model = f"databricks:/{config['judge_endpoint']}"
-scorers = build_scorers(judge_model=judge_model)
+scorers = build_scorers(judge_model=judge_model) + [citation_accuracy, provenance_structure_compliance, provenance_content_quality]
 print(f"Judge model: {judge_model}")
+print(f"Scorers: {len(scorers)} (including citation_accuracy + provenance_structure_compliance)")
 
 CONFIGS = {
     "graphrag_70b": predict_graphrag_70b,
@@ -297,15 +302,17 @@ plt.show()
 
 # COMMAND ----------
 
-# DBTITLE 1,Run Reproducibility Test (uses utilities from evaluation.py)
+# DBTITLE 1,Run Reproducibility Test (Jaccard-based, threshold=0.90)
 NUM_RUNS = 3
-repro_rows, repro_rate = run_reproducibility_test(predict_graphrag_70b, REPRO_QUESTIONS, NUM_RUNS)
+repro_rows, overall_jaccard, cert = run_reproducibility_test(predict_graphrag_70b, REPRO_QUESTIONS, NUM_RUNS)
 
 repro_df = pd.DataFrame(repro_rows)
 display(repro_df)
 
-consistent = sum(1 for r in repro_rows if r["Citations Consistent"] and r["Path Consistent"])
-print(f"\nReproducibility rate: {repro_rate:.0%} ({consistent}/{len(repro_rows)} queries fully consistent across {NUM_RUNS} runs)")
+print(f"\n=== Reproducibility Test (Cycle 5 — Jaccard) ===")
+print(f"  Overall Jaccard: {overall_jaccard}")
+print(f"  Threshold:       {cert['threshold']}")
+print(f"  Status:          {'CERTIFIED' if cert['passed'] else 'NOT CERTIFIED'}")
 
 # COMMAND ----------
 
@@ -547,7 +554,7 @@ THE THESIS:
 # MAGIC This is the enterprise access control scenario: **not having some context should change the answer**.
 # MAGIC
 # MAGIC For each question in the differential dataset, we run the agent twice:
-# MAGIC 1. **Full scope** — all 5 books permitted (baseline)
+# MAGIC 1. **Full scope** — all 66 books permitted (baseline)
 # MAGIC 2. **Restricted scope** — a subset of books permitted
 # MAGIC
 # MAGIC We then measure:

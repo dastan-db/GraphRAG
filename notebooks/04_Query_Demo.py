@@ -221,7 +221,7 @@ if active_run:
 # MAGIC | **Reproducibility** | Embedding similarity can drift | Deterministic graph traversal returns the same path every time |
 # MAGIC | **Hallucination detection** | Cannot distinguish grounded from invented claims | Grounding indicator flags when claims come from outside the graph |
 # MAGIC | **Multi-hop reasoning** | Misses intermediate connections | Traces the full path through the knowledge graph |
-# MAGIC | **Cross-document synthesis** | Returns chunks from one source only | Traverses relationships across all five books structurally |
+# MAGIC | **Cross-document synthesis** | Returns chunks from one source only | Traverses relationships across all 66 books structurally |
 # MAGIC
 # MAGIC Every answer is **grounded** in the knowledge graph, **traceable** to specific Bible verses, and **reproducible** on demand.
 # MAGIC

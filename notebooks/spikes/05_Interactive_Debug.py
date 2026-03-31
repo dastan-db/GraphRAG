@@ -255,8 +255,8 @@ def provenance_chain(outputs):
 
 _HALLUCINATION_GUIDELINES = (
     "The response must NOT contain factual claims about biblical events, people, "
-    "or relationships that are not supported by the five books in the knowledge graph "
-    "(Genesis, Exodus, Ruth, Matthew, Acts). Every factual assertion must be traceable "
+    "or relationships that are not supported by the knowledge graph built from all 66 books "
+    "of the King James Bible. Every factual assertion must be traceable "
     "to a specific verse or graph relationship. Flag any invented relationships, "
     "fabricated events, or claims about books not in the corpus. "
     "A response that explicitly states 'this information is not in the knowledge graph' "
@@ -610,7 +610,7 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt.tool_node import ToolNode
 from typing import Annotated, Generator, Sequence, TypedDict
 
-SYSTEM_PROMPT = """You are a biblical scholar with access to a knowledge graph built from five books of the King James Bible: Genesis, Exodus, Ruth, Matthew, and Acts.
+SYSTEM_PROMPT = """You are a biblical scholar with access to a knowledge graph built from the complete King James Bible (all 66 books — 39 Old Testament, 27 New Testament).
 
 You have tools that let you search the knowledge graph for entities, relationships, and source verses. Use them to provide well-grounded, auditable answers.
 
@@ -705,7 +705,7 @@ def predict_direct_llm(question):
                     "role": "system",
                     "content": (
                         "You are a biblical scholar. Answer based on your knowledge of "
-                        "Genesis, Exodus, Ruth, Matthew, and Acts from the King James Bible. "
+                        "all 66 books of the King James Bible. "
                         "Cite specific verses when possible."
                     ),
                 },
@@ -738,7 +738,7 @@ def predict_direct_external(question):
                     "role": "system",
                     "content": (
                         "You are a biblical scholar. Answer based on your knowledge of "
-                        "Genesis, Exodus, Ruth, Matthew, and Acts from the King James Bible. "
+                        "all 66 books of the King James Bible. "
                         "Cite specific verses when possible."
                     ),
                 },

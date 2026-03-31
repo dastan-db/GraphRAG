@@ -132,7 +132,7 @@ resources = [
     DatabricksServingEndpoint(endpoint_name=config['llm_endpoint']),
     DatabricksServingEndpoint(endpoint_name=config['small_llm_endpoint']),
     *[DatabricksTable(table_name=f"{config['catalog']}.{config['schema']}.{t}") for t in TABLE_NAMES],
-    DatabricksSQLWarehouse(warehouse_id=spark.conf.get("spark.databricks.warehouse.id", "399215661843ad19")),
+    DatabricksSQLWarehouse(warehouse_id="399215661843ad19"),
 ]
 
 with mlflow.start_run(run_name="graphrag_bible_agent"):
@@ -147,6 +147,7 @@ with mlflow.start_run(run_name="graphrag_bible_agent"):
             "databricks-agents",
             "databricks-mcp",
             "databricks-sdk",
+            "databricks-connect",
         ],
         input_example={
             "input": [{"role": "user", "content": "Who is Abraham?"}]

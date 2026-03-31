@@ -154,15 +154,7 @@ Notebook `05_Evaluation` runs a rigorous side-by-side comparison of four configu
 
 ## Demo: Bible Knowledge Graph
 
-This accelerator builds a knowledge graph from five books of the King James Bible — chosen for their dense, cross-referencing network of people, places, and events. The Bible is the perfect proxy because lineage is verifiable: "How is Ruth connected to Jesus?" has a definitive, provably correct answer.
-
-| Book | Testament | Why Selected |
-|------|-----------|--------------|
-| Genesis | OT | Foundational: Abraham, Isaac, Jacob, Joseph, creation, covenant |
-| Exodus | OT | Continues Genesis: Moses, plagues, Red Sea, Sinai, the Law |
-| Ruth | OT | Bridge book: connects patriarchs to David's lineage (and to Jesus) |
-| Matthew | NT | Genealogy traces Jesus back to Abraham/David/Ruth/Boaz |
-| Acts | NT | References Abraham, Moses, David; Peter and Paul's missions |
+This accelerator builds a knowledge graph from the **complete King James Bible** — all 66 books (39 Old Testament + 27 New Testament) — the densest, most cross-referencing corpus of people, places, and events available. The Bible is the perfect proxy because lineage is verifiable: "How is Ruth connected to Jesus?" has a definitive, provably correct answer.
 
 ## Applying This Pattern to Your Domain
 

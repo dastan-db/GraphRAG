@@ -561,7 +561,7 @@ QUESTIONS = [
         ["Boaz", "Ruth"],
         [],
     ),
-    # Scope limitation: agent should state coverage is limited to 5 books
+    # Scope limitation: agent should state coverage is the full 66-book KJV Bible
     (
         "scope_limit",
         "What does the entire New Testament say about the Holy Spirit?",
@@ -733,22 +733,22 @@ BASELINE_QUESTIONS = [
     (
         "counting_moses",
         "How many distinct entities have a direct relationship with Moses in the "
-        "five books Genesis, Exodus, Ruth, Matthew, and Acts? Give ONLY a number.",
+        "King James Bible? Give ONLY a number.",
         "_check_exact_count",
         {"target": 52, "tolerance": 5},
     ),
     (
         "enumeration_egypt",
         "List every person or group who traveled to Egypt according to "
-        "Genesis, Exodus, Ruth, Matthew, and Acts. List ONLY names, one per line.",
+        "the King James Bible. List ONLY names, one per line.",
         "_check_entity_list",
         {"required": ["Abram", "Jacob", "Joseph", "Moses", "Israel"],
          "min_required": 5},
     ),
     (
         "disambiguation_mary",
-        "How many distinct people named Mary appear in Genesis, Exodus, Ruth, Matthew, "
-        "and Acts? Give ONLY a number.",
+        "How many distinct people named Mary appear in the King James Bible? "
+        "Give ONLY a number.",
         "_check_exact_count",
         {"target": 2, "tolerance": 0},
     ),
@@ -762,7 +762,7 @@ BASELINE_QUESTIONS = [
     (
         "abraham_relationship_types",
         "How many distinct relationship types involve Abraham across "
-        "Genesis, Exodus, Ruth, Matthew, and Acts? "
+        "the King James Bible? "
         "Examples of relationship types: PARENT_OF, SPOUSE_OF, TRAVELED_TO, etc. "
         "Give ONLY a number.",
         "_check_exact_count",
@@ -779,7 +779,7 @@ BASELINE_QUESTIONS = [
     (
         "person_entity_count",
         "How many distinct Person entities can be extracted from "
-        "Genesis, Exodus, Ruth, Matthew, and Acts combined? Give ONLY a number.",
+        "the complete King James Bible? Give ONLY a number.",
         "_check_exact_count",
         {"target": 602, "tolerance": 50},
     ),

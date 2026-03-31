@@ -47,7 +47,7 @@ def apply_layout():
                 ]),
                 html.Tr([
                     html.Td("Source Documents"),
-                    html.Td("KJV Bible (5 books)", className="text-muted"),
+                    html.Td("KJV Bible (66 books)", className="text-muted"),
                     html.Td("ERP data, contracts, audit logs, regulatory filings"),
                 ]),
             ]),

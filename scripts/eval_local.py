@@ -142,6 +142,25 @@ EVAL_DATA = [
     {"question": "What emails discuss the resignation of Jeff Skilling?", "expected_entities": ["Jeff Skilling", "Kenneth Lay"], "category": "keyword_evidence", "graph_ground_truth": "search_emails for 'resign' + 'Skilling' should find relevant emails.", "historical_ground_truth": "Skilling resigned Aug 14, 2001 citing personal reasons.", "evidence_required": True},
     {"question": "Find emails about the Arthur Andersen document destruction.", "expected_entities": ["Arthur Andersen"], "category": "keyword_evidence", "graph_ground_truth": "search_emails for 'shred', 'destroy', 'Andersen' should find relevant emails.", "historical_ground_truth": "Andersen began shredding Enron documents around Oct 12, 2001.", "evidence_required": True},
     {"question": "Show me emails from the period when Fastow was removed as CFO.", "expected_entities": ["Andrew Fastow", "Jeff McMahon"], "category": "keyword_evidence", "graph_ground_truth": "search_emails around Oct 24, 2001 mentioning Fastow/CFO should find relevant emails.", "historical_ground_truth": "Fastow was removed as CFO Oct 24, 2001. McMahon replaced him.", "evidence_required": True},
+    # --- Corroboration test cases (cross-tool consistency / typo / null-evidence) ---
+    {"question": "Show me all emails between Kenneth Lay and Jeff Dassovich.", "expected_entities": ["Kenneth Lay", "Jeff Dasovich"], "category": "corroboration", "graph_ground_truth": "Jeff Dasovich (one 's') exists in the graph. The typo 'Dassovich' should be fuzzy-corrected. get_emails_between should find emails matching the corrected name.", "historical_ground_truth": "Jeff Dasovich was a Government Affairs executive who communicated with senior leadership.", "evidence_required": True},
+    {"question": "Who reported to Jeffery Skilling?", "expected_entities": ["Jeffrey Skilling", "Andrew Fastow", "David Delainey"], "category": "corroboration", "graph_ground_truth": "Jeffrey Skilling (correct spelling) exists in the graph. The typo 'Jeffery' should be fuzzy-corrected. find_connections with REPORTS_TO should return direct reports.", "historical_ground_truth": "Skilling's direct reports included Fastow, Delainey, Rice, Belden, Buy.", "evidence_required": True},
+    {"question": "How many emails did Rosalee Fleming send to Kenneth Lay?", "expected_entities": ["Rosalee Fleming", "Kenneth Lay"], "category": "corroboration", "graph_ground_truth": "communication_dyads shows Fleming as one of Lay's top contacts. get_emails_between should return matching emails. Both tools must agree on a non-zero count.", "historical_ground_truth": "Fleming was Lay's executive assistant and communicated with him extensively.", "evidence_required": True},
+    {"question": "Show me the emails between Kenneth Lay and Jeff Dasovich.", "expected_entities": ["Kenneth Lay", "Jeff Dasovich"], "category": "corroboration", "graph_ground_truth": "Both entities exist in the graph. find_connections may show SENT_TO edges. get_emails_between should find header-matched or body-mentioned emails. The counts should be consistent.", "historical_ground_truth": "Dasovich communicated with Lay primarily about California energy policy.", "evidence_required": True},
+    {"question": "What did Vince Kaminski and vkaminski@aol.com discuss?", "expected_entities": ["Vince Kaminski"], "category": "corroboration", "graph_ground_truth": "vkaminski@aol.com is Kaminski's personal email. detect_self_emails should flag this pair. The agent should explain this is a self-email pattern, not a separate person.", "historical_ground_truth": "Kaminski used his AOL address as a personal backup.", "evidence_required": True},
+    {"question": "Show me emails between David Delainey and someone who never emailed him directly.", "expected_entities": ["David Delainey"], "category": "corroboration", "graph_ground_truth": "The agent should identify contacts connected to Delainey via graph relationships but without direct email headers. It should honestly report 'no direct emails' without fabricating evidence.", "historical_ground_truth": "Not all graph relationships correspond to direct email exchanges.", "evidence_required": False},
+    {"question": "Who communicated most with Jeff Skilling? Show me the actual emails with his top contact.", "expected_entities": ["Jeff Skilling"], "category": "corroboration", "graph_ground_truth": "find_top_contacts returns ranked contacts from communication_dyads. The follow-up 'show me actual emails' requires get_emails_between to find emails for the top contact. Both tools must resolve to the same person.", "historical_ground_truth": "Skilling's frequent correspondents included his assistant and senior executives.", "evidence_required": True},
+    {"question": "What is the relationship between Andrew Fasttow and Kenneth Lay?", "expected_entities": ["Andrew Fastow", "Kenneth Lay"], "category": "corroboration", "graph_ground_truth": "Andrew Fastow (correct spelling, one 't') exists in the graph. The typo 'Fasttow' should be fuzzy-corrected. trace_path and find_connections should work with the corrected name.", "historical_ground_truth": "Fastow (CFO) reported to Skilling who reported to Lay.", "evidence_required": True},
+    # --- Genie routing test cases (tabular questions that should route to genie_analytics) ---
+    {"question": "Who communicated most frequently with Kenneth Lay?", "expected_entities": ["Kenneth Lay", "Rosalee Fleming"], "category": "genie_routing", "graph_ground_truth": "communication_dyads shows Rosalee Fleming as Lay's top contact by email volume. find_top_contacts returns a ranked list. A Genie SQL query on communication_dyads should produce a clean ranked table.", "historical_ground_truth": "Lay's most frequent correspondents included his executive assistant Rosalee Fleming and senior executives.", "evidence_required": False},
+    {"question": "How many emails were exchanged between Kenneth Lay and Leonardo Pacheco?", "expected_entities": ["Kenneth Lay", "Leonardo Pacheco"], "category": "genie_routing", "graph_ground_truth": "communication_dyads shows ~28 emails from Pacheco to Lay. The direction is one-way: Pacheco -> Lay. The response must specify direction, not just say 'exchanged'.", "historical_ground_truth": "Leonardo Pacheco sent EnronOnline executive summaries and management reports to Kenneth Lay.", "evidence_required": False},
+    {"question": "Show me all emails between Kenneth Lay and Leonardo Pacheco", "expected_entities": ["Kenneth Lay", "Leonardo Pacheco"], "category": "genie_routing", "graph_ground_truth": "There are ~28 emails from Pacheco to Lay. A 'show all' request should return the full result set, not truncated to 5 or 15. Subjects include EnronOnline Executive Summary and Management Report.", "historical_ground_truth": "Pacheco sent daily EnronOnline summaries to Lay and other executives.", "evidence_required": True},
+    {"question": "What are the most common topics of email sent to Leonardo Pacheco?", "expected_entities": ["Leonardo Pacheco"], "category": "genie_routing", "graph_ground_truth": "The threads table with key_topics joined to entity_mentions should produce a ranked topic list. Topics likely include EnronOnline, transaction summaries, and management reports.", "historical_ground_truth": "Pacheco was involved in EnronOnline operations, receiving transaction and executive summaries.", "evidence_required": False},
+    {"question": "What percentage of Kenneth Lay's emails were from his assistant?", "expected_entities": ["Kenneth Lay", "Rosalee Fleming"], "category": "genie_routing", "graph_ground_truth": "person_activity and communication_dyads tables can compute this. Fleming's email count divided by Lay's total_received gives the percentage. This is a pure SQL aggregation.", "historical_ground_truth": "Rosalee Fleming was Lay's executive assistant and handled significant correspondence volume.", "evidence_required": False},
+    # --- Communication quality test cases (directional precision, honest gaps) ---
+    {"question": "Who is Bob Shults?", "expected_entities": ["Bob Shults"], "category": "communication", "graph_ground_truth": "Bob Shults is a Person entity in the graph with email bob.shults@enron.com. get_entity_summary should return department, title if available, and graph centrality. If no title/department exists, say so explicitly.", "historical_ground_truth": "Bob Shults was an Enron employee involved in EnronOnline operations.", "evidence_required": False},
+    {"question": "Who is Bob Shults to Leonardo Pacheco?", "expected_entities": ["Bob Shults", "Leonardo Pacheco"], "category": "communication", "graph_ground_truth": "get_emails_between shows ~39 emails primarily from Pacheco to Shults about EnronOnline summaries. The direction is predominantly Pacheco -> Shults. The response must characterize the direction correctly.", "historical_ground_truth": "Pacheco sent EnronOnline reports to Shults as part of the distribution list.", "evidence_required": True},
+    {"question": "Who reported to Bob Shults?", "expected_entities": ["Bob Shults"], "category": "communication", "graph_ground_truth": "query_org_hierarchy and find_connections for Bob Shults may return no REPORTS_TO or MANAGES relationships. The agent must honestly state 'no reporting relationships found' without fabricating structure.", "historical_ground_truth": "Bob Shults' reporting relationships are not well documented in the available data.", "evidence_required": False},
 ]
 
 
@@ -494,6 +513,271 @@ Return ONLY a JSON object with keys "score" (float) and "justification" (string)
         return Feedback(value=0.0, rationale=f"Judge failed: {e}")
 
 
+# ---------------------------------------------------------------------------
+# Corroboration scorers — cross-tool consistency and fabrication detection
+# ---------------------------------------------------------------------------
+
+@scorer
+def cross_tool_consistency(inputs, outputs, expectations=None):
+    """Check that the response doesn't contradict itself across different data sources.
+
+    Detects: claiming N emails exist then saying no emails found, reporting
+    a contact as #1 then failing to find emails with that contact, etc.
+    """
+    text = outputs if isinstance(outputs, str) else str(outputs)
+    if text.startswith("ERROR:") or len(text.strip()) < 20:
+        return Feedback(value=0.0, rationale=f"Agent error: {text[:100]}")
+    prompt = f"""{DATA_CONTEXT}
+
+Evaluate whether this response is INTERNALLY CONSISTENT — that is, whether
+different parts of the answer agree with each other.
+
+Look for these contradictions:
+1. Claiming a specific number of emails (e.g. "6 emails") but then saying "no emails found"
+2. Naming someone as a top contact but having no evidence of their communication
+3. Stating a relationship exists (e.g. "SENT_TO") but then showing no supporting emails
+4. The provenance section contradicting claims in the main body
+5. The evidence table containing emails that weren't mentioned by any tool
+
+Score 1.0 if the response is fully self-consistent.
+Score 0.5 if there are minor inconsistencies that don't affect the main answer.
+Score 0.0 if there are major contradictions (e.g. "6 emails" then "no emails found").
+
+Agent Response:
+{text[:4000]}
+
+Return ONLY a JSON object with keys "score" (float) and "justification" (string)."""
+    try:
+        parsed = _call_judge(prompt)
+        return Feedback(value=float(parsed["score"]), rationale=parsed.get("justification", ""))
+    except Exception as e:
+        return Feedback(value=0.0, rationale=f"Judge failed: {e}")
+
+
+@scorer
+def evidence_fabrication(inputs, outputs, expectations=None):
+    """Detect fabricated evidence — citations that don't match any tool output."""
+    text = outputs if isinstance(outputs, str) else str(outputs)
+    if text.startswith("ERROR:") or len(text.strip()) < 20:
+        return Feedback(value=0.0, rationale=f"Agent error: {text[:100]}")
+
+    citation_pattern = re.compile(
+        r'\[?\d{4}-\d{2}-\d{2},?\s*From:.*?(?:Subject|Re):.*?\]?', re.IGNORECASE
+    )
+    citations = citation_pattern.findall(text)
+    if not citations:
+        evidence_required = (expectations or {}).get("evidence_required", True)
+        if not evidence_required:
+            return Feedback(value=1.0, rationale="No citations needed and none present")
+        has_no_evidence_statement = any(
+            phrase in text.lower()
+            for phrase in ["no emails found", "no direct emails", "no email evidence", "not found"]
+        )
+        if has_no_evidence_statement:
+            return Feedback(value=1.0, rationale="Correctly states no evidence found")
+        return Feedback(value=0.5, rationale="No citations found but evidence was expected")
+
+    prompt = f"""{DATA_CONTEXT}
+
+The agent cited {len(citations)} pieces of email evidence in its response.
+Evaluate whether these citations appear to be REAL (grounded in tool data) or FABRICATED.
+
+Signs of fabrication:
+- Dates, subjects, or senders that seem invented (too specific without supporting context)
+- Citations that appear in a "Supporting Evidence" table but weren't mentioned in the tool results
+- Emails attributed to people who weren't queried by any tool
+- Suspiciously clean/perfect evidence that covers every claim exactly
+
+Signs of real evidence:
+- Dates consistent with 2000-2002 Enron email corpus
+- Senders/recipients that match @enron.com patterns
+- Subjects that feel like real email subject lines
+- Evidence that has gaps or imperfect coverage (realistic)
+
+Score 1.0 if all citations appear grounded.
+Score 0.5 if some citations are questionable.
+Score 0.0 if citations appear fabricated.
+
+Agent Response (with citations):
+{text[:4000]}
+
+Return ONLY a JSON object with keys "score" (float) and "justification" (string)."""
+    try:
+        parsed = _call_judge(prompt)
+        return Feedback(value=float(parsed["score"]), rationale=parsed.get("justification", ""))
+    except Exception as e:
+        return Feedback(value=0.0, rationale=f"Judge failed: {e}")
+
+
+@scorer
+def spelling_correction_transparency(inputs, outputs, expectations=None):
+    """For questions with typos, check if the agent surfaces the correction."""
+    text = outputs if isinstance(outputs, str) else str(outputs)
+    if text.startswith("ERROR:") or len(text.strip()) < 20:
+        return Feedback(value=0.0, rationale=f"Agent error: {text[:100]}")
+
+    question = inputs.get("question", "") if isinstance(inputs, dict) else str(inputs)
+    category = (expectations or {}).get("category", "")
+    if category != "corroboration":
+        return Feedback(value=1.0, rationale="Not a corroboration question — skipping")
+
+    typo_pairs = {
+        "dassovich": "dasovich",
+        "jeffery": "jeffrey",
+        "fasttow": "fastow",
+    }
+
+    q_lower = question.lower()
+    has_typo = False
+    correct_form = None
+    for typo, correct in typo_pairs.items():
+        if typo in q_lower:
+            has_typo = True
+            correct_form = correct
+            break
+
+    if not has_typo:
+        return Feedback(value=1.0, rationale="No typo in question — skipping")
+
+    text_lower = text.lower()
+    mentions_correction = any(
+        phrase in text_lower
+        for phrase in ["corrected to", "did you mean", "correcting", "note:", "spelling"]
+    )
+    found_correct = correct_form and correct_form in text_lower
+
+    if mentions_correction and found_correct:
+        return Feedback(value=1.0, rationale="Transparently corrected the typo")
+    if found_correct:
+        return Feedback(value=0.5, rationale="Found correct entity but didn't mention the correction")
+    return Feedback(value=0.0, rationale="Failed to resolve the typo or find the correct entity")
+
+
+# ---------------------------------------------------------------------------
+# Genie routing scorers — conciseness, directional precision, routing quality
+# ---------------------------------------------------------------------------
+
+@scorer
+def response_conciseness(inputs, outputs, expectations=None):
+    """Penalize verbose, repetitive responses for simple tabular questions."""
+    text = outputs if isinstance(outputs, str) else str(outputs)
+    if text.startswith("ERROR:") or len(text.strip()) < 20:
+        return Feedback(value=0.0, rationale=f"Agent error: {text[:100]}")
+    question = inputs.get("question", "") if isinstance(inputs, dict) else str(inputs)
+    word_count = len(text.split())
+    prompt = f"""{DATA_CONTEXT}
+
+Evaluate whether this response is CONCISE and avoids redundancy.
+
+User Question: {question}
+Response word count: {word_count}
+
+Check for these verbosity problems:
+1. The SAME fact restated in multiple sections (e.g., email count repeated in body, table header, and provenance)
+2. Boilerplate suggestions the user didn't ask for ("To see all emails, ask...")
+3. Sections that add no new information beyond what earlier sections already covered
+4. For simple count/ranking questions: does the response exceed 300 words when a table + one sentence would suffice?
+
+Scoring rubric (0.0 to 1.0):
+- 1.0: Each fact stated once, no redundant sections, proportional length to question complexity.
+- 0.7: Minor repetition (1-2 restated facts) but generally concise.
+- 0.5: Noticeable repetition across sections, some unnecessary boilerplate.
+- 0.3: Significant redundancy — same facts appear 3+ times, excessive boilerplate.
+- 0.0: Extremely verbose, most content is restated or filler.
+
+Agent Response:
+{text[:3000]}
+
+Return ONLY a JSON object with keys "score" (float) and "justification" (string)."""
+    try:
+        parsed = _call_judge(prompt)
+        return Feedback(value=float(parsed["score"]), rationale=parsed.get("justification", ""))
+    except Exception as e:
+        return Feedback(value=0.0, rationale=f"Judge failed: {e}")
+
+
+@scorer
+def directional_precision(inputs, outputs, expectations=None):
+    """Check that 'sent' vs 'received' vs 'exchanged' matches actual data direction."""
+    text = outputs if isinstance(outputs, str) else str(outputs)
+    if text.startswith("ERROR:") or len(text.strip()) < 20:
+        return Feedback(value=0.0, rationale=f"Agent error: {text[:100]}")
+
+    category = (expectations or {}).get("category", "")
+    if category not in ("genie_routing", "communication", "entity_pair_evidence", "corroboration"):
+        return Feedback(value=1.0, rationale="Not a directional question — skipping")
+
+    question = inputs.get("question", "") if isinstance(inputs, dict) else str(inputs)
+    graph_gt = (expectations or {}).get("graph_ground_truth", "")
+    prompt = f"""{DATA_CONTEXT}
+
+Evaluate whether this response uses DIRECTIONALLY PRECISE language about email communication.
+
+User Question: {question}
+Graph Ground Truth: {graph_gt}
+
+Rules:
+- "exchanged" or "between" implies BIDIRECTIONAL communication (both A->B and B->A)
+- "sent" or "sent to" implies ONE-DIRECTIONAL (A->B only)
+- "received from" implies ONE-DIRECTIONAL (B->A only)
+- If all emails go one direction, the response MUST NOT say "exchanged" — it should say "sent" or "received"
+- If the response includes directional counts (e.g., "15 from A to B, 3 from B to A"), that's precise
+- If the tool data shows one-directional communication but the response says "exchanged", that's wrong
+
+Scoring rubric (0.0 to 1.0):
+- 1.0: Directional language matches the actual data. Counts are attributed to correct direction.
+- 0.7: Mostly correct but one imprecise term (e.g., "exchanged" when direction is 90/10 split).
+- 0.5: Mixed — some directional claims correct, others vague or wrong.
+- 0.3: Uses "exchanged" for clearly one-directional data, or reverses the direction.
+- 0.0: Completely wrong direction or fabricated directional claims.
+
+Agent Response:
+{text[:3000]}
+
+Return ONLY a JSON object with keys "score" (float) and "justification" (string)."""
+    try:
+        parsed = _call_judge(prompt)
+        return Feedback(value=float(parsed["score"]), rationale=parsed.get("justification", ""))
+    except Exception as e:
+        return Feedback(value=0.0, rationale=f"Judge failed: {e}")
+
+
+@scorer
+def routing_appropriateness(inputs, outputs, expectations=None):
+    """For genie_routing questions, check if the response looks like clean tabular output."""
+    text = outputs if isinstance(outputs, str) else str(outputs)
+    if text.startswith("ERROR:") or len(text.strip()) < 20:
+        return Feedback(value=0.0, rationale=f"Agent error: {text[:100]}")
+
+    category = (expectations or {}).get("category", "")
+    if category != "genie_routing":
+        return Feedback(value=1.0, rationale="Not a genie_routing question — skipping")
+
+    word_count = len(text.split())
+    has_table = bool(re.search(r'\|.*\|.*\|', text))
+    has_sql_artifact = any(kw in text.lower() for kw in ["select ", "group by", "order by", "query_and_enrich", "genie"])
+    has_provenance = "provenance" in text.lower() or "sources:" in text.lower()
+    section_count = text.count("##")
+
+    if has_sql_artifact or (has_table and word_count < 400):
+        score = 1.0
+        rationale = "Response appears Genie-routed: clean tabular output"
+    elif has_table and word_count < 600:
+        score = 0.7
+        rationale = f"Has table but somewhat verbose ({word_count} words)"
+    elif has_table:
+        score = 0.5
+        rationale = f"Has table but excessively verbose ({word_count} words, {section_count} sections)"
+    elif word_count > 500:
+        score = 0.2
+        rationale = f"No table, verbose narrative ({word_count} words) — likely mis-routed to graph tools"
+    else:
+        score = 0.3
+        rationale = f"No table output ({word_count} words) — may not have routed to Genie"
+
+    return Feedback(value=score, rationale=rationale)
+
+
 ALL_SCORERS = [
     evidence_quality,
     participant_verification,
@@ -505,6 +789,12 @@ ALL_SCORERS = [
     provenance_completeness,
     citation_accuracy,
     retrieval_relevance,
+    cross_tool_consistency,
+    evidence_fabrication,
+    spelling_correction_transparency,
+    response_conciseness,
+    directional_precision,
+    routing_appropriateness,
 ]
 
 

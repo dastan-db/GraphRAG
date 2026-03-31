@@ -82,7 +82,7 @@ def generate():
     w("")
     w(f"**Date:** {date.today().strftime('%B %d, %Y')}")
     w("**Suite version:** 2.1")
-    w("**Domain:** Biblical KJV Knowledge Graph (Genesis, Exodus, Ruth, Matthew, Acts)")
+    w("**Domain:** Biblical KJV Knowledge Graph (all 66 books)")
     w("**Judge model:** Llama 3.3 70B Instruct (temperature=0, max_tokens=512)")
     w("")
     w("---")

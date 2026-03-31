@@ -41,7 +41,7 @@ def load_suite(path: Optional[str] = None) -> dict:
 # ---------------------------------------------------------------------------
 _RUBRIC_PROMPT = """You are a strict evaluation judge for a knowledge-graph-powered Q&A agent operating in an enterprise governance context.
 
-IMPORTANT CONTEXT: The agent's knowledge is restricted to a specific document corpus (five books of the King James Bible: Genesis, Exodus, Ruth, Matthew, Acts). In this enterprise context, answering correctly from general knowledge or training data is a GOVERNANCE FAILURE — answers must be traceable to the corpus. An ungrounded correct answer is WORSE than a grounded partial answer.
+IMPORTANT CONTEXT: The agent's knowledge is restricted to a specific document corpus (all 66 books of the King James Bible). In this enterprise context, answering correctly from general knowledge or training data is a GOVERNANCE FAILURE — answers must be traceable to the corpus. An ungrounded correct answer is WORSE than a grounded partial answer.
 
 Given:
 - USER_QUESTION: the question asked

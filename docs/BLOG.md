@@ -133,7 +133,7 @@ This is not a quality gap that improves with better models or more data. It is a
 
 ### Hallucination Resistance: Correctness Without Proof Is Liability
 
-The hallucination check scorer validates whether factual claims are traceable to the source corpus (five books of the King James Bible). Here is where the data gets uncomfortable:
+The hallucination check scorer validates whether factual claims are traceable to the source corpus (all 66 books of the King James Bible). Here is where the data gets uncomfortable:
 
 | Configuration | Correctness | Hallucination Check (% passing) |
 |---|---|---|
@@ -196,7 +196,7 @@ The framework is designed to be domain-portable. Swap the evaluation dataset and
 
 ## From Demo to Production
 
-This implementation uses the King James Bible as a demo corpus — five books chosen for their dense, cross-referencing network of people, places, and events where lineage connections are independently verifiable. But the architecture is domain-agnostic.
+This implementation uses the complete King James Bible as a demo corpus — all 66 books with their dense, cross-referencing network of people, places, and events where lineage connections are independently verifiable. But the architecture is domain-agnostic.
 
 For enterprise deployment, the same pattern applies directly:
 

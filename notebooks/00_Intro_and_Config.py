@@ -10,15 +10,7 @@
 # MAGIC
 # MAGIC ### This Demo
 # MAGIC
-# MAGIC We demonstrate GraphRAG using five books from the **King James Bible** — chosen for their dense, cross-referencing network of people, places, and events:
-# MAGIC
-# MAGIC | Book | Testament | Chapters | Why Selected |
-# MAGIC |------|-----------|----------|--------------|
-# MAGIC | **Genesis** | OT | 50 | Foundational: Abraham, Isaac, Jacob, Joseph, creation, covenant |
-# MAGIC | **Exodus** | OT | 40 | Continues Genesis: Moses, plagues, Law, Sinai |
-# MAGIC | **Ruth** | OT | 4 | Bridge book: connects patriarchs to David's lineage (→ Jesus) |
-# MAGIC | **Matthew** | NT | 28 | Genealogy traces Jesus to Abraham/David/Ruth; constant OT quotes |
-# MAGIC | **Acts** | NT | 28 | References Abraham, Moses, David; Peter and Paul's missions |
+# MAGIC We demonstrate GraphRAG using the **complete King James Bible** (all 66 books — 39 Old Testament, 27 New Testament) — the densest, most cross-referencing corpus of people, places, and events available, with independently verifiable ground truth.
 # MAGIC
 # MAGIC ### Pipeline Overview
 # MAGIC

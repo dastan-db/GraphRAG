@@ -7,8 +7,8 @@ STEPS = [
         "color": "#dc3545",
         "desc": (
             "Point the pipeline at a document collection. The data is ingested and stored as "
-            "Delta tables in Unity Catalog. In our demo, we load five books of the King James "
-            "Bible: Genesis, Exodus, Ruth, Matthew, and Acts."
+            "Delta tables in Unity Catalog. In our demo, we load all 66 books of the King James "
+            "Bible (39 Old Testament + 27 New Testament)."
         ),
         "notebook": "01_Data_Prep.py",
     },

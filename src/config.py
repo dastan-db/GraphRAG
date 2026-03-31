@@ -117,6 +117,16 @@ config['evidence_config'] = {
     "plateau_threshold_pp": 2,
 }
 
+config['tool_sla_thresholds_ms'] = {
+    "find_entity": 3000,
+    "find_connections": 8000,
+    "trace_path": 20000,
+    "get_source_evidence": 15000,
+    "get_source_context": 15000,
+    "get_entity_summary": 15000,
+    "graph_exhaustion_check": 20000,
+}
+
 # COMMAND ----------
 
 # DBTITLE 1,Enron ABAC Config
@@ -140,13 +150,8 @@ config['enron_abac_col_mask_fn'] = f"{_enron_abac}.mask_bcc"
 # COMMAND ----------
 
 # DBTITLE 1,Bible Books to Ingest
-config['bible_books'] = {
-    'Genesis': {'chapters': 50, 'testament': 'OT'},
-    'Exodus': {'chapters': 40, 'testament': 'OT'},
-    'Ruth': {'chapters': 4, 'testament': 'OT'},
-    'Matthew': {'chapters': 28, 'testament': 'NT'},
-    'Acts': {'chapters': 28, 'testament': 'NT'},
-}
+# Full 66-book KJV Bible corpus (loaded eagerly from bible_registry below)
+# This dict is populated after BIBLE_BOOKS_ALL is imported.
 
 # COMMAND ----------
 
@@ -177,6 +182,7 @@ except ModuleNotFoundError:
                 break
     from bible_registry import BIBLE_BOOKS_ALL
 config['bible_books_all'] = BIBLE_BOOKS_ALL
+config['bible_books'] = BIBLE_BOOKS_ALL
 
 # COMMAND ----------
 

@@ -177,6 +177,22 @@ def mock_backend(mod):
     return _factory
 
 
+def _make_resolved(mod, name, *, entity_id_patterns=None, email_patterns=None,
+                   email_addresses=None, confidence="exact"):
+    """Create a ResolvedEntity for test patches."""
+    slug = "_".join(name.lower().split())
+    return mod.ResolvedEntity(
+        input_name=name,
+        canonical_name=name,
+        entity_id=slug,
+        entity_id_patterns=entity_id_patterns or [f"%{slug}%"],
+        email_patterns=email_patterns or [],
+        email_addresses=email_addresses or [],
+        confidence=confidence,
+        correction=None,
+    )
+
+
 # ===================================================================
 # Layer 1: Unit Tests — _is_likely_same_person
 # ===================================================================
@@ -288,13 +304,14 @@ class TestSearchEmailsRecipient:
 
     def test_recipient_filter_in_sql(self, mod, mock_backend):
         responses = [
-            [],  # _resolve_name_to_email for recipient
+            [],
             [{"date": "2001-01-01", "sender": "a@e.com",
               "subject": "Test", "body_preview": "hello"}],
         ]
         backend, patcher = mock_backend(responses)
+        resolved = _make_resolved(mod, "Kenneth Lay", email_patterns=["%lay%"])
         with patcher:
-            with patch.object(mod, "_resolve_name_to_email", return_value=["%lay%"]):
+            with patch.object(mod, "resolve_entity_cached", return_value=resolved):
                 result = mod.search_emails(
                     keywords="test",
                     recipient="Kenneth Lay",
@@ -977,9 +994,14 @@ class TestGetEntitySummaryEnriched:
             [],       # entity_analytics query
             [],       # department query
         ])
-        with ctx, patch.object(mod, "_resolve_name_to_email", return_value=["%mike.roberts@enron.com%"]):
-            with patch.object(mod, "_resolve_enron_entity_id", return_value=["%mike_a_roberts%", "%mike_roberts%"]):
-                result = mod.get_entity_summary("Mike A Roberts")
+        resolved = _make_resolved(
+            mod, "Mike A Roberts",
+            entity_id_patterns=["%mike_a_roberts%", "%mike_roberts%"],
+            email_patterns=["%mike.roberts@enron.com%"],
+            email_addresses=["mike.roberts@enron.com"],
+        )
+        with ctx, patch.object(mod, "resolve_entity_cached", return_value=resolved):
+            result = mod.get_entity_summary("Mike A Roberts")
         parsed = json.loads(result)
         assert "email_addresses" in parsed
 
@@ -1000,9 +1022,8 @@ class TestGetEntitySummaryEnriched:
             analytics_rows,   # entity_analytics
             [],               # department
         ])
-        with ctx, \
-            patch.object(mod, "_resolve_name_to_email", return_value=[]), \
-            patch.object(mod, "_resolve_enron_entity_id", return_value=["%kenneth_lay%"]):
+        resolved = _make_resolved(mod, "Kenneth Lay", entity_id_patterns=["%kenneth_lay%"])
+        with ctx, patch.object(mod, "resolve_entity_cached", return_value=resolved):
             result = mod.get_entity_summary("Kenneth Lay")
         parsed = json.loads(result)
         assert "centrality" in parsed
@@ -1025,7 +1046,8 @@ class TestFindConnectionsTemporal:
             "confidence": 0.92,
         }]
         backend, ctx = mock_backend([conn_rows])
-        with ctx, patch.object(mod, "_resolve_enron_entity_id", return_value=["%kenneth_lay%"]):
+        resolved = _make_resolved(mod, "Kenneth Lay", entity_id_patterns=["%kenneth_lay%"])
+        with ctx, patch.object(mod, "resolve_entity_cached", return_value=resolved):
             result = mod.find_connections("Kenneth Lay", relationship_type="MANAGES")
         parsed = json.loads(result)
         conns = parsed["by_type"]["MANAGES"]
@@ -1048,7 +1070,8 @@ class TestFindEmails:
             "subject": "Late night", "body_preview": "Working late",
         }]
         backend, ctx = mock_backend([email_rows])
-        with ctx, patch.object(mod, "_resolve_name_to_email", return_value=["%skilling%"]):
+        resolved = _make_resolved(mod, "Jeff Skilling", email_patterns=["%skilling%"])
+        with ctx, patch.object(mod, "resolve_entity_cached", return_value=resolved):
             result = mod.find_emails(person_a="Jeff Skilling", hour_from=18)
         assert "HOUR(date)" in backend.queries[0]["query"]
         parsed = json.loads(result)
@@ -1079,7 +1102,8 @@ class TestFindEmails:
             "subject": "Meeting", "body_preview": "Let's discuss",
         }]
         backend, ctx = mock_backend([email_rows])
-        with ctx, patch.object(mod, "_resolve_name_to_email", return_value=["%lay%"]):
+        resolved = _make_resolved(mod, "Kenneth Lay", email_patterns=["%lay%"])
+        with ctx, patch.object(mod, "resolve_entity_cached", return_value=resolved):
             result = mod.find_emails(
                 person_a="Kenneth Lay", person_b="Jeff Skilling",
                 hour_from=18, hour_to=23,
@@ -1145,3 +1169,123 @@ class TestQueryAndEnrichEnhanced:
             parsed = json.loads(result)
             enrichment = parsed.get("enrichment", {})
             assert "role_context" in enrichment or "coverage_warnings" in enrichment
+
+
+# ===================================================================
+# Coreference Resolution Tests
+# ===================================================================
+
+class TestCoreference:
+    """Tests for coreference resolution and user-entity tracking."""
+
+    def test_planner_does_not_regex_resolve(self, mod):
+        """_plan_query should pass the original question to the planner,
+        not the regex-rewritten version."""
+        question = "Who is his assistant?"
+        history = [
+            {"role": "user", "content": "Who reported to Jeff Skilling?"},
+            {"role": "assistant", "content": "8 people reported to Jeff Skilling."},
+        ]
+        em_context = "\nRecent entities from prior conversation: Gina Corteselli, Jeff Skilling\n"
+
+        # _plan_query builds user_block with the question — verify the question
+        # is not mangled by regex before reaching the planner.
+        # We mock the LLM to capture what it receives.
+        captured = {}
+        class _FakeLLM:
+            def invoke(self, messages):
+                captured["user_block"] = messages[-1]["content"] if messages else ""
+                class _R:
+                    content = json.dumps({
+                        "resolved_question": "Who is Jeff Skilling assistant?",
+                        "sub_questions": [{
+                            "id": "sq1",
+                            "question": "Who is Jeff Skilling's assistant?",
+                            "pattern": "entity_structure",
+                            "entities": [{"name": "Jeff Skilling"}],
+                            "keywords": "", "date_from": "", "date_to": "",
+                            "depends_on": [],
+                        }],
+                    })
+                return _R()
+
+        with patch.object(mod, "_get_llm", return_value=_FakeLLM()):
+            plan = mod._plan_query(question, history, em_context)
+
+        assert "## Current Question\nWho is his assistant?" in captured["user_block"], \
+            "Planner should receive the original question with pronouns intact"
+        assert "Gina Corteselli" not in captured["user_block"].split("## Current Question")[1], \
+            "Pronouns should NOT be regex-replaced before the planner sees them"
+
+    def test_user_entity_prioritized_in_context(self, mod):
+        """context_for_classifier() must list user-mentioned entities before
+        tool-extracted ones."""
+        em = mod.EntityMemory()
+        em.extract('[{"name": "Andrew Fastow"}, {"name": "Gina Corteselli"}]')
+        em.record_user_entity("Jeff Skilling")
+        ctx = em.context_for_classifier()
+        names = ctx.replace("Recent entities from prior conversation:", "").strip().split(", ")
+        assert names[0] == "Jeff Skilling", \
+            f"User-mentioned entity should be first, got: {names}"
+
+    def test_record_user_entity(self, mod):
+        """record_user_entity tracks and deduplicates, most-recent first."""
+        em = mod.EntityMemory()
+        em.record_user_entity("Kenneth Lay")
+        em.record_user_entity("Jeff Skilling")
+        em.record_user_entity("Kenneth Lay")
+        assert em.user_mentioned == ["Kenneth Lay", "Jeff Skilling"], \
+            "Re-recording should move entity to front"
+
+    def test_resolve_coreference_uses_user_entity(self, mod):
+        """Fallback resolver should use the first entity from context
+        (now the user-mentioned entity) for pronoun replacement."""
+        em = mod.EntityMemory()
+        em.extract('{"name": "Gina Corteselli"}')
+        em.record_user_entity("Jeff Skilling")
+        ctx = em.context_for_classifier()
+
+        resolved = mod._resolve_coreference("Who is his assistant?", [], ctx)
+        assert "Jeff Skilling" in resolved
+        assert "Gina Corteselli" not in resolved
+
+    def test_resolve_coreference_skips_long_questions(self, mod):
+        """Questions longer than 15 words should not be rewritten — they
+        likely name their own subjects."""
+        long_q = "What was the relationship between his department and the energy trading division during the California energy crisis in 2001?"
+        ctx = "\nRecent entities from prior conversation: Jeff Skilling\n"
+        result = mod._resolve_coreference(long_q, [], ctx)
+        assert result == long_q, "Long questions should pass through unchanged"
+
+    def test_entity_memory_clear_includes_user_mentioned(self, mod):
+        """clear() should reset both tool-extracted and user-mentioned lists."""
+        em = mod.EntityMemory()
+        em.extract('{"name": "Kenneth Lay"}')
+        em.record_user_entity("Jeff Skilling")
+        em.clear()
+        assert len(em.recent) == 0
+        assert len(em.user_mentioned) == 0
+
+
+# ===================================================================
+# Provenance Format Tests
+# ===================================================================
+
+class TestProvenanceFormat:
+    """Tests verifying the Supporting Evidence Table is in all code paths."""
+
+    def test_enron_system_prompt_has_evidence_table(self, mod):
+        """ENRON_SYSTEM_PROMPT must include the Supporting Evidence Table
+        so the free-agent loop produces it."""
+        prompt = mod.ENRON_SYSTEM_PROMPT
+        assert "Supporting Evidence Table" in prompt
+
+    def test_enron_system_prompt_has_data_lineage(self, mod):
+        """ENRON_SYSTEM_PROMPT must include Data Lineage field."""
+        prompt = mod.ENRON_SYSTEM_PROMPT
+        assert "Data Lineage" in prompt
+
+    def test_enron_system_prompt_has_confidence_per_claim(self, mod):
+        """ENRON_SYSTEM_PROMPT must include per-claim confidence."""
+        prompt = mod.ENRON_SYSTEM_PROMPT
+        assert "Confidence per claim" in prompt

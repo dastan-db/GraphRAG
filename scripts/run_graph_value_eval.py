@@ -36,8 +36,8 @@ MODELS = {
 RAW_SYSTEM_PROMPT = (
     "You are a biblical scholar. Answer the question using ONLY your training knowledge. "
     "You do NOT have access to any database, knowledge graph, or search tools. "
-    "When a question mentions a 'knowledge graph', answer as if it said 'the five books "
-    "Genesis, Exodus, Ruth, Matthew, and Acts from the King James Bible'. "
+    "When a question mentions a 'knowledge graph', answer as if it said 'all 66 books "
+    "of the King James Bible'. "
     "Be as specific and precise as possible — include verse references and complete lists when asked."
 )
 

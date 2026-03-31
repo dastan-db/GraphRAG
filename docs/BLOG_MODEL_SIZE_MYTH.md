@@ -166,6 +166,6 @@ The question for engineering leaders is not "Which model should we use?" It is "
 
 ---
 
-*This analysis is based on the [GraphRAG Solution Accelerator](https://github.com/databricks/GraphRAG), a Databricks-native implementation of graph-structured retrieval with provenance. The evaluation suite, scoring methodology, and full per-case results are available in the repository. The demo corpus uses five books of the King James Bible as a proxy for enterprise document collections — chosen for its dense entity networks and independently verifiable ground truth.*
+*This analysis is based on the [GraphRAG Solution Accelerator](https://github.com/databricks/GraphRAG), a Databricks-native implementation of graph-structured retrieval with provenance. The evaluation suite, scoring methodology, and full per-case results are available in the repository. The demo corpus uses all 66 books of the King James Bible as a proxy for enterprise document collections — chosen for its dense entity networks and independently verifiable ground truth.*
 
 *For the complementary governance perspective — why auditability, not just accuracy, is the deployment prerequisite — see [Part 1: Why Your AI Can't Show Its Work](./BLOG.md).*

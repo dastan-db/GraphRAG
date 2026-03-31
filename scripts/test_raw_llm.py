@@ -38,7 +38,7 @@ _load_env_file(os.path.join(_SCRIPT_DIR, "..", ".env.local"))
 SYSTEM_PROMPT = (
     "You are a biblical scholar. Answer the question using ONLY your training knowledge. "
     "You do NOT have access to any database, knowledge graph, or search tools. "
-    "When a question specifies particular books (e.g. Genesis, Exodus, Ruth, Matthew, Acts), "
+    "When a question specifies particular books (e.g. Genesis, Exodus, Ruth, Matthew, Acts, or any other book of the KJV Bible), "
     "restrict your answer strictly to information found in those books — do not use "
     "knowledge from other biblical books or external sources. "
     "Be as specific and precise as possible — include exact counts, verse references, "

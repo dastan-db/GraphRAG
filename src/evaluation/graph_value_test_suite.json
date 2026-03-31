@@ -2,7 +2,7 @@
   "metadata": {
     "name": "GraphRAG Graph-Value Evaluation Suite",
     "version": "2.0",
-    "domain": "Biblical KJV knowledge graph (Genesis, Exodus, Ruth, Matthew, Acts)",
+    "domain": "Biblical KJV knowledge graph (all 66 books)",
     "description": "35-case core evaluation suite + 12 document-scoped access-control cases. Includes source_grounding (0-3) and scope_compliance (0-2) dimensions for enterprise governance evaluation.",
     "total_cases": 35,
     "total_scoped_cases": 12
@@ -1623,13 +1623,13 @@
     {
       "id": "set-03",
       "category": "set-ops",
-      "user_question": "Which entities appear in all five books of the knowledge graph (Genesis, Exodus, Ruth, Matthew, Acts)?",
-      "required_graph_operations": "Use find_cross_book_entities with min_books=5.",
+      "user_question": "Which entities appear in the most books of the knowledge graph?",
+      "required_graph_operations": "Use find_cross_book_entities with a high min_books threshold.",
       "expected_tool_calls": [
         {
           "function": "find_cross_book_entities",
           "arguments": {
-            "min_books": 5
+            "min_books": 10
           }
         }
       ],
@@ -1666,11 +1666,11 @@
       "scoring_rubric": {
         "tool_use_correctness": {
           "max": 2,
-          "criteria": "Uses find_cross_book_entities(min_books=5)"
+          "criteria": "Uses find_cross_book_entities with a high min_books threshold"
         },
         "evidence_correctness": {
           "max": 3,
-          "criteria": "Correctly identifies Lord as the only entity in all 5 books"
+          "criteria": "Correctly identifies entities spanning the most books"
         },
         "grounded_answer": {
           "max": 3,
@@ -1681,13 +1681,13 @@
           "criteria": "Notes the significance of Lord being the only universal entity"
         }
       },
-      "gold_answer": "Only one entity appears in all five books: Lord (Person). No other entity spans Genesis, Exodus, Ruth, Matthew, and Acts. The next tier (4 books) includes Abraham, God, Isaac, Jacob, and Joseph.",
+      "gold_answer": "The entity spanning the most books is Lord (Person), appearing across both testaments. Other widely-spanning entities include God, Moses, Abraham, David, Israel, and Jacob. Use find_cross_book_entities for exact counts.",
       "why_graph_wins": "Precise cross-book counting requires aggregating relationship metadata; flat RAG cannot determine exact book-count per entity.",
       "failure_modes": {
         "baseline_rag_likely_failure": "Flat RAG might guess God or Abraham spans all books but cannot verify the exact count.",
         "common_agent_mistakes": [
-          "Claiming God or Abraham appear in all 5 books (they appear in 4)",
-          "Not checking whether entities have relationships in Ruth specifically"
+          "Guessing book counts without using find_cross_book_entities",
+          "Not verifying exact book-appearance counts via tools"
         ]
       }
     },
@@ -1784,7 +1784,7 @@
       "failure_modes": {
         "baseline_rag_likely_failure": "Flat RAG retrieves passages from each book but cannot compute the three-way set operation.",
         "common_agent_mistakes": [
-          "Including Lord which appears in all 5 books including Genesis",
+          "Including universally-spanning entities without book-specific filtering",
           "Missing Salmon as a shared entity"
         ]
       }
@@ -1850,13 +1850,13 @@
           "criteria": "Lists which books each top entity appears in"
         }
       },
-      "gold_answer": "Top 5 by book count: (1) Lord -- 5 books (all). Tied at 4 books: Abraham, God, Isaac, Jacob, Joseph -- all appear in Acts, Exodus, Genesis, Matthew. Next tier at 3 books: Angel of the Lord, David, Egypt, Moses, Pharaoh.",
+      "gold_answer": "Top entities by book count: Lord spans the most books across both testaments. Other widely-spanning entities include God, Moses, Abraham, David, Israel, and Jacob. Use find_cross_book_entities and list_entities_by_book for exact counts across all 66 books.",
       "why_graph_wins": "Ranked aggregation over graph metadata requires counting distinct book appearances per entity; flat RAG cannot aggregate this.",
       "failure_modes": {
         "baseline_rag_likely_failure": "Flat RAG cannot rank entities by book-appearance count.",
         "common_agent_mistakes": [
           "Claiming Moses appears in 4+ books (he appears in 3)",
-          "Not distinguishing between 4-book and 5-book entities"
+          "Not using find_cross_book_entities for precise counts"
         ]
       }
     },
@@ -2352,8 +2352,8 @@
           "criteria": "Explicitly notes the limited graph coverage of Solomon"
         }
       },
-      "gold_answer": "The graph records Solomon as David's son (Matthew ch.1), father of Roboam, and ancestor of Jesus. God spoke to and blessed Solomon (Matthew ch.6). Solomon's Porch appears in Acts ch.3 as a location. The graph does not contain Solomon's kingship details, temple, or wisdom traditions.",
-      "why_graph_wins": "Graph constrains the answer to only stored triples; the agent must resist hallucinating well-known Solomon facts (temple, wisdom, Queen of Sheba) that are not in the 5-book corpus.",
+      "gold_answer": "The graph records Solomon extensively: David's son (Matthew ch.1, 1 Chronicles), father of Roboam, ancestor of Jesus. With the full 66-book corpus, Solomon's kingship, temple construction (1 Kings, 2 Chronicles), wisdom traditions (Proverbs, Ecclesiastes, Song of Solomon), and Solomon's Porch (Acts ch.3) are all represented.",
+      "why_graph_wins": "Graph constrains the answer to only stored triples; the agent must use tools to verify which Solomon facts are in the graph rather than relying on training data.",
       "failure_modes": {
         "baseline_rag_likely_failure": "Flat RAG may retrieve Matthew ch.1/6 text mentioning Solomon and the agent may augment with training knowledge about the temple.",
         "common_agent_mistakes": [
@@ -2409,14 +2409,14 @@
         },
         "grounded_answer": {
           "max": 3,
-          "criteria": "Does not hallucinate Elijah's Old Testament actions (1 Kings) which are not in the 5-book corpus"
+          "criteria": "Correctly identifies Elijah/Elias across both 1/2 Kings and Matthew using the full corpus"
         },
         "completeness": {
           "max": 2,
           "criteria": "Correctly identifies the KJV spelling difference"
         }
       },
-      "gold_answer": "The name 'Elijah' is not in the graph; however, 'Esaias' (KJV form of Isaiah, sometimes confused with Elias/Elijah) is present with PROPHESIED relationships in Matthew. 'Elias' (KJV Elijah) may also be present. The graph covers only 5 books and does not include 1/2 Kings where Elijah's main narrative appears.",
+      "gold_answer": "The KJV uses 'Elias' for Elijah and 'Esaias' for Isaiah. With the full 66-book corpus, Elijah/Elias appears extensively in 1 Kings and 2 Kings as well as Matthew. The agent should use find_entity to check both modern and KJV spellings.",
       "why_graph_wins": "Tests the agent's ability to handle name variants (modern vs. KJV spelling) and resist hallucinating content from books not in the corpus.",
       "failure_modes": {
         "baseline_rag_likely_failure": "Flat RAG retrieves text mentioning 'Elias' in Matthew but may conflate with Elijah's 1 Kings narrative.",
@@ -2606,7 +2606,7 @@
     {
       "id": "adv-06",
       "category": "adversarial",
-      "user_question": "According to the knowledge graph, did Paul write any of the five books (Genesis, Exodus, Ruth, Matthew, Acts)?",
+      "user_question": "According to the knowledge graph, did Paul write any of the 66 books of the Bible?",
       "required_graph_operations": "Look up Paul's connections; check if any authorship relationships exist.",
       "expected_tool_calls": [
         {
@@ -2923,7 +2923,7 @@
         "Salmon in both"
       ],
       "forbidden_facts": [
-        "Lord appearing in all 5 books",
+        "Lord appearing across many books",
         "God in Genesis/Exodus",
         "Moses in Exodus/Matthew/Acts",
         "Abraham in Genesis/Acts/Matthew"
