@@ -128,9 +128,9 @@ The knowledge graph is stored in Delta tables on Databricks — entities, relati
 | `find_entity` | Search entities by name, with optional document-scope filtering |
 | `find_connections` | Retrieve relationships for an entity (source or target) |
 | `trace_path` | BFS shortest path between two entities across the graph |
-| `get_context` | Retrieve text for citation-level provenance |
+| `get_source_evidence` | Retrieve text for citation-level provenance |
 | `get_entity_summary` | Entity profile with relationship counts and in-document appearances |
-| `find_cross_entities` | Entities appearing across multiple documents |
+| `find_cross_book_entities` | Entities appearing across multiple documents |
 
 Every tool executes SQL against Delta tables through a pluggable backend (Databricks SQL in production, DuckDB for local development). Every tool call is traced via MLflow. Every query result becomes part of the provenance chain.
 

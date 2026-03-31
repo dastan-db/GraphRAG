@@ -372,7 +372,7 @@ EVAL_DATA = [
         "graph_ground_truth": (
             "The graph may contain entities for LJM, Raptors, or other SPE names. "
             "Fastow should be connected via DISCUSSES or PARTICIPATES_IN. "
-            "get_context_verses('LJM') can find relevant emails."
+            "get_source_evidence('LJM') can find relevant emails."
         ),
         "historical_ground_truth": (
             "SPE discussions centered on LJM, Raptors, Chewco, and JEDI "
@@ -386,7 +386,7 @@ EVAL_DATA = [
         "category": "topic",
         "graph_ground_truth": (
             "Arthur Andersen LLP exists in the graph as an Organization. "
-            "find_entity and get_context_verses should surface audit-related emails."
+            "find_entity and get_source_evidence should surface audit-related emails."
         ),
         "historical_ground_truth": (
             "Emails about Andersen covered audit reviews, accounting treatment "
@@ -504,7 +504,7 @@ EVAL_DATA = [
         "category": "general",
         "graph_ground_truth": (
             "The graph may contain board-related entities. find_entity('board') "
-            "or get_context_verses('board of directors') should surface relevant evidence."
+            "or get_source_evidence('board of directors') should surface relevant evidence."
         ),
         "historical_ground_truth": (
             "The board approved key financial structures including Fastow's "

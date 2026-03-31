@@ -2099,10 +2099,10 @@
       "id": "ctrl-05",
       "category": "control_singlehop",
       "user_question": "Find verses in Exodus that mention the bush.",
-      "required_graph_operations": "Single get_context_verses call.",
+      "required_graph_operations": "Single get_source_evidence call.",
       "expected_tool_calls": [
         {
-          "function": "get_context_verses",
+          "function": "get_source_evidence",
           "arguments": {
             "entity_name": "bush",
             "book": "Exodus"
@@ -2122,7 +2122,7 @@
       "scoring_rubric": {
         "tool_use_correctness": {
           "max": 2,
-          "criteria": "Calls get_context_verses with 'bush' and 'Exodus'"
+          "criteria": "Calls get_source_evidence with 'bush' and 'Exodus'"
         },
         "evidence_correctness": {
           "max": 3,

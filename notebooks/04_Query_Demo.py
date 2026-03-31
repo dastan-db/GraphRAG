@@ -4,7 +4,7 @@
 # MAGIC
 # MAGIC This notebook demonstrates GraphRAG answering multi-hop questions with **full auditability**: every answer includes a structured **Provenance** section showing the exact entity path traversed, the source verses cited, and whether all claims are grounded in the knowledge graph.
 # MAGIC
-# MAGIC Watch the agent use its tools — `find_entity`, `find_connections`, `trace_path`, `get_context_verses`, and `get_entity_summary` — then produce answers that an auditor can verify claim by claim.
+# MAGIC Watch the agent use its tools — `find_entity`, `find_connections`, `trace_path`, `get_source_evidence`, and `get_entity_summary` — then produce answers that an auditor can verify claim by claim.
 
 # COMMAND ----------
 

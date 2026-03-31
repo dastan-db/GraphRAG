@@ -1131,7 +1131,7 @@ class TestEntityExplorePattern:
         assert "get_entity_summary" in tool_names
         assert "find_top_contacts" in tool_names
         assert "find_connections" in tool_names
-        assert "get_context_verses" in tool_names
+        assert "get_source_evidence" in tool_names
 
     def test_entity_explore_min_confidence(self):
         from src.agent.pattern_registry import PATTERN_REGISTRY

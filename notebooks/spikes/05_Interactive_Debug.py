@@ -503,7 +503,7 @@ def trace_path(entity_a: str, entity_b: str) -> str:
     return f"No path found between '{entity_a}' and '{entity_b}' within 3 hops. Try using find_connections on each entity separately."
 
 @tool
-def get_context_verses(entity_name: str, book: str = "") -> str:
+def get_source_evidence(entity_name: str, book: str = "") -> str:
     """Get actual Bible verses that mention a specific entity. Provides source text for grounding answers.
 
     Args:
@@ -589,7 +589,7 @@ def get_entity_summary(entity_name: str) -> str:
 
     return "\n".join(lines)
 
-GRAPH_TOOLS = [find_entity, find_connections, trace_path, get_context_verses, get_entity_summary]
+GRAPH_TOOLS = [find_entity, find_connections, trace_path, get_source_evidence, get_entity_summary]
 
 # COMMAND ----------
 
@@ -618,7 +618,7 @@ You have tools that let you search the knowledge graph for entities, relationshi
 - ALWAYS use tools to look up information before answering. Do not rely on your training data alone.
 - When asked about connections between entities, use trace_path first, then find_connections for more context.
 - When asked about a person or concept, use get_entity_summary for a comprehensive profile.
-- Always cite specific Bible verses (book chapter:verse) when possible using get_context_verses.
+- Always cite specific Bible verses (book chapter:verse) when possible using get_source_evidence.
 - For multi-hop questions, break them into steps: find each entity, then trace connections.
 
 ## Response Format

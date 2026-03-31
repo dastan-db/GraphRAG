@@ -7,7 +7,7 @@
 # MAGIC **Steps:**
 # MAGIC 1. Attach this notebook to any cluster (DBR 15.4+ recommended) and hit **Run All**.
 # MAGIC 2. A multi-step job will be created. Follow the printed link to run it.
-# MAGIC 3. Or run the notebooks in `notebooks/` interactively in order: `00` → `01` → `02` → `03` → `04`.
+# MAGIC 3. Or run the notebooks in `notebooks/` interactively in order: `00` → `01` → `02` → `03` → `04` → `05`.
 
 # COMMAND ----------
 

@@ -225,34 +225,34 @@ class TestFindConnections:
 
 
 @skip_no_db
-class TestGetContextVerses:
+class TestGetSourceEvidence:
 
     def test_verse_text_returned(self, _patch_backend):
         mod = _patch_backend
-        result = mod.get_context_verses("Moses")
+        result = mod.get_source_evidence("Moses")
         assert "Verses mentioning" in result
         assert "Moses" in result
 
     def test_book_filter(self, _patch_backend):
         mod = _patch_backend
-        result = mod.get_context_verses("Moses", book="Exodus")
+        result = mod.get_source_evidence("Moses", book="Exodus")
         assert "Exodus" in result
         assert "Genesis" not in result.replace("Verses mentioning", "")
 
     def test_ruth_loyalty_verse(self, _patch_backend):
         """Ruth 1:16 — 'whither thou goest, I will go'."""
         mod = _patch_backend
-        result = mod.get_context_verses("Ruth", book="Ruth")
+        result = mod.get_source_evidence("Ruth", book="Ruth")
         assert "whither thou goest" in result or "Ruth" in result
 
     def test_no_verses_for_nonexistent(self, _patch_backend):
         mod = _patch_backend
-        result = mod.get_context_verses("Aristotle")
+        result = mod.get_source_evidence("Aristotle")
         assert "No verses found" in result
 
     def test_burning_bush_verse(self, _patch_backend):
         mod = _patch_backend
-        result = mod.get_context_verses("bush", book="Exodus")
+        result = mod.get_source_evidence("bush", book="Exodus")
         assert "bush" in result.lower()
         assert "Exodus" in result
 

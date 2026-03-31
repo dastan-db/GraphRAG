@@ -70,7 +70,7 @@ This implementation runs entirely on Databricks. Every layer uses a native platf
 
 **MLflow** provides the evaluation and observability layer. Four governance scorers — hallucination detection, citation completeness, provenance chain validation, and reproducibility — run through `mlflow.genai.evaluate()`. Full tracing captures every tool call, every LLM invocation, and every graph traversal for a complete per-query audit trail. Enterprises already operating MLflow for traditional ML models can extend their existing evaluation workflows to GenAI without retooling.
 
-**Databricks SQL** executes graph traversal. The agent's five tools — entity lookup, connection discovery, multi-hop path tracing, context retrieval, and entity summarization — execute Spark SQL against the Delta tables. Serverless SQL warehouses scale to zero when idle and burst for concurrent users. The same query engine that powers BI dashboards powers knowledge graph traversal.
+**Databricks SQL** executes graph traversal. The agent's tools — entity lookup, connection discovery, multi-hop path tracing, evidence retrieval, entity summarization, and cross-book entity search — execute Spark SQL against the Delta tables. Serverless SQL warehouses scale to zero when idle and burst for concurrent users. The same query engine that powers BI dashboards powers knowledge graph traversal.
 
 **Databricks Apps** hosts the interactive demo. The web application deploys as a Databricks App with platform-managed OAuth, HTTPS, and hosting. The app inherits the user's Unity Catalog permissions — no separate authentication layer to build or maintain.
 

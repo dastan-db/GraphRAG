@@ -23,22 +23,22 @@ GraphRAG/
 │
 ├── src/                       ALL PRODUCT SOURCE CODE
 │   ├── config.py              Shared config (catalog, schema, endpoints)
+│   ├── bible_registry.py      Complete 66-book KJV Bible metadata
 │   ├── extraction/            LLM extraction: prompts, pipeline, dedup
-│   ├── agent/                 LangGraph agent: tools, state, serving
+│   ├── agent/                 LangGraph agent: tools, serving, pattern registry
 │   ├── evaluation/            Governance scorers, MLflow evaluation, baselines
-│   └── app/                   Dash web application (pages, backend, assets)
+│   └── app/                   Dash web application (7 pages, backend, assets)
 │
-├── notebooks/                 DATABRICKS NOTEBOOKS (pipeline walkthrough)
-│   ├── 00_Intro_and_Config.py
-│   ├── 01_Data_Prep.py
-│   ├── 02_Build_Knowledge_Graph.py
-│   ├── 03_Build_Agent.py
-│   ├── 04_Query_Demo.py
-│   ├── 05_Evaluation.py
-│   └── spikes/                Exploratory/debug notebooks (temporary)
+├── notebooks/                 DATABRICKS NOTEBOOKS
+│   ├── 00–05                  Bible pipeline (config → data → graph → agent → demo → eval)
+│   ├── 06–12                  Enron pipeline (data prep → graph → enrichment → agent → eval)
+│   ├── 04_Incremental_Ingest  Add books without re-extracting everything
+│   ├── 05_Remove_Books        Drop books from the graph
+│   └── spikes/                Exploratory/debug notebooks
 │
+├── scripts/                   CLI utilities (deploy, eval, local test, preflight)
 ├── tests/                     ALL TESTS
-├── deploy/                    DABs resource definitions (jobs, apps)
+├── deploy/                    DABs resource definitions (pipeline, enron, webapp, MCP)
 ├── docs/                      Blog posts and standalone documentation
 │
 ├── .execution/                SDE + Drucker discipline (phases, decisions)
@@ -98,7 +98,8 @@ Bible Text (KJV)
 ┌─────────────────────┐
 │  03: Agent           │  LangGraph agent with graph traversal tools:
 │                      │  find_entity, find_connections, trace_path,
-│                      │  get_context_verses, get_entity_summary
+│                      │  get_source_evidence, get_entity_summary,
+│                      │  find_cross_book_entities
 └─────────┬───────────┘
           ▼
 ┌─────────────────────┐
@@ -115,15 +116,33 @@ Bible Text (KJV)
 
 ## Pipeline
 
+### Bible Corpus (notebooks 00–05)
+
 | Notebook | Purpose |
 |----------|---------|
-| `notebooks/00_Intro_and_Config` | Configuration and setup |
-| `notebooks/01_Data_Prep` | Load Bible text into Delta tables |
-| `notebooks/02_Build_Knowledge_Graph` | `ai_query()` extracts entities and relationships in parallel via `responseFormat` |
-| `notebooks/03_Build_Agent` | Build LangGraph agent, log to MLflow, deploy to Model Serving |
-| `notebooks/04_Query_Demo` | Interactive demo with auditable, multi-hop answers |
-| `notebooks/05_Evaluation` | Governance + quality + cost comparison: GraphRAG vs flat RAG vs direct LLM |
+| `00_Intro_and_Config` | Configuration and setup |
+| `01_Data_Prep` | Load Bible text into Delta tables |
+| `02_Build_Knowledge_Graph` | `ai_query()` extracts entities and relationships in parallel via `responseFormat` |
+| `03_Build_Agent` | Build LangGraph agent, log to MLflow, deploy to Model Serving |
+| `04_Query_Demo` | Interactive demo with auditable, multi-hop answers |
+| `05_Evaluation` | Governance + quality + cost comparison: GraphRAG vs flat RAG vs direct LLM |
+| `04_Incremental_Ingest` | Add new books to the graph without full re-extraction |
+| `05_Remove_Books` | Drop books from the graph cleanly |
 | `RUNME` | Creates a Databricks Workflow for the full pipeline |
+
+### Enron Email Corpus (notebooks 06–12)
+
+| Notebook | Purpose |
+|----------|---------|
+| `06_Enron_Data_Prep` | Load Enron emails, participants, and threads into Delta |
+| `07_Enron_Build_Knowledge_Graph` | Extract entities and relationships from email corpus |
+| `07b–07m` | Enrichment: entity resolution, org hierarchy, communication aggregations, person identity, ontology, corpus coverage, extraction provenance, email classification, data quality, person roles, topic taxonomy, pipeline lineage |
+| `08_Enron_Evaluation` | Evidence traceability: 13 scorers, 51-question eval suite |
+| `09_Enron_Build_Agent` | Build and deploy the Enron-specific agent |
+| `09_Enron_Genie_Spaces` | SQL analytics via Genie Spaces for tabular questions |
+| `10_Enron_ABAC_Setup` | Attribute-based access control (row/column security) |
+| `11_Enron_ABAC_Demo` | Demonstrate scoped retrieval under ABAC policies |
+| `12_Enron_Pattern_Analysis` | Communication pattern and anomaly detection |
 
 ### Debug Notebook Workflow
 
@@ -134,27 +153,43 @@ Debug/spike notebooks live in `notebooks/spikes/`. They inline all configuration
 
 ## Evaluation: Governance First, Then Quality, Then Cost
 
-Notebook `05_Evaluation` runs a rigorous side-by-side comparison of four configurations on 20 ground-truth questions using MLflow `genai.evaluate()`:
+Notebook `05_Evaluation` runs a rigorous side-by-side comparison of five configurations using MLflow `genai.evaluate()`:
 
 | Config | Retrieval | Model | What It Proves |
 |--------|-----------|-------|----------------|
 | GraphRAG + 70B | Graph traversal | Llama 3.3 70B | Auditable reasoning at full quality |
 | GraphRAG + 8B | Graph traversal | Llama 3.1 8B | Governance holds with smaller models |
 | Flat RAG + 70B | Embedding similarity | Llama 3.3 70B | Best-case flat retrieval (no provenance) |
-| Direct LLM | None | Llama 3.3 70B | Parametric knowledge only (no auditability) |
+| Direct LLM + 70B | None | Llama 3.3 70B | Parametric knowledge only (no auditability) |
+| Direct External | None | GPT-5.2 | Frontier model baseline |
 
-### Governance Scorers
+### Governance Scorers (Bible)
 
 | Scorer | What It Measures |
 |--------|-----------------|
 | Hallucination Check | Are all claims grounded in the knowledge graph? |
 | Citation Completeness | What fraction of factual claims cite a source verse? |
 | Provenance Chain | Does the response include a structured audit trail (path, sources, grounding)? |
-| Reproducibility | Same query returns same path and citations across runs? |
+| Reproducibility | Same query returns same path and citations across runs (Jaccard similarity)? |
+
+### Enron Evidence Traceability Scorers (13 total)
+
+The Enron evaluation uses a richer scorer suite covering evidence fabrication, participant verification, spelling correction transparency, corroboration consistency, citation completeness, and more — see `notebooks/08_Enron_Evaluation.py` for the full set.
 
 ## Demo: Bible Knowledge Graph
 
 This accelerator builds a knowledge graph from the **complete King James Bible** — all 66 books (39 Old Testament + 27 New Testament) — the densest, most cross-referencing corpus of people, places, and events available. The Bible is the perfect proxy because lineage is verifiable: "How is Ruth connected to Jesus?" has a definitive, provably correct answer.
+
+## Demo: Enron Email Corpus
+
+The same architecture applies to the **Enron email corpus** — 20,000+ emails from 15 key custodians, demonstrating GraphRAG on real-world corporate communication data. The Enron pipeline adds:
+
+- **Entity resolution** — unified resolver with alias, fuzzy (Levenshtein), and stem matching
+- **Communication analytics** — dyad analysis, org hierarchy, person activity, topic taxonomy
+- **Evidence traceability** — 13 custom scorers evaluating 51 questions across categories (entity exploration, entity pairs, timelines, keyword search, Genie analytics)
+- **Attribute-based access control (ABAC)** — row/column-level security policies on emails, with sensitivity tiers (analyst, executive, legal)
+- **Genie Spaces** — SQL-powered analytics for tabular questions (counts, rankings, percentages)
+- **20+ agent tools** — including `find_entity`, `find_connections`, `trace_path`, `find_top_contacts`, `get_emails_between`, `search_emails`, `get_communication_timeline`, `get_activity_anomalies`, `get_relationship_evidence`, and more
 
 ## Applying This Pattern to Your Domain
 
@@ -182,7 +217,7 @@ pip install -e ".[dev]"
 databricks bundle deploy --target dev
 ```
 
-**Architecture docs:** See `docs/` for standalone documentation and `.planning/SYSTEM.md` for the execution system.
+**Architecture docs:** See `docs/` for standalone documentation and `.execution/` for the SDE execution system.
 
 ## Tech Stack
 
