@@ -1,6 +1,8 @@
 # GraphRAG: Auditable AI Reasoning on Databricks
 
-A Databricks Solution Accelerator that demonstrates **GraphRAG** — using a knowledge graph to deliver LLM-powered answers that are **auditable, traceable, and reproducible**. Every answer shows its work: explicit provenance chains, verse-level citations, and grounding indicators.
+A Databricks Solution Accelerator that demonstrates **GraphRAG** — using a knowledge graph to deliver LLM-powered answers that are **auditable, traceable, and reproducible**. Every answer shows its work: explicit provenance chains, source-level citations, and grounding indicators.
+
+The primary demo corpus is the **Enron email dataset** — 20,000+ real corporate emails from 15 key custodians — demonstrating GraphRAG on the kind of data enterprises actually need to reason over: organizational communication, reporting structures, investigation timelines, and access-controlled documents.
 
 ## Quick Start
 
@@ -23,17 +25,14 @@ GraphRAG/
 │
 ├── src/                       ALL PRODUCT SOURCE CODE
 │   ├── config.py              Shared config (catalog, schema, endpoints)
-│   ├── bible_registry.py      Complete 66-book KJV Bible metadata
 │   ├── extraction/            LLM extraction: prompts, pipeline, dedup
 │   ├── agent/                 LangGraph agent: tools, serving, pattern registry
 │   ├── evaluation/            Governance scorers, MLflow evaluation, baselines
 │   └── app/                   Dash web application (7 pages, backend, assets)
 │
 ├── notebooks/                 DATABRICKS NOTEBOOKS
-│   ├── 00–05                  Bible pipeline (config → data → graph → agent → demo → eval)
 │   ├── 06–12                  Enron pipeline (data prep → graph → enrichment → agent → eval)
-│   ├── 04_Incremental_Ingest  Add books without re-extracting everything
-│   ├── 05_Remove_Books        Drop books from the graph
+│   ├── 00–05                  Bible pipeline (config → data → graph → agent → demo → eval)
 │   └── spikes/                Exploratory/debug notebooks
 │
 ├── scripts/                   CLI utilities (deploy, eval, local test, preflight)
@@ -54,7 +53,7 @@ Enterprise AI has a governance crisis. When an LLM answers a question, no one ca
 - **"I got answer A yesterday, why do I get answer B today?"** — Results aren't reproducible.
 - **"Did the AI make this up?"** — You can't distinguish grounded claims from hallucinations.
 
-Standard RAG retrieves flat text chunks by embedding similarity. This improves relevance, but the retrieval step itself is opaque.
+Standard RAG retrieves flat text chunks by embedding similarity. This improves relevance, but the retrieval step itself is opaque — especially dangerous for compliance investigations, legal discovery, and regulatory audit where every claim must be traceable to source evidence.
 
 ## The Solution
 
@@ -62,61 +61,80 @@ GraphRAG replaces opaque embedding retrieval with **structured graph traversal**
 
 ```
 Without GraphRAG (traditional RAG):
-  Q: "How is Ruth connected to Jesus?"
-  A: "Ruth is mentioned in Matthew's genealogy..."
-  Auditor: "Prove it. Show the path."
+  Q: "What was Kenneth Lay's relationship with Andrew Fastow?"
+  A: "They were both Enron executives..."
+  Investigator: "Show me the evidence. Which emails? What dates?"
   System: ¯\_(ツ)_/¯
 
 With GraphRAG:
-  Q: "How is Ruth connected to Jesus?"
-  A: "Ruth married Boaz, who fathered Obed..."
+  Q: "What was Kenneth Lay's relationship with Andrew Fastow?"
+  A: "Kenneth Lay (CEO) had direct email communication with Andrew Fastow (CFO).
+     Fastow reported to Lay on LJM partnership structures..."
 
   Provenance:
-    Path: Ruth → Boaz (MARRIED_TO, Ruth 4:13) → Obed (FATHER_OF, Ruth 4:17)
-          → Jesse (FATHER_OF, Ruth 4:22) → David → ... → Jesus (Matthew 1:16)
-    Sources: Ruth 4:13, Ruth 4:17, Ruth 4:22, Matthew 1:5-6, Matthew 1:16
-    Grounding: All claims backed by knowledge graph traversal
+    Path: Kenneth Lay → Andrew Fastow (COMMUNICATED_WITH, 47 direct emails)
+          → LJM Partnership (MANAGED_BY, Fastow)
+    Sources: 12 direct emails (2000-08 to 2001-10), org hierarchy evidence
+    Evidence: email-id-4523 (2001-03-14), email-id-7891 (2001-08-22), ...
+    Grounding: All claims backed by email evidence in the knowledge graph
 
-  Auditor: "Perfect. Auditable. Traceable. Reproducible." ✓
+  Investigator: "Perfect. Auditable. Traceable. Reproducible." ✓
 ```
 
 ## Architecture
 
 ```
-Bible Text (KJV)
+Enron Emails (20,000+)
     │
     ▼
 ┌─────────────────────┐
-│  01: Data Prep       │  Load into Delta (books, chapters, verses)
+│  06: Data Prep       │  Load emails, participants, threads into Delta
 └─────────┬───────────┘
           ▼
 ┌─────────────────────┐
-│  02: Knowledge Graph │  ai_query() extracts entities and relationships
-│                      │  in parallel via responseFormat structured output
+│  07: Knowledge Graph │  ai_query() extracts entities and relationships;
+│  07b–07m: Enrichment │  entity resolution, org hierarchy, communication
+│                      │  analytics, person identity, topic taxonomy
 └─────────┬───────────┘
           ▼
 ┌─────────────────────┐
-│  03: Agent           │  LangGraph agent with graph traversal tools:
+│  09: Agent           │  LangGraph agent with 20+ tools:
 │                      │  find_entity, find_connections, trace_path,
-│                      │  get_source_evidence, get_entity_summary,
-│                      │  find_cross_book_entities
+│                      │  find_top_contacts, get_emails_between,
+│                      │  search_emails, get_communication_timeline,
+│                      │  get_relationship_evidence, and more
 └─────────┬───────────┘
           ▼
 ┌─────────────────────┐
-│  04: Query Demo      │  Auditable Q&A with structured provenance
-│                      │  Multi-hop reasoning over the knowledge graph
+│  08: Evaluation      │  Evidence traceability: 13 scorers,
+│                      │  51-question eval suite across 5 categories
 └─────────┬───────────┘
           ▼
 ┌─────────────────────┐
-│  05: Evaluation      │  Governance metrics: hallucination rate,
-│                      │  citation completeness, provenance quality,
-│                      │  reproducibility — plus quality and cost
+│  10–12: Governance   │  ABAC (row/column security), scoped retrieval,
+│                      │  communication pattern and anomaly detection
 └─────────────────────┘
 ```
 
 ## Pipeline
 
-### Bible Corpus (notebooks 00–05)
+### Enron Email Corpus (notebooks 06–12) — Primary
+
+| Notebook | Purpose |
+|----------|---------|
+| `06_Enron_Data_Prep` | Load Enron emails, participants, and threads into Delta |
+| `07_Enron_Build_Knowledge_Graph` | Extract entities and relationships from email corpus |
+| `07b–07m` | Enrichment: entity resolution, org hierarchy, communication aggregations, person identity, ontology, corpus coverage, extraction provenance, email classification, data quality, person roles, topic taxonomy, pipeline lineage |
+| `08_Enron_Evaluation` | Evidence traceability: 13 scorers, 51-question eval suite |
+| `09_Enron_Build_Agent` | Build and deploy the Enron-specific agent with PDES architecture |
+| `09_Enron_Genie_Spaces` | SQL analytics via Genie Spaces for tabular questions |
+| `10_Enron_ABAC_Setup` | Attribute-based access control (row/column security) |
+| `11_Enron_ABAC_Demo` | Demonstrate scoped retrieval under ABAC policies |
+| `12_Enron_Pattern_Analysis` | Communication pattern and anomaly detection |
+
+### Bible Corpus (notebooks 00–05) — Additional
+
+The KJV Bible (all 66 books) serves as a secondary corpus with independently verifiable ground truth — useful for validating multi-hop graph traversal where the correct answer is objectively known (e.g., "How is Ruth connected to Jesus?" has a provably correct genealogical path).
 
 | Notebook | Purpose |
 |----------|---------|
@@ -126,23 +144,7 @@ Bible Text (KJV)
 | `03_Build_Agent` | Build LangGraph agent, log to MLflow, deploy to Model Serving |
 | `04_Query_Demo` | Interactive demo with auditable, multi-hop answers |
 | `05_Evaluation` | Governance + quality + cost comparison: GraphRAG vs flat RAG vs direct LLM |
-| `04_Incremental_Ingest` | Add new books to the graph without full re-extraction |
-| `05_Remove_Books` | Drop books from the graph cleanly |
-| `RUNME` | Creates a Databricks Workflow for the full pipeline |
-
-### Enron Email Corpus (notebooks 06–12)
-
-| Notebook | Purpose |
-|----------|---------|
-| `06_Enron_Data_Prep` | Load Enron emails, participants, and threads into Delta |
-| `07_Enron_Build_Knowledge_Graph` | Extract entities and relationships from email corpus |
-| `07b–07m` | Enrichment: entity resolution, org hierarchy, communication aggregations, person identity, ontology, corpus coverage, extraction provenance, email classification, data quality, person roles, topic taxonomy, pipeline lineage |
-| `08_Enron_Evaluation` | Evidence traceability: 13 scorers, 51-question eval suite |
-| `09_Enron_Build_Agent` | Build and deploy the Enron-specific agent |
-| `09_Enron_Genie_Spaces` | SQL analytics via Genie Spaces for tabular questions |
-| `10_Enron_ABAC_Setup` | Attribute-based access control (row/column security) |
-| `11_Enron_ABAC_Demo` | Demonstrate scoped retrieval under ABAC policies |
-| `12_Enron_Pattern_Analysis` | Communication pattern and anomaly detection |
+| `RUNME` | Creates a Databricks Workflow for the Bible pipeline |
 
 ### Debug Notebook Workflow
 
@@ -151,57 +153,46 @@ Debug/spike notebooks live in `notebooks/spikes/`. They inline all configuration
 1. **Run the debug notebook interactively** on a cluster to identify and fix runtime errors cell by cell
 2. **Incorporate fixes** back into the production notebook in `notebooks/`, which stays clean for headless job execution
 
-## Evaluation: Governance First, Then Quality, Then Cost
+## Evaluation
 
-Notebook `05_Evaluation` runs a rigorous side-by-side comparison of five configurations using MLflow `genai.evaluate()`:
+### Enron Evidence Traceability (13 scorers, 51 questions)
 
-| Config | Retrieval | Model | What It Proves |
-|--------|-----------|-------|----------------|
-| GraphRAG + 70B | Graph traversal | Llama 3.3 70B | Auditable reasoning at full quality |
-| GraphRAG + 8B | Graph traversal | Llama 3.1 8B | Governance holds with smaller models |
-| Flat RAG + 70B | Embedding similarity | Llama 3.3 70B | Best-case flat retrieval (no provenance) |
-| Direct LLM + 70B | None | Llama 3.3 70B | Parametric knowledge only (no auditability) |
-| Direct External | None | GPT-5.2 | Frontier model baseline |
+The primary evaluation uses 13 custom scorers across 51 questions in 5 categories (entity exploration, entity pairs, timelines, keyword search, Genie analytics):
 
-### Governance Scorers (Bible)
+| Scorer Category | What It Measures |
+|----------------|-----------------|
+| Evidence fabrication | Does the response fabricate email evidence that doesn't exist? |
+| Participant verification | Are email participants accurately identified from the graph? |
+| Corroboration consistency | Do multiple evidence sources tell a consistent story? |
+| Citation completeness | Does the response cite specific emails, dates, and threads? |
+| Spelling correction transparency | Are name corrections (e.g., "Skiling" → "Skilling") disclosed? |
 
-| Scorer | What It Measures |
-|--------|-----------------|
-| Hallucination Check | Are all claims grounded in the knowledge graph? |
-| Citation Completeness | What fraction of factual claims cite a source verse? |
-| Provenance Chain | Does the response include a structured audit trail (path, sources, grounding)? |
-| Reproducibility | Same query returns same path and citations across runs (Jaccard similarity)? |
+The agent uses a **Plan-Decompose-Execute-Synthesize (PDES)** architecture with 6 MECE question primitives: `entity_explore`, `entity_pair`, `timeline`, `keyword_search`, `genie_analytics`, and `general`.
 
-### Enron Evidence Traceability Scorers (13 total)
+### Bible Governance Scorers (secondary benchmark)
 
-The Enron evaluation uses a richer scorer suite covering evidence fabrication, participant verification, spelling correction transparency, corroboration consistency, citation completeness, and more — see `notebooks/08_Enron_Evaluation.py` for the full set.
+The Bible corpus provides a complementary evaluation with five configurations (GraphRAG + 70B, GraphRAG + 8B, Flat RAG + 70B, Direct LLM + 70B, Direct External GPT-5.2) measuring hallucination check, citation completeness, provenance chain integrity, and reproducibility (Jaccard similarity).
 
-## Demo: Bible Knowledge Graph
+## Key Capabilities
 
-This accelerator builds a knowledge graph from the **complete King James Bible** — all 66 books (39 Old Testament + 27 New Testament) — the densest, most cross-referencing corpus of people, places, and events available. The Bible is the perfect proxy because lineage is verifiable: "How is Ruth connected to Jesus?" has a definitive, provably correct answer.
-
-## Demo: Enron Email Corpus
-
-The same architecture applies to the **Enron email corpus** — 20,000+ emails from 15 key custodians, demonstrating GraphRAG on real-world corporate communication data. The Enron pipeline adds:
-
-- **Entity resolution** — unified resolver with alias, fuzzy (Levenshtein), and stem matching
+- **Unified entity resolution** — `ResolvedEntity` dataclass with 4-stage cascade (exact → alias → fuzzy/Levenshtein → stem) shared across all tools
+- **20+ agent tools** — `find_entity`, `find_connections`, `trace_path`, `find_top_contacts`, `get_emails_between`, `search_emails`, `get_communication_timeline`, `get_activity_anomalies`, `get_relationship_evidence`, `get_source_evidence`, and more
 - **Communication analytics** — dyad analysis, org hierarchy, person activity, topic taxonomy
-- **Evidence traceability** — 13 custom scorers evaluating 51 questions across categories (entity exploration, entity pairs, timelines, keyword search, Genie analytics)
-- **Attribute-based access control (ABAC)** — row/column-level security policies on emails, with sensitivity tiers (analyst, executive, legal)
 - **Genie Spaces** — SQL-powered analytics for tabular questions (counts, rankings, percentages)
-- **20+ agent tools** — including `find_entity`, `find_connections`, `trace_path`, `find_top_contacts`, `get_emails_between`, `search_emails`, `get_communication_timeline`, `get_activity_anomalies`, `get_relationship_evidence`, and more
+- **Attribute-based access control (ABAC)** — row/column-level security with sensitivity tiers (analyst, executive, legal)
+- **Tool latency instrumentation** — MLflow span tracing with per-tool SLA thresholds
 
 ## Applying This Pattern to Your Domain
 
-This demo uses the Bible as a corpus, but the pattern applies directly to any domain with dense entity relationships:
+The Enron email corpus demonstrates the pattern on corporate communication data, but the architecture applies to any domain with dense entity relationships:
 
-| Bible Domain | Code/Architecture Domain | Supply Chain Domain |
-|---|---|---|
-| Person (Moses, Paul) | Module, Class, Service | Supplier, Warehouse |
-| Place (Egypt, Jerusalem) | Repository, Deployment Target | Region, Distribution Center |
-| Event (Exodus, Pentecost) | Release, Incident, Migration | Order, Shipment, Outage |
-| FAMILY_OF, ANCESTOR_OF | IMPORTS, INHERITS_FROM | SUPPLIES_TO, SOURCES_FROM |
-| *"How is Ruth connected to Jesus?"* | *"What services depend on this schema change?"* | *"Which customers are affected if Supplier X is delayed?"* |
+| Corporate Communication | Code/Architecture | Supply Chain | Financial Services |
+|---|---|---|---|
+| Person (Lay, Skilling) | Module, Class, Service | Supplier, Warehouse | Client, Counterparty |
+| Organization (Enron, LJM) | Repository, Cluster | Region, Distribution Center | Market, Jurisdiction |
+| Event (Investigation, Meeting) | Release, Incident | Order, Shipment | Trade, Filing |
+| COMMUNICATED_WITH | IMPORTS, DEPENDS_ON | SUPPLIES_TO | COUNTERPARTY_TO |
+| *"Who communicated most with Kenneth Lay?"* | *"What services depend on this schema change?"* | *"Which customers are affected if Supplier X is delayed?"* | *"What is our exposure chain to this counterparty?"* |
 
 **Extraction is domain-specific; the architecture is not.** For document corpora, entities and relationships are extracted via LLM (`ai_query()` with structured output). For codebases, entities and relationships are extracted deterministically via Tree-sitter / AST analysis. Everything downstream — graph storage, traversal tools, agent, provenance, and governance — is identical.
 
@@ -221,7 +212,7 @@ databricks bundle deploy --target dev
 
 ## Tech Stack
 
-- **Databricks** — Unity Catalog, Delta Lake, Model Serving, MLflow
+- **Databricks** — Unity Catalog, Delta Lake, Model Serving, MLflow, Genie Spaces
 - **LangGraph** — Agent orchestration with tool-calling
 - **Foundation Model API** — `databricks-meta-llama-3-3-70b-instruct` (70B) and `databricks-meta-llama-3-1-8b-instruct` (8B)
 - **MLflow 3** — Tracing, model logging, and GenAI evaluation with governance scorers via `ResponsesAgent`

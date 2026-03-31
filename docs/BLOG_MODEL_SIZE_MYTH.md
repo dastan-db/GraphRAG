@@ -121,7 +121,7 @@ The right takeaway is not "8B is always sufficient." It is "choose architecture 
 
 ## The Architecture That Enables This
 
-The knowledge graph is stored in Delta tables on Databricks — entities, relationships, and verse-level provenance. No external graph database. The agent is a LangGraph orchestration layer with purpose-built tools:
+The knowledge graph is stored in Delta tables on Databricks — entities, relationships, and source-level provenance. No external graph database. The agent is a LangGraph orchestration layer with purpose-built tools (the Enron corpus uses 20+ tools; the core set shown here):
 
 | Tool | What It Does |
 |---|---|
@@ -166,6 +166,6 @@ The question for engineering leaders is not "Which model should we use?" It is "
 
 ---
 
-*This analysis is based on the [GraphRAG Solution Accelerator](https://github.com/databricks/GraphRAG), a Databricks-native implementation of graph-structured retrieval with provenance. The evaluation suite, scoring methodology, and full per-case results are available in the repository. The demo corpus uses all 66 books of the King James Bible as a proxy for enterprise document collections — chosen for its dense entity networks and independently verifiable ground truth.*
+*This analysis is based on the [GraphRAG Solution Accelerator](https://github.com/databricks/GraphRAG), a Databricks-native implementation of graph-structured retrieval with provenance. The evaluation suite, scoring methodology, and full per-case results are available in the repository. The primary demo uses the Enron email corpus (20,000+ emails, 15 key custodians) for real-world corporate communication analysis. The model-size benchmark above uses a Bible corpus with independently verifiable ground truth.*
 
 *For the complementary governance perspective — why auditability, not just accuracy, is the deployment prerequisite — see [Part 1: Why Your AI Can't Show Its Work](./BLOG.md).*

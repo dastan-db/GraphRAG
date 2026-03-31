@@ -40,19 +40,19 @@ GraphRAG replaces opaque embedding retrieval with structured graph traversal. Th
 - **Sources** — every document reference used as evidence
 - **Grounding** — a declaration of whether all claims are backed by graph traversal, or whether any rely on general knowledge
 
-Here is a concrete example. A user asks: *"How is Ruth connected to Jesus?"*
+Here is a concrete example from the Enron email corpus. An investigator asks: *"What was Kenneth Lay's relationship with Andrew Fastow?"*
 
-A traditional RAG system might answer: *"Ruth is mentioned in Matthew's genealogy of Jesus."* Ask it to prove the connection step by step, and it cannot.
+A traditional RAG system might answer: *"They were both senior Enron executives."* Ask it to show the evidence — which emails, what dates, what communication patterns — and it cannot.
 
 GraphRAG returns:
 
-> **Path:** Ruth &rarr; Boaz (MARRIED_TO, Ruth 4:13) &rarr; Obed (FATHER_OF, Ruth 4:17) &rarr; Jesse (FATHER_OF, Ruth 4:22) &rarr; David &rarr; ... &rarr; Jesus (Matthew 1:16)
+> **Path:** Kenneth Lay (CEO) &rarr; Andrew Fastow (CFO, COMMUNICATED_WITH, 47 direct emails) &rarr; LJM Partnership (MANAGED_BY)
 >
-> **Sources:** Ruth 4:13, Ruth 4:17, Ruth 4:22, Matthew 1:5-6, Matthew 1:16
+> **Sources:** 12 direct emails (2000-08 to 2001-10), org hierarchy evidence, communication dyad analysis
 >
-> **Grounding:** All claims backed by knowledge graph traversal
+> **Grounding:** All claims backed by email evidence in the knowledge graph
 
-Every link in the chain is named, typed, and cited. An auditor can verify each step independently. The same query will traverse the same path every time, because graph structure is deterministic.
+Every link in the chain is named, typed, and cited. An investigator can verify each step against the source emails. The same query will traverse the same path every time, because graph structure is deterministic.
 
 ## Built on Databricks: Every Layer Is Native
 
@@ -133,7 +133,7 @@ This is not a quality gap that improves with better models or more data. It is a
 
 ### Hallucination Resistance: Correctness Without Proof Is Liability
 
-The hallucination check scorer validates whether factual claims are traceable to the source corpus (all 66 books of the King James Bible). Here is where the data gets uncomfortable:
+The hallucination check scorer validates whether factual claims are traceable to the source corpus. Here is where the data gets uncomfortable (results from the Bible benchmark, where ground truth is independently verifiable):
 
 | Configuration | Correctness | Hallucination Check (% passing) |
 |---|---|---|
@@ -196,17 +196,17 @@ The framework is designed to be domain-portable. Swap the evaluation dataset and
 
 ## From Demo to Production
 
-This implementation uses the complete King James Bible as a demo corpus — all 66 books with their dense, cross-referencing network of people, places, and events where lineage connections are independently verifiable. But the architecture is domain-agnostic.
+The primary demo uses the Enron email corpus — 20,000+ real corporate emails from 15 key custodians — demonstrating GraphRAG on the kind of data enterprises actually need to reason over: organizational communication, reporting structures, investigation timelines, and access-controlled documents. An additional Bible corpus (66 books of the KJV) provides a secondary benchmark where ground truth is independently verifiable.
 
-For enterprise deployment, the same pattern applies directly:
+The architecture is domain-agnostic. For enterprise deployment, the same pattern applies directly:
 
-| Bible Domain | Financial Services | Healthcare | Software Architecture |
+| Corporate Communication | Financial Services | Healthcare | Software Architecture |
 |---|---|---|---|
-| Person (Moses) | Client, Counterparty | Patient, Provider | Service, Module |
-| Place (Egypt) | Market, Jurisdiction | Facility, Department | Cluster, Region |
-| Event (Exodus) | Trade, Filing | Diagnosis, Procedure | Incident, Release |
-| FAMILY_OF | COUNTERPARTY_TO | REFERRED_BY | DEPENDS_ON |
-| *"How is Ruth connected to Jesus?"* | *"What is our exposure chain to this counterparty?"* | *"What treatment pathway led to this outcome?"* | *"What services break if this schema changes?"* |
+| Person (Lay, Skilling) | Client, Counterparty | Patient, Provider | Service, Module |
+| Organization (Enron, LJM) | Market, Jurisdiction | Facility, Department | Cluster, Region |
+| Event (Investigation) | Trade, Filing | Diagnosis, Procedure | Incident, Release |
+| COMMUNICATED_WITH | COUNTERPARTY_TO | REFERRED_BY | DEPENDS_ON |
+| *"Who communicated most with Kenneth Lay?"* | *"What is our exposure chain to this counterparty?"* | *"What treatment pathway led to this outcome?"* | *"What services break if this schema changes?"* |
 
 The roadmap extends the foundation: Delta tables (current) evolve to Lakebase for OLTP-speed graph lookups, then to dedicated graph engines for complex traversal algorithms. Hybrid retrieval combines graph traversal with vector search for questions that benefit from both structured reasoning and semantic similarity. Incremental ingestion adds new documents to the graph without full re-extraction.
 
@@ -222,4 +222,4 @@ AI systems that can show their work are not a nice-to-have. In regulated industr
 
 ---
 
-*This post is based on the [GraphRAG Solution Accelerator](https://github.com/databricks/GraphRAG), an open-source implementation on Databricks. The full pipeline — from knowledge graph construction through agent deployment and governance evaluation — is available for immediate use.*
+*This post is based on the [GraphRAG Solution Accelerator](https://github.com/databricks/GraphRAG), an open-source implementation on Databricks. The full pipeline — from knowledge graph construction through agent deployment and governance evaluation — is available for immediate use. The primary demo uses the Enron email corpus; an additional Bible corpus provides a benchmark with independently verifiable ground truth.*
