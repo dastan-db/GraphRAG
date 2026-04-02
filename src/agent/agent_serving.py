@@ -31,6 +31,12 @@ from langgraph.prebuilt.tool_node import ToolNode
 from typing import Annotated, Generator, Protocol, Sequence, TypedDict
 
 try:
+    from rapidfuzz import fuzz as rapidfuzz_fuzz, process as rapidfuzz_process
+except ImportError:
+    rapidfuzz_fuzz = None
+    rapidfuzz_process = None
+
+try:
     import litellm
     litellm.suppress_debug_info = True
 except ImportError:
@@ -587,16 +593,31 @@ def extract_query_entities(question: str) -> list[dict]:
     return []
 
 
-def classify_and_extract(question: str) -> dict:
+def classify_and_extract(
+    question: str,
+    *,
+    raw_question: str | None = None,
+    contract: dict | None = None,
+    routing_hint: dict | None = None,
+) -> dict:
     """Extract entities AND classify question pattern in a single 8B LLM call.
 
     Returns {"pattern": str, "confidence": float, "entities": list[dict]}.
     Falls back to {"pattern": "general", "confidence": 0.0, "entities": [...]}
     if classification fails but entity extraction succeeds.
     """
+    routing_question = raw_question or question
+    contract = dict(contract or _extract_answer_contract(routing_question))
+    routing_hint = routing_hint or _get_case_based_pattern_hint(routing_question, contract)
+
     if CORPUS != "enron":
         entities = extract_query_entities(question)
-        return {"pattern": "general", "confidence": 0.0, "entities": entities}
+        return {
+            "pattern": "general",
+            "confidence": 0.0,
+            "entities": entities,
+            "contract": contract,
+        }
 
     llm = _get_llm(endpoint=SMALL_LLM_ENDPOINT, temperature=0.0, max_tokens=512)
     response = llm.invoke(CLASSIFY_AND_EXTRACT_PROMPT + question)
@@ -612,19 +633,28 @@ def classify_and_extract(question: str) -> dict:
             entities = result.get("entities", [])
             if isinstance(entities, list):
                 entities = [e for e in entities if isinstance(e, dict) and "name" in e]
-            return _apply_factual_routing_overrides(question, {
+            base = {
                 "pattern": result.get("pattern", "general"),
                 "confidence": float(result.get("confidence", 0.0)),
                 "entities": entities,
                 "keywords": result.get("keywords", ""),
-            })
+                "contract": contract,
+            }
+            return _apply_case_router_hint(routing_question, base, routing_hint)
     except (json.JSONDecodeError, ValueError, TypeError):
         log.warning("Failed to parse classify_and_extract response: %s", text)
 
     entities = extract_query_entities(question)
-    return _apply_factual_routing_overrides(
-        question,
-        {"pattern": "general", "confidence": 0.0, "entities": entities, "keywords": ""},
+    return _apply_case_router_hint(
+        routing_question,
+        {
+            "pattern": "general",
+            "confidence": 0.0,
+            "entities": entities,
+            "keywords": "",
+            "contract": contract,
+        },
+        routing_hint,
     )
 
 
@@ -853,9 +883,21 @@ def _apply_factual_routing_overrides(question: str, classification: dict) -> dic
     pattern = routed.get("pattern", "general")
     confidence = float(routed.get("confidence", 0.0) or 0.0)
     entity_count = _count_question_entities(question, routed.get("entities", []))
+    contract = routed.get("contract", {}) if isinstance(routed.get("contract"), dict) else {}
+    answer_type = contract.get("answer_type", "")
+    force_pattern = contract.get("force_pattern", "")
+    requires_direct_email = bool(contract.get("requires_direct_email"))
 
     override = None
-    if _has_any_phrase(q_lower, _ANALYTICS_ROUTE_HINTS):
+    if force_pattern == "genie_analytics" or answer_type == "count":
+        override = "genie_analytics"
+    elif force_pattern == "entity_structure" or answer_type == "org_structure":
+        override = "entity_structure"
+    elif force_pattern == "entity_pair" or answer_type == "path":
+        override = "entity_pair"
+    elif (force_pattern == "timeline" or answer_type == "timeline") and not requires_direct_email:
+        override = "timeline"
+    elif _has_any_phrase(q_lower, _ANALYTICS_ROUTE_HINTS):
         override = "genie_analytics"
     elif (
         _has_any_phrase(q_lower, _ORG_ROUTE_HINTS)
@@ -870,7 +912,8 @@ def _apply_factual_routing_overrides(question: str, classification: dict) -> dic
     ):
         override = "entity_pair"
     elif (
-        (bool(_extract_temporal_metadata(question)) or _has_any_phrase(q_lower, _TIMELINE_ROUTE_HINTS))
+        not requires_direct_email
+        and (bool(_extract_temporal_metadata(question)) or _has_any_phrase(q_lower, _TIMELINE_ROUTE_HINTS))
         and pattern in {"general", "keyword_search", "entity_explore"}
     ):
         override = "timeline"
@@ -890,6 +933,343 @@ _DATE_LIKE_RE = re.compile(
     r"\d{4})$",                                        # bare year
     re.IGNORECASE,
 )
+
+
+_ROUTER_STOP_WORDS = {
+    "about", "after", "all", "and", "are", "around", "before", "between", "can",
+    "did", "does", "during", "each", "email", "emails", "for", "from", "how",
+    "in", "into", "is", "it", "its", "me", "most", "not", "of", "on", "or",
+    "show", "that", "the", "their", "them", "they", "this", "those", "to",
+    "was", "were", "what", "when", "which", "who", "with", "would",
+}
+_ROUTER_CASE_LIMIT = int(os.environ.get("GRAPHRAG_ROUTER_CASE_LIMIT", "96"))
+_ROUTER_MIN_SCORE = float(os.environ.get("GRAPHRAG_ROUTER_MIN_SCORE", "0.24"))
+_ROUTER_CASE_SPLITS = tuple(
+    part.strip()
+    for part in os.environ.get("GRAPHRAG_ROUTER_CASE_SPLITS", "train").split(",")
+    if part.strip()
+)
+_ENRON_ROUTING_CASES: list[dict] | None = None
+
+_PATTERN_ROUTER_CARDS: dict[str, dict[str, object]] = {
+    "entity_structure": {
+        "description": "Reporting lines, titles, managers, departments, and org structure.",
+        "keywords": (
+            "reports to", "manager", "managed", "title", "role", "department",
+            "org chart", "hierarchy", "supervisor", "direct report",
+        ),
+    },
+    "entity_explore": {
+        "description": "One person's activities, contacts, discussions, and involvement.",
+        "keywords": (
+            "email most", "top contacts", "activities", "discussed", "worked on",
+            "involved in", "projects", "topics",
+        ),
+    },
+    "entity_pair": {
+        "description": "Relationship, direct communication, and path between two people.",
+        "keywords": (
+            "between them", "each other", "connected", "connection path",
+            "relationship between", "directly", "emailed each other",
+        ),
+    },
+    "timeline": {
+        "description": "Bounded chronology, before or after events, and event sequences over time.",
+        "keywords": (
+            "timeline", "what happened", "chronology", "before", "after",
+            "during", "sequence of events", "over time",
+        ),
+    },
+    "keyword_search": {
+        "description": "Topic, project, deal, document, or theme-based evidence search.",
+        "keywords": (
+            "project", "topic", "theme", "deal", "document", "subject",
+            "mentions", "discussed",
+        ),
+    },
+    "genie_analytics": {
+        "description": "Counts, rankings, comparisons, trends, percentages, and full email listings.",
+        "keywords": (
+            "how many", "count", "top", "ranking", "compare", "percentage",
+            "trend", "busiest", "list all", "show me all",
+        ),
+    },
+    "general": {
+        "description": "Broad synthesis when no narrow factual primitive fits cleanly.",
+        "keywords": (
+            "overview", "broad", "why", "role", "what can you tell me",
+            "key factors", "general context",
+        ),
+    },
+}
+
+
+def _tokenize_router_text(text: str) -> set[str]:
+    parts = [
+        token for token in re.split(r"\W+", text.lower())
+        if len(token) > 2 and token not in _ROUTER_STOP_WORDS
+    ]
+    if not parts:
+        return set()
+    bigrams = [f"{a}_{b}" for a, b in zip(parts, parts[1:])]
+    return set(parts + bigrams)
+
+
+def _jaccard_score(left: set[str], right: set[str]) -> float:
+    if not left or not right:
+        return 0.0
+    overlap = len(left & right)
+    if overlap == 0:
+        return 0.0
+    return overlap / len(left | right)
+
+
+def _extract_answer_contract(question: str, entities: list[dict] | None = None) -> dict:
+    q_lower = question.lower()
+    temporal_meta = _extract_temporal_metadata(question)
+    entity_count = _count_question_entities(question, entities or [])
+
+    count_like = (
+        _has_any_phrase(q_lower, _ANALYTICS_ROUTE_HINTS)
+        or bool(re.search(r"\bhow many\b|\bcount\b|\bpercentage\b|\bpercent\b|\btop\s+\d+\b", q_lower))
+    )
+    org_like = _has_any_phrase(q_lower, _ORG_ROUTE_HINTS)
+    path_like = (
+        entity_count >= 2
+        and bool(re.search(r"\bpath\b|\bconnected\b|\bconnection\b|\brelationship\b", q_lower))
+    )
+    timeline_like = (
+        bool(temporal_meta)
+        or _has_any_phrase(q_lower, _TIMELINE_ROUTE_HINTS)
+    )
+    requires_evidence = bool(re.search(
+        r"\b(evidence|prove\w*|proof|show.*email|which email|quote|quoted|cite|citation|documentary)\b",
+        q_lower,
+    ))
+    requires_direct_email = bool(re.search(
+        r"\b(show.*email|which email|quote|quoted|direct email|prove\w*|proof)\b",
+        q_lower,
+    ))
+    comparison = bool(re.search(r"\b(compare|comparison|versus|vs\.?|difference|before|after)\b", q_lower))
+    directional = bool(re.search(
+        r"\b(sent|received|from|to|direction|direct|directly|each other|a to b|b to a)\b",
+        q_lower,
+    ))
+
+    answer_type = "unknown"
+    force_pattern = ""
+    if count_like:
+        answer_type = "count"
+        force_pattern = "genie_analytics"
+    elif requires_direct_email:
+        answer_type = "proof_email"
+        if org_like:
+            force_pattern = "entity_structure"
+        elif entity_count >= 2:
+            force_pattern = "entity_pair"
+        else:
+            force_pattern = "keyword_search"
+    elif path_like:
+        answer_type = "path"
+        force_pattern = "entity_pair"
+    elif org_like:
+        answer_type = "org_structure"
+        force_pattern = "entity_structure"
+    elif timeline_like:
+        answer_type = "timeline"
+        force_pattern = "timeline"
+
+    return {
+        "answer_type": answer_type,
+        "force_pattern": force_pattern,
+        "requires_evidence": requires_evidence or requires_direct_email,
+        "requires_direct_email": requires_direct_email,
+        "comparison": comparison,
+        "directional": directional,
+        "entity_count": entity_count,
+        "date_from": temporal_meta.get("date_from", ""),
+        "date_to": temporal_meta.get("date_to", ""),
+    }
+
+
+def _pattern_card_bonus(pattern: str, contract: dict) -> float:
+    answer_type = contract.get("answer_type", "")
+    force_pattern = contract.get("force_pattern", "")
+    bonus = 0.0
+    if force_pattern == pattern:
+        bonus += 0.42
+    if answer_type == "count" and pattern == "genie_analytics":
+        bonus += 0.18
+    if answer_type == "path" and pattern == "entity_pair":
+        bonus += 0.16
+    if answer_type == "org_structure" and pattern == "entity_structure":
+        bonus += 0.16
+    if answer_type == "timeline" and pattern == "timeline":
+        bonus += 0.14
+    if contract.get("requires_evidence") and pattern in {"entity_structure", "entity_pair", "keyword_search"}:
+        bonus += 0.06
+    if contract.get("directional") and pattern in {"entity_pair", "genie_analytics"}:
+        bonus += 0.05
+    if contract.get("comparison") and pattern == "genie_analytics":
+        bonus += 0.04
+    if contract.get("requires_direct_email") and pattern == "timeline":
+        bonus -= 0.10
+    return bonus
+
+
+def _load_enron_routing_cases() -> list[dict]:
+    global _ENRON_ROUTING_CASES
+    if _ENRON_ROUTING_CASES is not None:
+        return _ENRON_ROUTING_CASES
+
+    rows: list[dict] = []
+    try:
+        from src.evaluation.question_bank import export_governed_flat_questions
+    except ImportError:
+        try:
+            from evaluation.question_bank import export_governed_flat_questions
+        except ImportError:
+            log.warning("Case router unavailable: question_bank import failed")
+            _ENRON_ROUTING_CASES = []
+            return _ENRON_ROUTING_CASES
+
+    for split in _ROUTER_CASE_SPLITS or ("train",):
+        rows.extend(export_governed_flat_questions(corpus="enron", eval_split=split))
+
+    cases: list[dict] = []
+    for row in rows[:_ROUTER_CASE_LIMIT]:
+        primitive = row.get("primitive", "")
+        if primitive not in {
+            "entity_structure", "entity_explore", "entity_pair",
+            "timeline", "keyword_search", "general", "genie_analytics",
+        }:
+            continue
+        question_text = str(row.get("question", "") or row.get("question_text", "") or "")
+        case_text = " ".join([
+            question_text,
+            str(row.get("attorney_category", "")),
+            str(row.get("architecture_primary", "")),
+            str(row.get("domain_primary", "")),
+            " ".join(row.get("expected_tools", [])),
+        ])
+        tokens = _tokenize_router_text(case_text)
+        if not tokens:
+            continue
+        cases.append({
+            "question_id": row.get("question_id", ""),
+            "question": question_text,
+            "primitive": primitive,
+            "tokens": tokens,
+            "expected_tools": list(row.get("expected_tools", [])),
+            "attorney_category": row.get("attorney_category", ""),
+            "architecture_primary": row.get("architecture_primary", ""),
+            "domain_primary": row.get("domain_primary", ""),
+            "eval_split": row.get("eval_split", ""),
+        })
+
+    _ENRON_ROUTING_CASES = cases
+    return _ENRON_ROUTING_CASES
+
+
+def _get_case_based_pattern_hint(question: str, contract: dict | None = None) -> dict:
+    if CORPUS != "enron":
+        return {}
+
+    contract = contract or _extract_answer_contract(question)
+    question_tokens = _tokenize_router_text(question)
+    if not question_tokens:
+        return {}
+
+    pattern_scores: dict[str, float] = {}
+    best_case: dict[str, dict] = {}
+
+    for pattern, card in _PATTERN_ROUTER_CARDS.items():
+        card_text = " ".join([str(card.get("description", "")), *card.get("keywords", ())])
+        pattern_scores[pattern] = _jaccard_score(question_tokens, _tokenize_router_text(card_text))
+        pattern_scores[pattern] += _pattern_card_bonus(pattern, contract)
+
+    for case in _load_enron_routing_cases():
+        pattern = case["primitive"]
+        score = _jaccard_score(question_tokens, case["tokens"])
+        if score <= 0 and contract.get("force_pattern") != pattern:
+            continue
+        score += _pattern_card_bonus(pattern, contract)
+        if contract.get("requires_evidence") and case.get("architecture_primary") == "evidence_drilldown":
+            score += 0.04
+        if contract.get("answer_type") == "count" and case.get("architecture_primary") == "analytics_sql_genie":
+            score += 0.05
+        if score > pattern_scores.get(pattern, 0.0):
+            pattern_scores[pattern] = score
+            best_case[pattern] = {
+                "question_id": case.get("question_id", ""),
+                "question": case.get("question", ""),
+                "expected_tools": list(case.get("expected_tools", [])),
+                "eval_split": case.get("eval_split", ""),
+            }
+
+    ordered = sorted(pattern_scores.items(), key=lambda item: item[1], reverse=True)
+    if not ordered:
+        return {}
+
+    best_pattern, best_score = ordered[0]
+    second_score = ordered[1][1] if len(ordered) > 1 else 0.0
+    force_pattern = contract.get("force_pattern", "")
+    if force_pattern and best_score < 0.7:
+        best_pattern = force_pattern
+        best_score = max(best_score, 0.72)
+
+    if best_score < _ROUTER_MIN_SCORE and not force_pattern:
+        return {}
+
+    confidence = min(0.95, max(0.40, best_score + max(0.0, best_score - second_score)))
+    candidates = []
+    for pattern, score in ordered[:3]:
+        candidate = {"pattern": pattern, "score": round(score, 3)}
+        if pattern in best_case:
+            candidate["question_id"] = best_case[pattern].get("question_id", "")
+        candidates.append(candidate)
+
+    result = {
+        "pattern": best_pattern,
+        "confidence": confidence,
+        "score": best_score,
+        "candidates": candidates,
+    }
+    if best_pattern in best_case:
+        result.update({
+            "question_id": best_case[best_pattern].get("question_id", ""),
+            "matched_question": best_case[best_pattern].get("question", ""),
+            "expected_tools": best_case[best_pattern].get("expected_tools", []),
+        })
+    return result
+
+
+def _apply_case_router_hint(question: str, classification: dict, routing_hint: dict | None) -> dict:
+    if CORPUS != "enron" or not isinstance(classification, dict):
+        return classification
+
+    routed = dict(classification)
+    if routing_hint:
+        routed["router_candidates"] = routing_hint.get("candidates", [])
+        routed["router_score"] = float(routing_hint.get("confidence", 0.0) or 0.0)
+        hinted_pattern = routing_hint.get("pattern", "")
+        current_pattern = routed.get("pattern", "general")
+        contract = routed.get("contract", {}) if isinstance(routed.get("contract"), dict) else {}
+        force_pattern = contract.get("force_pattern", "")
+        should_override = False
+        if hinted_pattern and hinted_pattern != current_pattern:
+            if force_pattern and hinted_pattern == force_pattern:
+                should_override = True
+            elif routed["router_score"] >= 0.82 and current_pattern in {"general", "keyword_search", "entity_explore", "timeline"}:
+                should_override = True
+            elif routed["router_score"] >= 0.90 and current_pattern != "genie_analytics":
+                should_override = True
+        if should_override:
+            routed["pattern"] = hinted_pattern
+            routed["confidence"] = max(float(routed.get("confidence", 0.0) or 0.0), routed["router_score"])
+            routed["routing_override"] = f"case_router:{hinted_pattern}"
+
+    return _apply_factual_routing_overrides(question, routed)
 
 
 def pre_lookup_entities(entity_names: list[str]) -> tuple[list[str], list[str]]:
@@ -1295,14 +1675,135 @@ class ResolvedEntity:
 
 
 _resolve_cache: dict[str, "ResolvedEntity"] = {}
+_fuzzy_candidate_cache: list[dict] | None = None
 
 
 def clear_resolve_cache() -> None:
     _resolve_cache.clear()
+    global _fuzzy_candidate_cache
+    _fuzzy_candidate_cache = None
+
+
+def _load_fuzzy_resolution_candidates() -> list[dict]:
+    global _fuzzy_candidate_cache
+    if _fuzzy_candidate_cache is not None:
+        return _fuzzy_candidate_cache
+
+    candidates: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    entity_names: dict[str, str] = {}
+
+    def add_candidate(lookup: str, entity_id: str, name: str, source: str) -> None:
+        normalized = (lookup or "").strip().lower()
+        canonical_id = (entity_id or "").strip()
+        if not normalized or not canonical_id:
+            return
+        key = (normalized, canonical_id)
+        if key in seen:
+            return
+        seen.add(key)
+        candidates.append({
+            "lookup": normalized,
+            "entity_id": canonical_id,
+            "name": name or canonical_id,
+            "source": source,
+        })
+
+    try:
+        entity_rows = _backend.execute_sql(
+            f"SELECT entity_id, name FROM {ENTITIES_TABLE}"
+        ) or []
+    except Exception:
+        entity_rows = []
+
+    for row in entity_rows:
+        entity_id = row.get("entity_id", "")
+        name = row.get("name") or entity_id
+        if not entity_id:
+            continue
+        entity_names[entity_id] = name
+        add_candidate(entity_id, entity_id, name, "entity_id")
+        add_candidate(_slugify(name), entity_id, name, "name")
+
+    if CORPUS == "enron":
+        try:
+            alias_rows = _backend.execute_sql(
+                f"SELECT alias_id, canonical_id FROM {CATALOG}.{ENRON_SCHEMA}.entity_aliases"
+            ) or []
+        except Exception:
+            alias_rows = []
+
+        for row in alias_rows:
+            alias_id = row.get("alias_id", "")
+            canonical_id = row.get("canonical_id", "")
+            if not alias_id or not canonical_id:
+                continue
+            add_candidate(alias_id, canonical_id, entity_names.get(canonical_id, canonical_id), "alias")
+
+    _fuzzy_candidate_cache = candidates
+    return _fuzzy_candidate_cache
+
+
+def _rapidfuzz_match_entity(slug: str, score_cutoff: float = 91.0) -> list[dict]:
+    if not slug or rapidfuzz_process is None or rapidfuzz_fuzz is None:
+        return []
+
+    candidates = _load_fuzzy_resolution_candidates()
+    if not candidates:
+        return []
+
+    matches = rapidfuzz_process.extract(
+        slug,
+        [candidate["lookup"] for candidate in candidates],
+        scorer=rapidfuzz_fuzz.ratio,
+        limit=12,
+        score_cutoff=score_cutoff,
+    )
+    if not matches:
+        return []
+
+    source_rank = {"alias": 0, "name": 1, "entity_id": 2}
+    best_by_entity: dict[str, dict] = {}
+    for _, score, idx in matches:
+        candidate = candidates[idx]
+        if candidate["lookup"] == slug:
+            continue
+        item = {
+            "entity_id": candidate["entity_id"],
+            "name": candidate["name"],
+            "score": float(score),
+            "source": candidate["source"],
+        }
+        current = best_by_entity.get(item["entity_id"])
+        if current is None or item["score"] > current["score"] or (
+            item["score"] == current["score"]
+            and source_rank.get(item["source"], 9) < source_rank.get(current["source"], 9)
+        ):
+            best_by_entity[item["entity_id"]] = item
+
+    ranked = sorted(
+        best_by_entity.values(),
+        key=lambda item: (-item["score"], source_rank.get(item["source"], 9), item["name"]),
+    )
+    if not ranked:
+        return []
+
+    top_score = ranked[0]["score"]
+    second_score = ranked[1]["score"] if len(ranked) > 1 else 0.0
+    if top_score < score_cutoff:
+        return []
+    if len(ranked) > 1 and top_score < 97.0 and (top_score - second_score) < 3.0:
+        return []
+
+    return [{"entity_id": item["entity_id"], "name": item["name"]} for item in ranked[:5]]
 
 
 def _fuzzy_match_entity(slug: str, max_distance: int = 2) -> list[dict]:
     """Find entities within Levenshtein distance of the input slug."""
+    rapidfuzz_matches = _rapidfuzz_match_entity(slug)
+    if rapidfuzz_matches:
+        return rapidfuzz_matches
+
     prefix = slug[:3]
     try:
         candidates = _backend.execute_sql(
@@ -6105,6 +6606,259 @@ def _estimate_evidence_strength(tool_entries: list[tuple[str, str]]) -> str:
     return "LIMITED"
 
 
+def _collect_evidence_features(tool_entries: list[tuple[str, str]]) -> dict:
+    meaningful_count = 0
+    email_level_hits = 0
+    error_count = 0
+    for _call, result in tool_entries:
+        _summary, meaningful, has_email_level, had_error = _summarize_tool_result(result)
+        if meaningful:
+            meaningful_count += 1
+        if has_email_level:
+            email_level_hits += 1
+        if had_error:
+            error_count += 1
+    return {
+        "meaningful_count": meaningful_count,
+        "email_level_hits": email_level_hits,
+        "error_count": error_count,
+    }
+
+
+def _escalate_sufficiency_decision(current: str, incoming: str) -> str:
+    order = {"answer": 0, "hedge": 1, "abstain": 2}
+    return incoming if order.get(incoming, 0) > order.get(current, 0) else current
+
+
+def _assess_evidence_sufficiency(
+    tool_entries: list[tuple[str, str]],
+    evidence_strength: str,
+    *,
+    contract: dict | None = None,
+    consistency_warnings: list[str] | None = None,
+) -> dict:
+    contract = contract or {}
+    features = _collect_evidence_features(tool_entries)
+    decision = "answer"
+    reasons: list[str] = []
+    answer_type = str(contract.get("answer_type", "unknown") or "unknown")
+
+    if features["meaningful_count"] == 0:
+        decision = "abstain"
+        reasons.append("No substantive rows were retrieved for this question.")
+
+    if contract.get("requires_direct_email") and features["email_level_hits"] == 0:
+        needed = "No supporting email-level records were retrieved."
+        reasons.append(needed)
+        if answer_type == "proof_email":
+            decision = _escalate_sufficiency_decision(decision, "abstain")
+        else:
+            decision = _escalate_sufficiency_decision(decision, "hedge")
+
+    if answer_type == "count" and features["meaningful_count"] < EVIDENCE_CONFIG["evidence_sufficiency_threshold"]:
+        reasons.append("The count/ranking request has limited supporting rows.")
+        decision = _escalate_sufficiency_decision(decision, "hedge")
+
+    if evidence_strength == "LIMITED":
+        reasons.append("Only limited supporting evidence was retrieved.")
+        if decision == "answer":
+            decision = "hedge"
+
+    if consistency_warnings:
+        reasons.append("Cross-tool contradictions were detected and must be called out.")
+        if decision == "answer":
+            decision = "hedge"
+
+    return {
+        "decision": decision,
+        "reasons": list(dict.fromkeys(reasons)),
+        "features": features,
+        "answer_type": answer_type,
+    }
+
+
+def _build_sufficiency_guardrail_block(assessment: dict) -> str:
+    if assessment.get("decision") != "hedge":
+        return ""
+    reasons = assessment.get("reasons", [])
+    bullets = "\n".join(f"- {reason}" for reason in reasons) if reasons else "- Supporting evidence is limited."
+    return (
+        "\n\n## EVIDENCE SUFFICIENCY DECISION: HEDGE\n"
+        f"{bullets}\n"
+        "Answer only the subset that is directly supported by the retrieved rows. "
+        "State missing evidence explicitly, avoid exhaustive unsupported completions, "
+        "and prefer narrower phrasing such as 'the available data shows'.\n"
+    )
+
+
+def _render_abstention_response(
+    tool_entries: list[tuple[str, str]],
+    evidence_strength: str,
+    assessment: dict,
+) -> str:
+    answer_type = assessment.get("answer_type", "unknown")
+    if answer_type == "proof_email":
+        intro = "I couldn't verify a supporting email for this question from the retrieved Enron graph data."
+    else:
+        intro = "I can't answer this confidently from the retrieved Enron graph data."
+    reason_text = " ".join(assessment.get("reasons", []))
+    body = intro if not reason_text else f"{intro} {reason_text}"
+    return body.rstrip() + "\n\n" + _format_canonical_provenance(tool_entries, evidence_strength)
+
+
+def _extract_supported_email_records(tool_entries: list[tuple[str, str]]) -> list[dict]:
+    supported: list[dict] = []
+    for _call, result in tool_entries:
+        if not isinstance(result, str):
+            continue
+        try:
+            parsed = json.loads(result)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+        items = parsed if isinstance(parsed, list) else [parsed]
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            email_lists: list[dict] = []
+            for key in ("emails", "evidence_emails", "evidence"):
+                if isinstance(item.get(key), list):
+                    email_lists.extend(v for v in item[key] if isinstance(v, dict))
+            for email in email_lists:
+                supported.append({
+                    "date": str(email.get("date", "") or "")[:10],
+                    "sender": str(email.get("sender", "") or email.get("from", "") or ""),
+                    "subject": str(email.get("subject", "") or ""),
+                    "message_id": str(email.get("message_id", "") or email.get("id", "") or ""),
+                    "thread_id": str(email.get("thread_id", "") or ""),
+                })
+    return supported
+
+
+def _normalize_citation_field(value: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^\w\s@.-]", " ", value.lower())).strip()
+
+
+def _citation_is_supported(date: str, sender: str, subject: str, supported: list[dict]) -> bool:
+    norm_sender = _normalize_citation_field(sender)
+    norm_subject = _normalize_citation_field(subject)
+    for record in supported:
+        if date and record.get("date") and record["date"] != date:
+            continue
+        record_sender = _normalize_citation_field(record.get("sender", ""))
+        record_subject = _normalize_citation_field(record.get("subject", ""))
+        sender_ok = not norm_sender or not record_sender or norm_sender in record_sender or record_sender in norm_sender
+        subject_ok = (
+            not norm_subject
+            or not record_subject
+            or norm_subject in record_subject
+            or record_subject in norm_subject
+        )
+        if sender_ok and subject_ok:
+            return True
+    return False
+
+
+def _remove_unsupported_inline_citations(text: str, supported: list[dict]) -> str:
+    citation_re = re.compile(
+        r"\[(\d{4}-\d{2}-\d{2}),\s*From:\s*([^,\]]+),\s*Subject:\s*([^\]]+)\]"
+    )
+
+    def _replace(match: re.Match[str]) -> str:
+        date, sender, subject = match.groups()
+        return match.group(0) if _citation_is_supported(date, sender, subject, supported) else ""
+
+    cleaned = citation_re.sub(_replace, text)
+    return re.sub(r"[ \t]{2,}", " ", cleaned)
+
+
+def _clean_supporting_evidence_section(text: str, supported: list[dict]) -> str:
+    marker = "### Supporting Evidence"
+    start = text.find(marker)
+    if start == -1:
+        return text
+
+    next_section = text.find("\n### ", start + len(marker))
+    section = text[start: next_section if next_section != -1 else len(text)]
+    lines = section.splitlines()
+    kept: list[str] = []
+    kept_rows = 0
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            kept.append(line)
+            continue
+        if not stripped.startswith("|"):
+            kept.append(line)
+            continue
+        if set(stripped.replace("|", "").replace("-", "").replace(":", "").strip()) == set():
+            kept.append(line)
+            continue
+        columns = [part.strip() for part in line.split("|")[1:-1]]
+        if len(columns) >= 6 and columns[0].lower() != "claim":
+            date = columns[2]
+            sender = columns[3]
+            subject = columns[5]
+            if not _citation_is_supported(date, sender, subject, supported):
+                continue
+            kept_rows += 1
+        kept.append(line)
+
+    if kept_rows == 0:
+        replacement = ""
+    else:
+        replacement = "\n".join(kept).strip()
+    prefix = text[:start].rstrip()
+    suffix = text[next_section:].lstrip() if next_section != -1 else ""
+    merged = prefix
+    if replacement:
+        merged += "\n\n" + replacement
+    if suffix:
+        merged += "\n\n" + suffix
+    return merged
+
+
+def _soften_overclaiming_language(text: str, assessment: dict) -> str:
+    features = assessment.get("features", {})
+    if (
+        assessment.get("decision") == "answer"
+        and features.get("email_level_hits", 0) > 0
+        and features.get("meaningful_count", 0) >= 4
+    ):
+        return text
+    softened = text
+    replacements = {
+        r"\bproves\b": "supports",
+        r"\bproved\b": "supported",
+        r"\bclearly shows\b": "is consistent with",
+        r"\bconfirms\b": "supports",
+        r"\bdemonstrates\b": "suggests",
+    }
+    for pattern, replacement in replacements.items():
+        softened = re.sub(pattern, replacement, softened, flags=re.IGNORECASE)
+    return softened
+
+
+def _apply_claim_verification(
+    response_text: str,
+    tool_entries: list[tuple[str, str]],
+    evidence_strength: str,
+    *,
+    contract: dict | None = None,
+    consistency_warnings: list[str] | None = None,
+) -> str:
+    assessment = _assess_evidence_sufficiency(
+        tool_entries,
+        evidence_strength,
+        contract=contract,
+        consistency_warnings=consistency_warnings,
+    )
+    supported = _extract_supported_email_records(tool_entries)
+    verified = _remove_unsupported_inline_citations(response_text, supported)
+    verified = _clean_supporting_evidence_section(verified, supported)
+    verified = _soften_overclaiming_language(verified, assessment)
+    return verified
+
+
 def _format_canonical_provenance(tool_entries: list[tuple[str, str]], evidence_strength: str) -> str:
     meta = _build_provenance_metadata(tool_entries, evidence_strength)
     sources_block = "\n".join(meta["sources"])
@@ -6165,9 +6919,17 @@ def _extract_evidence_ids_for_drilldown(
     get_hierarchy_evidence results. Returns the top N most relevant email
     identifiers sorted by relevance_score descending.
     """
-    candidates: list[tuple[float, str, str]] = []
+    candidates: list[tuple[int, float, str, str]] = []
+    tool_priority = {
+        "get_hierarchy_evidence": 4,
+        "get_emails_between": 4,
+        "get_relationship_evidence": 4,
+        "get_source_evidence": 3,
+        "search_emails": 3,
+        "semantic_search_emails": 1,
+    }
 
-    for result_str in tool_results.values():
+    for call, result_str in tool_results.items():
         if not isinstance(result_str, str):
             continue
         try:
@@ -6190,16 +6952,22 @@ def _extract_evidence_ids_for_drilldown(
             if not mid and not tid:
                 continue
             score = float(email.get("relevance_score", 0.5))
-            candidates.append((score, mid, tid))
+            priority = tool_priority.get(_tool_name_from_call(call), 0)
+            candidates.append((priority, score, mid, tid))
 
-    candidates.sort(key=lambda x: x[0], reverse=True)
+    candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
     seen: set[str] = set()
+    seen_threads: set[str] = set()
     results: list[tuple[str, str]] = []
-    for _score, mid, tid in candidates:
+    for _priority, _score, mid, tid in candidates:
         dedup_key = mid or tid
         if dedup_key in seen:
             continue
+        if tid and tid in seen_threads:
+            continue
         seen.add(dedup_key)
+        if tid:
+            seen_threads.add(tid)
         results.append((mid, tid))
         if len(results) >= limit:
             break
@@ -6446,6 +7214,7 @@ class SubQuestion:
     keywords: str = ""
     date_from: str = ""
     date_to: str = ""
+    contract: dict = field(default_factory=dict)
     depends_on: list[str] = field(default_factory=list)
 
 
@@ -6714,8 +7483,15 @@ def _plan_from_classification(question: str, classification: dict, entity_memory
 
     pattern = classification.get("pattern", "general")
     entities = classification.get("entities", [])
+    contract = classification.get("contract") if isinstance(classification.get("contract"), dict) else _extract_answer_contract(resolved, entities)
 
-    temporal_meta = _extract_temporal_metadata(resolved) if pattern == "timeline" else {}
+    temporal_meta = {}
+    if contract.get("date_from"):
+        temporal_meta["date_from"] = contract.get("date_from", "")
+    if contract.get("date_to"):
+        temporal_meta["date_to"] = contract.get("date_to", "")
+    if pattern == "timeline" and not temporal_meta:
+        temporal_meta = _extract_temporal_metadata(resolved)
 
     classifier_keywords = classification.get("keywords", "")
     keywords = ""
@@ -6750,6 +7526,7 @@ def _plan_from_classification(question: str, classification: dict, entity_memory
             keywords=keywords,
             date_from=temporal_meta.get("date_from", ""),
             date_to=temporal_meta.get("date_to", ""),
+            contract=contract,
             depends_on=[],
         )],
     )
@@ -6782,10 +7559,28 @@ def _plan_query(
             history_lines.append(f"{role}: {content[:200]}")
     history_str = "\n".join(history_lines) if history_lines else "(no prior conversation)"
 
+    contract = _extract_answer_contract(resolved_question)
+    routing_hint = _get_case_based_pattern_hint(resolved_question, contract)
+    routing_lines = []
+    if contract.get("answer_type", "") != "unknown":
+        routing_lines.append(f"- Answer contract: {contract['answer_type']}")
+    if contract.get("force_pattern"):
+        routing_lines.append(f"- Deterministic candidate pattern: {contract['force_pattern']}")
+    if routing_hint.get("pattern"):
+        routing_lines.append(
+            f"- Case-based candidate pattern: {routing_hint['pattern']} (confidence {routing_hint.get('confidence', 0.0):.2f})"
+        )
+    routing_block = (
+        "\n\n## Routing Hints\n" + "\n".join(routing_lines)
+        + "\nUse these hints unless the question clearly decomposes into multiple primitives."
+        if routing_lines else ""
+    )
+
     user_block = (
         f"## Conversation History\n{history_str}\n\n"
         f"## Entity Memory\n{entity_memory_context or '(no entities yet)'}\n\n"
         f"## Current Question\n{resolved_question}"
+        + routing_block
     )
 
     try:
@@ -6801,7 +7596,12 @@ def _plan_query(
         text = response.content.strip()
     except Exception as exc:
         log.warning("Planner LLM call failed: %s; using classifier fallback", exc)
-        classification = classify_and_extract(resolved_question)
+        classification = classify_and_extract(
+            resolved_question,
+            raw_question=resolved_question,
+            contract=contract,
+            routing_hint=routing_hint,
+        )
         return _plan_from_classification(resolved_question, classification, entity_memory_context)
 
     if text.startswith("```"):
@@ -6821,7 +7621,12 @@ def _plan_query(
 
     if not plan_data or not isinstance(plan_data, dict):
         log.warning("Planner JSON parse failed; using classifier fallback. Response: %s", text[:300])
-        classification = classify_and_extract(resolved_question)
+        classification = classify_and_extract(
+            resolved_question,
+            raw_question=resolved_question,
+            contract=contract,
+            routing_hint=routing_hint,
+        )
         return _plan_from_classification(resolved_question, classification, entity_memory_context)
 
     resolved_q = plan_data.get("resolved_question", resolved_question)
@@ -6831,22 +7636,31 @@ def _plan_query(
         if pattern not in VALID_PATTERNS:
             log.warning("Planner returned invalid pattern %r, mapping to general", pattern)
             pattern = "general"
+        sq_question = sq_data.get("question", resolved_question)
+        sq_entities = sq_data.get("entities", [])
+        sq_contract = _extract_answer_contract(sq_question, sq_entities)
         raw_keywords = sq_data.get("keywords", "")
         if pattern in ("keyword_search", "general"):
             raw_keywords = _expand_keywords(raw_keywords)
         sqs.append(SubQuestion(
             id=sq_data.get("id", f"sq{len(sqs)+1}"),
-            question=sq_data.get("question", resolved_question),
+            question=sq_question,
             pattern=pattern,
-            entities=sq_data.get("entities", []),
+            entities=sq_entities,
             keywords=raw_keywords,
-            date_from=sq_data.get("date_from", ""),
-            date_to=sq_data.get("date_to", ""),
+            date_from=sq_data.get("date_from", "") or sq_contract.get("date_from", ""),
+            date_to=sq_data.get("date_to", "") or sq_contract.get("date_to", ""),
+            contract=sq_contract,
             depends_on=sq_data.get("depends_on", []),
         ))
 
     if not sqs:
-        classification = classify_and_extract(resolved_question)
+        classification = classify_and_extract(
+            resolved_question,
+            raw_question=resolved_question,
+            contract=contract,
+            routing_hint=routing_hint,
+        )
         return _plan_from_classification(resolved_question, classification, entity_memory_context)
 
     return QueryPlan(resolved_question=resolved_q, sub_questions=sqs)
@@ -6990,6 +7804,8 @@ class GraphRAGAgent(ResponsesAgent):
             try:
                 parsed = json.loads(val)
             except (json.JSONDecodeError, ValueError):
+                continue
+            if not isinstance(parsed, dict):
                 continue
 
             res_meta = parsed.get("resolution", {})
@@ -7209,6 +8025,21 @@ class GraphRAGAgent(ResponsesAgent):
         context = _truncate_json_aware(context_raw, context_limit)
         tool_entries = list(tool_results.items())
         strength = _estimate_evidence_strength(tool_entries)
+        contract = {}
+        if isinstance(metadata, dict) and isinstance(metadata.get("contract"), dict):
+            contract = metadata["contract"]
+        elif question:
+            contract = _extract_answer_contract(question, entities)
+        sufficiency = _assess_evidence_sufficiency(
+            tool_entries,
+            strength,
+            contract=contract,
+            consistency_warnings=consistency_warnings,
+        )
+        if sufficiency["decision"] == "abstain":
+            abstain_response = AIMessage(content=_render_abstention_response(tool_entries, strength, sufficiency))
+            yield from output_to_responses_items_stream([abstain_response])
+            return
         fp_evidence_block = ""
         if strength != "STRONG":
             fp_evidence_block = (
@@ -7218,11 +8049,13 @@ class GraphRAGAgent(ResponsesAgent):
                 "Explicitly state when information is not available. "
                 "Do NOT compensate with general knowledge.\n"
             )
+        sufficiency_block = _build_sufficiency_guardrail_block(sufficiency)
         provenance_guardrail = _build_provenance_guardrail_block(tool_entries, strength)
         synthesis_system = (
             pattern.synthesis_prompt
             + consistency_block
             + fp_evidence_block
+            + sufficiency_block
             + PROVENANCE_FORMAT
             + provenance_guardrail
             + f"\n\nData:\n{context}"
@@ -7234,6 +8067,13 @@ class GraphRAGAgent(ResponsesAgent):
         ])
         if isinstance(getattr(response, "content", None), str):
             response.content = _apply_provenance_guardrails(response.content, tool_entries, strength)
+            response.content = _apply_claim_verification(
+                response.content,
+                tool_entries,
+                strength,
+                contract=contract,
+                consistency_warnings=consistency_warnings,
+            )
 
         yield from output_to_responses_items_stream([response])
 
@@ -7370,6 +8210,8 @@ class GraphRAGAgent(ResponsesAgent):
                 metadata["date_from"] = sq.date_from
             if sq.date_to and _date_re.match(sq.date_to):
                 metadata["date_to"] = sq.date_to
+            if sq.contract:
+                metadata["contract"] = sq.contract
             if sq.pattern == "timeline" and "date_from" not in metadata:
                 auto_dates = _extract_temporal_metadata(sq.question)
                 metadata.update(auto_dates)
@@ -7526,7 +8368,7 @@ class GraphRAGAgent(ResponsesAgent):
                 "rather than making unsupported claims.\n"
             )
 
-        pdes_consistency = self._validate_tool_consistency(all_sub_results)
+        pdes_consistency = self._validate_tool_consistency({call: result for call, result in tool_entries})
         pdes_consistency_block = ""
         if pdes_consistency:
             pdes_consistency_block = (
@@ -7536,6 +8378,24 @@ class GraphRAGAgent(ResponsesAgent):
                 "Do NOT ignore contradictions between tools.\n"
             )
 
+        plan_contract = (
+            plan.sub_questions[0].contract
+            if len(plan.sub_questions) == 1 and plan.sub_questions[0].contract
+            else _extract_answer_contract(plan.resolved_question)
+        )
+        pdes_sufficiency = _assess_evidence_sufficiency(
+            tool_entries,
+            evidence_strength,
+            contract=plan_contract,
+            consistency_warnings=pdes_consistency,
+        )
+        if pdes_sufficiency["decision"] == "abstain":
+            abstain_response = AIMessage(
+                content=_render_abstention_response(tool_entries, evidence_strength, pdes_sufficiency)
+            )
+            yield from output_to_responses_items_stream([abstain_response])
+            return
+        sufficiency_block = _build_sufficiency_guardrail_block(pdes_sufficiency)
         provenance_guardrail = _build_provenance_guardrail_block(tool_entries, evidence_strength)
         unique_patterns = list({sq.pattern for sq in plan.sub_questions})
         if len(unique_patterns) == 1:
@@ -7545,6 +8405,7 @@ class GraphRAGAgent(ResponsesAgent):
                     sole_pattern.synthesis_prompt
                     + pdes_consistency_block
                     + evidence_block
+                    + sufficiency_block
                     + PROVENANCE_FORMAT
                     + provenance_guardrail
                     + f"\n\n## Data Retrieved\n\n{sub_answers_block}"
@@ -7554,6 +8415,7 @@ class GraphRAGAgent(ResponsesAgent):
                     "You are a corporate communications analyst synthesizing answers from data queries about Enron.\n\n"
                     + pdes_consistency_block
                     + evidence_block
+                    + sufficiency_block
                     + PROVENANCE_FORMAT
                     + provenance_guardrail
                     + f"\n\n## Data Retrieved\n\n{sub_answers_block}"
@@ -7575,6 +8437,7 @@ class GraphRAGAgent(ResponsesAgent):
                 + (f"## Pattern-specific guidance\n{hints_block}\n\n" if hints_block else "")
                 + pdes_consistency_block
                 + evidence_block
+                + sufficiency_block
                 + "Guidelines:\n"
                 "- Integrate information from all sub-queries into a unified narrative.\n"
                 "- Prioritize curated data (source: curated_org_hierarchy) over LLM-extracted relationships.\n"
@@ -7593,6 +8456,13 @@ class GraphRAGAgent(ResponsesAgent):
         ])
         if isinstance(getattr(response, "content", None), str):
             response.content = _apply_provenance_guardrails(response.content, tool_entries, evidence_strength)
+            response.content = _apply_claim_verification(
+                response.content,
+                tool_entries,
+                evidence_strength,
+                contract=plan_contract,
+                consistency_warnings=pdes_consistency,
+            )
 
         yield from output_to_responses_items_stream([response])
 
@@ -7644,7 +8514,15 @@ class GraphRAGAgent(ResponsesAgent):
             em_context = self.entity_memory.context_for_classifier()
 
             if question and CORPUS == "enron" and TOOL_MAP:
-                pre_classification = classify_and_extract(question + em_context if em_context else question)
+                classify_question = question + em_context if em_context else question
+                answer_contract = _extract_answer_contract(question)
+                routing_hint = _get_case_based_pattern_hint(question, answer_contract)
+                pre_classification = classify_and_extract(
+                    classify_question,
+                    raw_question=question,
+                    contract=answer_contract,
+                    routing_hint=routing_hint,
+                )
                 for ent in pre_classification.get("entities", []):
                     name = ent.get("name", "") if isinstance(ent, dict) else ""
                     if name:
@@ -7703,6 +8581,8 @@ class GraphRAGAgent(ResponsesAgent):
                             fp_metadata["date_to"] = sq.date_to
                         if sq.keywords:
                             fp_metadata["keywords"] = sq.keywords
+                        if sq.contract:
+                            fp_metadata["contract"] = sq.contract
                         if not fp_metadata and sq.pattern == "timeline":
                             fp_metadata = _extract_temporal_metadata(question)
                         if sq.pattern in ("keyword_search", "general"):
@@ -7743,7 +8623,10 @@ class GraphRAGAgent(ResponsesAgent):
 
             classify_question = question + em_context if em_context else question
             if question and _CLASSIFY_PIPELINE:
-                classification = classify_and_extract(classify_question)
+                classification = classify_and_extract(
+                    classify_question,
+                    raw_question=question,
+                )
             else:
                 classification = {"pattern": "general", "confidence": 0.0, "entities": []}
             entities = classification.get("entities", [])

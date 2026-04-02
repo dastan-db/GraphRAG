@@ -299,15 +299,19 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
         name="entity_pair",
         synthesis_prompt=ENTITY_PAIR_SYNTHESIS + EVIDENCE_CITATION_RULE,
         steps=[
-            ExecutionStep("trace_path", {
-                "entity_a": "$ENTITY",
-                "entity_b": "$ENTITY_B",
-            }),
             ExecutionStep("get_emails_between", {
                 "entity_a": "$ENTITY",
                 "entity_b": "$ENTITY_B",
             }),
+            ExecutionStep("get_relationship_evidence", {
+                "source_entity": "$ENTITY",
+                "target_entity": "$ENTITY_B",
+            }),
             ExecutionStep("get_dyad_topics", {
+                "entity_a": "$ENTITY",
+                "entity_b": "$ENTITY_B",
+            }),
+            ExecutionStep("trace_path", {
                 "entity_a": "$ENTITY",
                 "entity_b": "$ENTITY_B",
             }),
@@ -319,10 +323,6 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
                 "direction": "both",
                 "limit": 10,
             }),
-            ExecutionStep("get_relationship_evidence", {
-                "source_entity": "$ENTITY",
-                "target_entity": "$ENTITY_B",
-            }),
         ],
         min_confidence=0.0,
     ),
@@ -331,16 +331,10 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
         name="timeline",
         synthesis_prompt=TIMELINE_SYNTHESIS + EVIDENCE_CITATION_RULE,
         steps=[
-            ExecutionStep("semantic_search_emails", {
-                "query": "$QUESTION",
-            }),
             ExecutionStep("query_timeline", {
                 "person_name": "",
                 "date_from": "$DATE_FROM",
                 "date_to": "$DATE_TO",
-            }),
-            ExecutionStep("search_emails", {
-                "keywords": "$KEYWORDS",
             }),
             ExecutionStep("query_timeline", {
                 "person_name": "$ENTITY",
@@ -356,8 +350,14 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
                 "entity_name": "$ENTITY",
                 "group_by": "month",
             }),
+            ExecutionStep("search_emails", {
+                "keywords": "$KEYWORDS",
+            }),
             ExecutionStep("get_source_evidence", {
                 "entity_name": "$ENTITY",
+            }),
+            ExecutionStep("semantic_search_emails", {
+                "query": "$QUESTION",
             }),
         ],
         min_confidence=0.0,
