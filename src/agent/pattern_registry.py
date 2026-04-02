@@ -64,6 +64,12 @@ EVIDENCE_CITATION_RULE = """
 - If evidence_available=true was returned by query_org_hierarchy, you MUST call get_hierarchy_evidence before responding.
 - If get_emails_between returns empty, check the resolution.correction field for typos. Try get_relationship_evidence as a bridge. If still no evidence, report honestly that no direct emails were found.
 - NEVER fabricate email citations. Every citation must correspond to a specific email returned by a tool.
+
+## CRITICAL: Email Body Evidence (get_email_full_body results)
+- If get_email_full_body results are present in the tool data, you MUST quote relevant body passages that support your claims.
+- Format body quotes as: > "...[relevant excerpt from email body]..." — [YYYY-MM-DD, From: sender]
+- Full email bodies provide the STRONGEST evidence. Always prioritize body quotes over metadata-only citations.
+- If the body text directly proves a reporting relationship (e.g., "Per your direction...", "As you requested...", "Report to..."), quote it verbatim.
 """
 
 
@@ -87,23 +93,24 @@ Guidelines:
 
 ENTITY_EXPLORE_SYNTHESIS = """You are a corporate communications analyst answering a question about an Enron employee's activities and connections.
 
-You have a ranked contact list, discussion topics, an entity profile, communication statistics, and sample emails from get_emails_between for the top contacts.
+You have actual email evidence, org hierarchy data, a ranked contact list, discussion topics, an entity profile, and communication statistics.
 
 Guidelines:
-- Present the person's role and key relationships from org hierarchy data.
-- Rank their top contacts with communication volumes — include ALL contacts returned with exact email counts.
+- LEAD WITH EMAIL EVIDENCE. Your response MUST start with the person's role, then IMMEDIATELY present actual email quotes from get_source_evidence, get_hierarchy_evidence, get_emails_between, or get_email_full_body results.
+- For each email found, show: date, sender, recipient(s), subject, and a body excerpt if available.
+- After presenting email evidence, summarize their top contacts with communication volumes.
 - If asked "who communicated most frequently", present the top contact with exact count FIRST, then list others in descending order.
-- Show the TOTAL email count from find_top_contacts for each contact, then present a representative sample of actual emails in the Supporting Evidence table at the end.
 - Identify their main discussion topics from relationship and email data.
 - Cite specific email evidence [YYYY-MM-DD, From: sender, Subject: topic] when available.
 - Note directional patterns (who initiated more, sent vs received counts).
-- Use communication statistics to provide quantitative context (total emails sent, received, busiest periods).
-- NEVER fabricate email rows in the evidence table. Only include emails returned by get_emails_between.
-- Present EVERY piece of evidence returned by tools. Do NOT summarize away details.
+- NEVER fabricate email rows in the evidence table. Only include emails returned by tools.
+- NEVER invent dates, senders, subjects, or body text that do not appear verbatim in the tool results.
+- Present EVERY piece of email evidence returned by tools. Do NOT summarize away email details.
 - Do NOT fabricate activities or contacts not in the data.
-- Present each fact ONCE in the most appropriate section. Do not restate email counts or relationship descriptions across multiple sections.
+- If you are uncertain whether an email exists, check the tool results before citing it. Absence of evidence ≠ evidence of absence — say "not found" rather than guessing.
+- Present each fact ONCE in the most appropriate section.
 - If a tool returned an error message, briefly note the limitation — do not pass raw error strings to the user.
-- In the Provenance section, list claim labels with confidence levels only. Do not re-explain evidence already presented in the body."""
+- In the Provenance section, list claim labels with confidence levels only."""
 
 
 ENTITY_PAIR_SYNTHESIS = """You are a corporate communications analyst answering a question about the relationship between two people at Enron.
@@ -136,6 +143,7 @@ You have curated investigation timeline events, communication timeline data, ema
 
 Guidelines:
 - Present events in strict chronological order.
+- Lead with deterministic timeline rows and date-bounded communication counts before using semantic-search snippets.
 - For each event, cite the source: curated timeline (verified) or email evidence (derived).
 - Distinguish clearly between curated facts and email-derived observations.
 - If asking about communication patterns over time, include volume trends and compare before/after periods.
@@ -209,7 +217,11 @@ Guidelines:
 - Note any data quality caveats from the enrichment.
 - If the Genie query failed, explain the limitation.
 - Do NOT fabricate analytical results not present in the data.
+- If results include `sent_a_to_b` / `sent_b_to_a`, quote those exact fields and describe direction explicitly.
+- If results include `sent_to_contact` / `received_from_contact`, report total first and then the directional breakdown in parentheses.
 - Use 'sent' for one-directional communication and 'exchanged' ONLY when both directions have non-zero counts.
+- If a result only gives a total count, describe it as a total direct-email count. Do NOT imply a balanced exchange.
+- Do not label a row as 'sent' or 'received' unless the matching directional field is present and non-zero.
 - Keep the response proportional to the question — a simple count question deserves a one-sentence answer, not a multi-section report."""
 
 
@@ -251,14 +263,11 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
         name="entity_explore",
         synthesis_prompt=ENTITY_EXPLORE_SYNTHESIS + EVIDENCE_CITATION_RULE,
         steps=[
-            ExecutionStep("find_top_contacts", {
+            ExecutionStep("get_source_evidence", {
                 "entity_name": "$ENTITY",
-                "direction": "both",
-                "limit": 15,
             }),
-            ExecutionStep("find_connections", {
-                "entity_name": "$ENTITY",
-                "relationship_type": "DISCUSSES",
+            ExecutionStep("get_hierarchy_evidence", {
+                "person_name": "$ENTITY",
             }),
             ExecutionStep("query_org_hierarchy", {
                 "entity_name": "$ENTITY",
@@ -266,18 +275,21 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
             ExecutionStep("get_entity_summary", {
                 "entity_name": "$ENTITY",
             }),
+            ExecutionStep("find_top_contacts", {
+                "entity_name": "$ENTITY",
+                "direction": "both",
+                "limit": 5,
+            }),
+            ExecutionStep("find_connections", {
+                "entity_name": "$ENTITY",
+                "relationship_type": "DISCUSSES",
+            }),
             ExecutionStep("get_topic_distribution", {
                 "entity_name": "$ENTITY",
             }),
             ExecutionStep("get_communication_stats", {
                 "entity_name": "$ENTITY",
                 "group_by": "contact",
-            }),
-            ExecutionStep("get_source_evidence", {
-                "entity_name": "$ENTITY",
-            }),
-            ExecutionStep("get_hierarchy_evidence", {
-                "person_name": "$ENTITY",
             }),
         ],
         min_confidence=0.0,

@@ -273,18 +273,22 @@ pairs_with_both_names = (
     .join(person_names.alias("pn"),
           F.col("h.person_id") == F.col("pn.person_id"), "left")
     .select(
-        F.col("h.person_id"),
-        F.col("h.reports_to_id"),
+        F.col("h.person_id").alias("subordinate_id"),
+        F.col("h.reports_to_id").alias("manager_id"),
         F.col("pn.name").alias("subordinate_name"),
-        F.col("h.effective_from"),
-        F.col("h.effective_to"),
+        F.col("h.effective_from").alias("effective_from"),
+        F.col("h.effective_to").alias("effective_to"),
     )
+    .alias("p")
     .join(person_names.alias("mn"),
-          F.col("h.reports_to_id") == F.col("mn.person_id"), "left")
+          F.col("p.manager_id") == F.col("mn.person_id"), "left")
     .select(
-        "person_id", "reports_to_id", "subordinate_name",
+        F.col("p.subordinate_id").alias("person_id"),
+        F.col("p.manager_id").alias("reports_to_id"),
+        F.col("p.subordinate_name"),
         F.col("mn.name").alias("manager_name_full"),
-        "effective_from", "effective_to",
+        F.col("p.effective_from"),
+        F.col("p.effective_to"),
     )
 )
 

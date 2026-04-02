@@ -44,8 +44,10 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 CATALOG = os.environ.get("GRAPHRAG_CATALOG", "serverless_8e8gyh_catalog")
 SCHEMA = os.environ.get("GRAPHRAG_SCHEMA", "graphrag_bible")
-LLM_ENDPOINT = os.environ.get("GRAPHRAG_LLM_ENDPOINT", "databricks-meta-llama-3-3-70b-instruct")
+LLM_ENDPOINT = os.environ.get("GRAPHRAG_LLM_ENDPOINT", "databricks-llama-4-maverick")
 SMALL_LLM_ENDPOINT = os.environ.get("GRAPHRAG_SMALL_LLM_ENDPOINT", "databricks-meta-llama-3-1-8b-instruct")
+SYNTHESIS_ENDPOINT = os.environ.get("GRAPHRAG_SYNTHESIS_ENDPOINT", "databricks-llama-4-maverick")
+REACT_ENDPOINT = os.environ.get("GRAPHRAG_REACT_ENDPOINT", "databricks-llama-4-maverick")
 
 ENTITIES_TABLE = f"{CATALOG}.{SCHEMA}.entities"
 RELATIONSHIPS_TABLE = f"{CATALOG}.{SCHEMA}.relationships"
@@ -81,7 +83,7 @@ ACCESS_TIER = os.environ.get("GRAPHRAG_ACCESS_TIER", "")
 
 EVIDENCE_CONFIG = {
     "strategy_weights": {"A": 1.0, "B": 0.7, "C": 0.9, "D": 0.4},
-    "snippet_length": 500,
+    "snippet_length": 1000,
     "max_emails_per_pair": 20,
     "date_proximity_boost": 0.0,
     "date_proximity_window_days": 90,
@@ -90,7 +92,7 @@ EVIDENCE_CONFIG = {
     "org_keyword_boost": 0.3,
     "min_relevance_threshold": 0.3,
     "default_sort_order": "relevance",
-    "body_preview_length": 1200,
+    "body_preview_length": 2000,
     "thread_cap": 20,
     "email_type_thresholds": {"direct": 3, "group": 10},
     "expose_vector_scores": True,
@@ -193,22 +195,72 @@ class DatabricksBackend:
 
 
 class LocalBackend:
-    """DuckDB — local development with exported graph data."""
+    """DuckDB — local development with exported graph data.
 
-    _FQN_PREFIX = f"{CATALOG}.{SCHEMA}."
+    Handles Spark SQL → DuckDB dialect translation so tool-generated queries
+    run against exported DuckDB tables without modification.  Array columns
+    must be exported as DuckDB ``VARCHAR[]`` (see ``scripts/export_local_data.py``).
+
+    Thread-safety: a ``threading.Lock`` serialises queries because DuckDB
+    connections are not safe for concurrent reads from multiple threads
+    (the agent's ``ThreadPoolExecutor`` executes tools in parallel).
+    """
+
+    _FQN_BIBLE = f"{CATALOG}.{SCHEMA}."
+    _FQN_ENRON = f"{CATALOG}.{ENRON_SCHEMA}."
+
+    _SPARK_TO_DUCK: list[tuple[re.Pattern, str]] = [
+        (re.compile(r"\bSIZE\(", re.IGNORECASE), "array_length("),
+        (re.compile(r"\bARRAY_JOIN\(", re.IGNORECASE), "array_to_string("),
+        (re.compile(r"\bSLICE\(", re.IGNORECASE), "list_slice("),
+        (re.compile(r"\bCOLLECT_LIST\(", re.IGNORECASE), "list("),
+        (re.compile(r"\bCOLLECT_SET\(", re.IGNORECASE), "list("),
+        (re.compile(r"\bFIRST\(", re.IGNORECASE), "first("),
+        # LATERAL VIEW must come before simple EXPLODE replacement
+        (re.compile(
+            r"LATERAL\s+VIEW\s+EXPLODE\(([^)]+)\)\s+(\w+)\s+AS\s+(\w+)",
+            re.IGNORECASE,
+        ), r", UNNEST(\1) AS \2(\3)"),
+        (re.compile(r"\bEXPLODE\(", re.IGNORECASE), "UNNEST("),
+        (re.compile(
+            r"DATE_FORMAT\(([^,]+),\s*'yyyy-MM'\)", re.IGNORECASE,
+        ), r"strftime(\1, '%Y-%m')"),
+        (re.compile(
+            r"DATE_FORMAT\(([^,]+),\s*'yyyy-MM-dd'\)", re.IGNORECASE,
+        ), r"strftime(\1, '%Y-%m-%d')"),
+    ]
 
     def __init__(self, db_path: str | None = None):
         import duckdb
+        import threading
         path = db_path or os.environ.get("GRAPHRAG_LOCAL_DB", "data/graphrag.duckdb")
         self._conn = duckdb.connect(path, read_only=True)
+        self._lock = threading.Lock()
         log.info("LocalBackend connected to %s", path)
 
+    @classmethod
+    def _translate_sql(cls, query: str) -> str:
+        """Best-effort Spark SQL → DuckDB translation."""
+        for pattern, replacement in cls._SPARK_TO_DUCK:
+            query = pattern.sub(replacement, query)
+        return query
+
     def execute_sql(self, query: str, params: dict[str, str] | None = None) -> list[dict]:
-        query = query.replace(self._FQN_PREFIX, "")
+        query = query.replace(self._FQN_BIBLE, "")
+        query = query.replace(self._FQN_ENRON, "")
+        query = self._translate_sql(query)
         query = re.sub(r":(\w+)", r"$\1", query)
-        result = self._conn.execute(query, params or {})
-        columns = [desc[0] for desc in result.description]
-        return [dict(zip(columns, row)) for row in result.fetchall()]
+        if params:
+            used = set(re.findall(r"\$(\w+)", query))
+            params = {k: v for k, v in params.items() if k in used}
+        with self._lock:
+            try:
+                result = self._conn.execute(query, params or {})
+                columns = [desc[0] for desc in result.description]
+                return [dict(zip(columns, row)) for row in result.fetchall()]
+            except Exception as exc:
+                log.warning("LocalBackend SQL error: %s — %s", query[:200], exc)
+                return []
 
 
 class LakebaseBackend:
@@ -299,7 +351,46 @@ def _get_backend() -> DataBackend:
     return DatabricksBackend()
 
 
-_backend: DataBackend = _get_backend()
+class CachingBackend:
+    """Per-request caching wrapper around a DataBackend.
+
+    Eliminates redundant SQL round-trips when multiple tools issue the
+    same entity/relationship lookup within a single predict() call.
+    Call clear() at the start of each request.
+    """
+
+    def __init__(self, inner: DataBackend):
+        self._inner = inner
+        self._cache: dict[str, list[dict]] = {}
+        self._hits = 0
+        self._misses = 0
+
+    def execute_sql(self, query: str, params: dict[str, str] | None = None) -> list[dict]:
+        param_key = tuple(sorted((params or {}).items()))
+        key = f"{query.strip()}|{param_key}"
+        if key in self._cache:
+            self._hits += 1
+            return self._cache[key]
+        self._misses += 1
+        result = self._inner.execute_sql(query, params)
+        self._cache[key] = result
+        return result
+
+    def clear(self) -> None:
+        if self._hits + self._misses > 0:
+            log.debug("SQL cache: %d hits, %d misses (%.0f%% hit rate)",
+                      self._hits, self._misses,
+                      100 * self._hits / (self._hits + self._misses))
+        self._cache.clear()
+        self._hits = 0
+        self._misses = 0
+
+    def set_rls_context(self, context: dict[str, str]):
+        if hasattr(self._inner, "set_rls_context"):
+            self._inner.set_rls_context(context)
+
+
+_backend: DataBackend = CachingBackend(_get_backend())
 
 
 # ---------------------------------------------------------------------------
@@ -521,17 +612,20 @@ def classify_and_extract(question: str) -> dict:
             entities = result.get("entities", [])
             if isinstance(entities, list):
                 entities = [e for e in entities if isinstance(e, dict) and "name" in e]
-            return {
+            return _apply_factual_routing_overrides(question, {
                 "pattern": result.get("pattern", "general"),
                 "confidence": float(result.get("confidence", 0.0)),
                 "entities": entities,
                 "keywords": result.get("keywords", ""),
-            }
+            })
     except (json.JSONDecodeError, ValueError, TypeError):
         log.warning("Failed to parse classify_and_extract response: %s", text)
 
     entities = extract_query_entities(question)
-    return {"pattern": "general", "confidence": 0.0, "entities": entities, "keywords": ""}
+    return _apply_factual_routing_overrides(
+        question,
+        {"pattern": "general", "confidence": 0.0, "entities": entities, "keywords": ""},
+    )
 
 
 _MONTH_MAP = {
@@ -564,6 +658,38 @@ def _truncate_json_aware(raw: str, limit: int = 8000) -> str:
     if cut.count('{') > cut.count('}'):
         cut += ' ... }'
     return cut
+
+
+_EMAIL_TOOL_NAMES = frozenset({
+    "get_email_full_body", "get_emails_between", "get_source_evidence",
+    "get_hierarchy_evidence", "get_relationship_evidence", "search_emails",
+})
+_METADATA_TOOL_NAMES = frozenset({
+    "find_top_contacts", "find_connections", "get_communication_stats",
+    "get_topic_distribution",
+})
+
+
+def _prioritize_email_results(tool_results: dict, metadata_cap: int = 2000) -> dict:
+    """Reorder tool_results so email-bearing tools appear first in the dict.
+
+    Also truncates metadata tool outputs to `metadata_cap` characters each,
+    ensuring email content always survives the context truncation.
+    """
+    email_items = []
+    core_items = []
+    metadata_items = []
+    for key, val in tool_results.items():
+        base_tool = key.split("__")[0].split("(")[0].strip()
+        if base_tool in _EMAIL_TOOL_NAMES:
+            email_items.append((key, val))
+        elif base_tool in _METADATA_TOOL_NAMES:
+            if isinstance(val, str) and len(val) > metadata_cap:
+                val = _truncate_json_aware(val, metadata_cap)
+            metadata_items.append((key, val))
+        else:
+            core_items.append((key, val))
+    return dict(email_items + core_items + metadata_items)
 
 
 def _extract_temporal_metadata(question: str) -> dict:
@@ -673,6 +799,88 @@ def _heuristic_entity_names(question: str) -> list[str]:
     """Fast regex extraction of probable entity names from question text."""
     capitalized = re.findall(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b", question)
     return list(dict.fromkeys(capitalized))[:5]
+
+
+_ANALYTICS_ROUTE_HINTS = (
+    "how many", "count", "top ", "top-", "most ", "least ", "rank", "ranking",
+    "percentage", "percent", "ratio", "compare", "comparison", "trend",
+    "volume", "busiest", "average", "total", "who communicated most",
+    "who emailed most", "email count", "emails between", "show me all",
+    "show all", "list all", "most common topics", "top contacts",
+)
+_ORG_ROUTE_HINTS = (
+    "report to", "reports to", "reported to", "manager", "managed", "manages",
+    "direct report", "hierarchy", "org chart", "org structure", "title", "role",
+    "department", "supervisor", "boss", "who is", "who was",
+)
+_PAIR_ROUTE_HINTS = (
+    "connected", "connection", "relationship", "communicate directly",
+    "email each other", "emailed each other", "did they communicate",
+    "did they email", "between them",
+)
+_TIMELINE_ROUTE_HINTS = (
+    "timeline", "when did", "what happened", "before", "after", "during",
+    "between", "over time", "chronology", "sequence of events",
+)
+_EXPLORE_ROUTE_HINTS = (
+    "email most", "communicated", "discuss", "activity", "involved",
+    "worked on", "talk about", "topics", "evidence", "prove it",
+)
+
+
+def _has_any_phrase(text: str, phrases: tuple[str, ...]) -> bool:
+    return any(phrase in text for phrase in phrases)
+
+
+def _count_question_entities(question: str, entities: list[dict]) -> int:
+    names: list[str] = []
+    for ent in entities or []:
+        if isinstance(ent, dict):
+            name = (ent.get("name", "") or "").strip()
+            if name:
+                names.append(name)
+    names.extend(_heuristic_entity_names(question))
+    return len({name.lower() for name in names if name})
+
+
+def _apply_factual_routing_overrides(question: str, classification: dict) -> dict:
+    """Apply deterministic routing guardrails for factual Enron questions."""
+    if CORPUS != "enron" or not isinstance(classification, dict):
+        return classification
+
+    routed = dict(classification)
+    q_lower = question.lower()
+    pattern = routed.get("pattern", "general")
+    confidence = float(routed.get("confidence", 0.0) or 0.0)
+    entity_count = _count_question_entities(question, routed.get("entities", []))
+
+    override = None
+    if _has_any_phrase(q_lower, _ANALYTICS_ROUTE_HINTS):
+        override = "genie_analytics"
+    elif (
+        _has_any_phrase(q_lower, _ORG_ROUTE_HINTS)
+        and entity_count <= 1
+        and not _has_any_phrase(q_lower, _EXPLORE_ROUTE_HINTS)
+    ):
+        override = "entity_structure"
+    elif (
+        entity_count >= 2
+        and _has_any_phrase(q_lower, _PAIR_ROUTE_HINTS)
+        and pattern in {"general", "keyword_search", "entity_explore"}
+    ):
+        override = "entity_pair"
+    elif (
+        (bool(_extract_temporal_metadata(question)) or _has_any_phrase(q_lower, _TIMELINE_ROUTE_HINTS))
+        and pattern in {"general", "keyword_search", "entity_explore"}
+    ):
+        override = "timeline"
+
+    if override and override != pattern:
+        routed["pattern"] = override
+        routed["confidence"] = max(confidence, 0.92 if override == "genie_analytics" else 0.85)
+        routed["routing_override"] = f"heuristic:{override}"
+
+    return routed
 
 
 _DATE_LIKE_RE = re.compile(
@@ -1819,8 +2027,9 @@ def get_emails_between(entity_a: str, entity_b: str, limit: int = 15) -> str:
     for a_pat in resolved_a.email_patterns:
         for b_pat in resolved_b.email_patterns:
             results = _backend.execute_sql(
-                f"SELECT sender, subject, date,"
-                f" SUBSTRING(body, 1, 500) AS body_preview"
+                f"SELECT message_id, sender, subject, date, thread_id,"
+                f" SUBSTRING(body, 1, {EVIDENCE_CONFIG['body_preview_length']}) AS body_preview,"
+                f" COALESCE(ARRAY_JOIN(to_recipients, ', '), '') AS to_list"
                 f" FROM {src_table}"
                 f" WHERE (LOWER(sender) LIKE :a_pat"
                 f"        AND (LOWER(CAST(to_recipients AS STRING)) LIKE :b_pat"
@@ -1953,7 +2162,9 @@ def get_emails_between(entity_a: str, entity_b: str, limit: int = 15) -> str:
             "date": str(r.get("date", ""))[:10],
             "sender": r.get("sender", ""),
             "subject": r.get("subject", ""),
-            "body_preview": (r.get("body_preview", "") or "")[:300],
+            "body_preview": (r.get("body_preview", "") or "")[:800],
+            "thread_id": r.get("thread_id", ""),
+            "message_id": r.get("message_id", ""),
         })
         if any(sender.startswith(p.replace("%", "")) for p in a_emails):
             sent_a_to_b += 1
@@ -1975,6 +2186,7 @@ def get_emails_between(entity_a: str, entity_b: str, limit: int = 15) -> str:
             "a": _resolution_metadata(resolved_a),
             "b": _resolution_metadata(resolved_b),
         },
+        "hint": "Use get_email_full_body(message_id=...) to see the complete untruncated body of any email.",
     }, ensure_ascii=False)
 
 
@@ -2247,6 +2459,7 @@ def get_relationship_evidence(
             "source": _resolution_metadata(resolved_src),
             "target": _resolution_metadata(resolved_tgt),
         },
+        "hint": "Use get_email_full_body(thread_id=...) to see the complete untruncated body of any evidence email.",
     }, ensure_ascii=False)
 
 
@@ -2297,7 +2510,8 @@ def get_source_evidence(entity_name: str, book: str = "") -> str:
         for r in scored_results[:20]:
             et_thresholds = EVIDENCE_CONFIG["email_type_thresholds"]
             entry = {
-                "id": r.get("message_id", ""),
+                "message_id": r.get("message_id", ""),
+                "thread_id": r.get("thread_id", ""),
                 "date": str(r.get("date", ""))[:10],
                 "from": r.get("sender", ""),
                 "to": r.get("to_list", ""),
@@ -3605,7 +3819,7 @@ def search_emails(
     preview_len = EVIDENCE_CONFIG["body_preview_length"]
     fetch_limit = int(limit * 2)
     sql = (
-        f"SELECT date, sender, subject, thread_id,"
+        f"SELECT message_id, date, sender, subject, thread_id,"
         f" SUBSTR(body, 1, {preview_len}) AS body_preview,"
         f" COALESCE(ARRAY_JOIN(to_recipients, ', '), '') AS to_list,"
         f" COALESCE(SIZE(to_recipients), 0) AS recipient_count"
@@ -3646,6 +3860,9 @@ def search_emails(
             "sender": r.get("sender", ""),
             "subject": r.get("subject", ""),
             "body_preview": r.get("body_preview", ""),
+            "thread_id": r.get("thread_id", ""),
+            "to_list": r.get("to_list", ""),
+            "message_id": r.get("message_id", ""),
             "relevance_score": r.get("relevance_score", 0),
         })
 
@@ -3659,6 +3876,7 @@ def search_emails(
         },
         "total": len(emails),
         "emails": emails,
+        "hint": "Use get_email_full_body(message_id=...) to see the complete email body for any result.",
     }, ensure_ascii=False)
 
 
@@ -3803,19 +4021,35 @@ def _genie_sql_fallback(question: str, space_name: str) -> dict | None:
             resolved = resolve_entity_cached(person_names[0])
             for ep in resolved.email_patterns:
                 sql = (
-                    f"SELECT contact_email, SUM(CASE WHEN dir='out' THEN cnt ELSE 0 END) AS sent,"
-                    f" SUM(CASE WHEN dir='in' THEN cnt ELSE 0 END) AS received,"
-                    f" SUM(cnt) AS total FROM ("
+                    f"SELECT contact_email,"
+                    f" SUM(CASE WHEN dir='out' THEN cnt ELSE 0 END) AS sent_to_contact,"
+                    f" SUM(CASE WHEN dir='in' THEN cnt ELSE 0 END) AS received_from_contact,"
+                    f" SUM(cnt) AS total_emails FROM ("
                     f"  SELECT d.person_b AS contact_email, 'out' AS dir, SUM(d.total_count) AS cnt"
                     f"  FROM {dyads_table} d WHERE LOWER(d.person_a) LIKE :ep GROUP BY d.person_b"
                     f"  UNION ALL"
                     f"  SELECT d.person_a AS contact_email, 'in' AS dir, SUM(d.total_count) AS cnt"
                     f"  FROM {dyads_table} d WHERE LOWER(d.person_b) LIKE :ep GROUP BY d.person_a"
-                    f" ) combined GROUP BY contact_email ORDER BY total DESC LIMIT 20"
+                    f" ) combined GROUP BY contact_email ORDER BY total_emails DESC LIMIT 20"
                 )
                 rows = _backend.execute_sql(sql, params={"ep": ep})
                 if rows:
-                    return _make_result(sql, rows, f"Top contacts for {resolved.canonical_name}")
+                    normalized_rows = []
+                    for row in rows:
+                        sent = int(row.get("sent_to_contact") or 0)
+                        received = int(row.get("received_from_contact") or 0)
+                        normalized_rows.append({
+                            "contact_email": row.get("contact_email", ""),
+                            "sent_to_contact": sent,
+                            "received_from_contact": received,
+                            "total_emails": int(row.get("total_emails") or 0),
+                            "exchange_type": (
+                                "bidirectional" if sent > 0 and received > 0
+                                else "outbound_only" if sent > 0
+                                else "inbound_only"
+                            ),
+                        })
+                    return _make_result(sql, normalized_rows, f"Top contacts for {resolved.canonical_name}")
 
         if len(person_names) >= 2 and any(kw in q_lower for kw in
                 ("how many", "emails between", "email count", "exchanged")):
@@ -3824,16 +4058,37 @@ def _genie_sql_fallback(question: str, space_name: str) -> dict | None:
             for ap in resolved_a.email_patterns:
                 for bp in resolved_b.email_patterns:
                     sql = (
-                        f"SELECT person_a, person_b, SUM(total_count) AS email_count"
+                        f"SELECT"
+                        f" SUM(CASE WHEN LOWER(person_a) LIKE :a AND LOWER(person_b) LIKE :b"
+                        f" THEN total_count ELSE 0 END) AS sent_a_to_b,"
+                        f" SUM(CASE WHEN LOWER(person_a) LIKE :b AND LOWER(person_b) LIKE :a"
+                        f" THEN total_count ELSE 0 END) AS sent_b_to_a,"
+                        f" SUM(total_count) AS total_emails"
                         f" FROM {dyads_table}"
                         f" WHERE (LOWER(person_a) LIKE :a AND LOWER(person_b) LIKE :b)"
                         f"    OR (LOWER(person_a) LIKE :b AND LOWER(person_b) LIKE :a)"
-                        f" GROUP BY person_a, person_b"
-                        f" ORDER BY email_count DESC"
                     )
                     rows = _backend.execute_sql(sql, params={"a": ap, "b": bp})
-                    if rows:
-                        return _make_result(sql, rows,
+                    total = int((rows or [{}])[0].get("total_emails") or 0)
+                    if total > 0:
+                        row = rows[0]
+                        sent_a_to_b = int(row.get("sent_a_to_b") or 0)
+                        sent_b_to_a = int(row.get("sent_b_to_a") or 0)
+                        direction = (
+                            "bidirectional" if sent_a_to_b > 0 and sent_b_to_a > 0
+                            else f"{resolved_a.canonical_name} → {resolved_b.canonical_name}"
+                            if sent_a_to_b > 0
+                            else f"{resolved_b.canonical_name} → {resolved_a.canonical_name}"
+                        )
+                        result_rows = [{
+                            "entity_a": resolved_a.canonical_name,
+                            "entity_b": resolved_b.canonical_name,
+                            "sent_a_to_b": sent_a_to_b,
+                            "sent_b_to_a": sent_b_to_a,
+                            "total_emails": total,
+                            "direction_summary": direction,
+                        }]
+                        return _make_result(sql, result_rows,
                             f"Email count between {resolved_a.canonical_name} and {resolved_b.canonical_name}")
 
         if len(person_names) >= 2 and any(kw in q_lower for kw in
@@ -4458,89 +4713,114 @@ def get_communication_stats(entity_name: str = "", group_by: str = "contact", li
     activity_table = f"{CATALOG}.{ENRON_SCHEMA}.person_activity"
 
     if not entity_name:
+        top_raw = get_top_individuals.invoke({"limit": limit})
         try:
-            rows = _backend.execute_sql(
-                f"SELECT display_name, total_sent, total_received,"
-                f" total_sent + total_received AS total_volume,"
-                f" ROUND(total_sent * 100.0 / NULLIF(total_sent + total_received, 0), 1) AS sent_pct"
-                f" FROM {activity_table}"
-                f" ORDER BY total_sent + total_received DESC"
-                f" LIMIT :lim",
-                params={"lim": limit},
-            )
-        except Exception as exc:
-            return f"Communication stats query failed: {exc}"
+            top_data = json.loads(top_raw)
+        except (json.JSONDecodeError, TypeError):
+            return top_raw
         return json.dumps({
             "group_by": "top_senders",
-            "stats": rows if rows else [],
+            "stats": top_data.get("individuals", []),
+            "source": top_data.get("source", "person_activity"),
         }, ensure_ascii=False, default=str)
 
-    pattern = f"%{entity_name.lower()}%"
+    resolved = resolve_entity_cached(entity_name)
 
     if group_by == "contact":
+        contact_raw = find_top_contacts.invoke({
+            "entity_name": resolved.canonical_name,
+            "direction": "both",
+            "limit": limit,
+        })
         try:
-            rows = _backend.execute_sql(
-                f"SELECT contact_name, email_count, direction,"
-                f" first_email_date, last_email_date"
-                f" FROM {dyads_table}"
-                f" WHERE LOWER(display_name) LIKE :pattern"
-                f" ORDER BY email_count DESC"
-                f" LIMIT :lim",
-                params={"pattern": pattern, "lim": limit},
-            )
-        except Exception as exc:
-            return f"Communication stats query failed: {exc}"
+            contact_data = json.loads(contact_raw)
+        except (json.JSONDecodeError, TypeError):
+            return contact_raw
         return json.dumps({
-            "entity": entity_name,
+            "entity": resolved.canonical_name,
             "group_by": "contact",
-            "contacts": rows if rows else [],
+            "contacts": contact_data.get("top_contacts", []),
+            "resolution": contact_data.get("resolution", _resolution_metadata(resolved)),
         }, ensure_ascii=False, default=str)
 
     elif group_by == "month":
         rows = None
-        for month_expr, group_expr in [
-            ("DATE_FORMAT(first_email_date, 'yyyy-MM')", "DATE_FORMAT(first_email_date, 'yyyy-MM')"),
-            ("SUBSTR(CAST(first_email_date AS STRING), 1, 7)", "SUBSTR(CAST(first_email_date AS STRING), 1, 7)"),
-            ("to_char(first_email_date, 'YYYY-MM')", "to_char(first_email_date, 'YYYY-MM')"),
-        ]:
+        for email_pat in resolved.email_patterns:
             try:
                 rows = _backend.execute_sql(
-                    f"SELECT {month_expr} AS month,"
-                    f" SUM(email_count) AS total_emails,"
-                    f" COUNT(DISTINCT contact_name) AS unique_contacts"
-                    f" FROM {dyads_table}"
-                    f" WHERE LOWER(display_name) LIKE :pattern"
-                    f" GROUP BY {group_expr}"
-                    f" ORDER BY month",
-                    params={"pattern": pattern},
+                    f"SELECT period,"
+                    f" COALESCE(emails_sent, 0) AS sent,"
+                    f" COALESCE(emails_received, 0) AS received"
+                    f" FROM {activity_table}"
+                    f" WHERE LOWER(person_id) LIKE :email_pat"
+                    f" ORDER BY period",
+                    params={"email_pat": email_pat},
                 )
+            except Exception as exc:
+                return f"Communication stats query failed: {exc}"
+            if rows:
                 break
-            except Exception:
-                continue
         if rows is None:
-            return "Communication stats query failed: all SQL dialects failed for monthly aggregation"
+            return f"No activity timeline found for '{resolved.canonical_name}'."
+        monthly_buckets: dict[str, dict] = {}
+        for row in rows:
+            month = str(row.get("period", ""))[:7]
+            if not month:
+                continue
+            bucket = monthly_buckets.setdefault(month, {
+                "month": month,
+                "sent": 0,
+                "received": 0,
+                "total_emails": 0,
+            })
+            sent = int(row.get("sent") or 0)
+            received = int(row.get("received") or 0)
+            bucket["sent"] += sent
+            bucket["received"] += received
+            bucket["total_emails"] += sent + received
+        monthly_rows = [monthly_buckets[m] for m in sorted(monthly_buckets.keys())[:limit]]
         return json.dumps({
-            "entity": entity_name,
+            "entity": resolved.canonical_name,
             "group_by": "month",
-            "monthly_trend": rows if rows else [],
+            "monthly_trend": monthly_rows,
+            "resolution": _resolution_metadata(resolved),
         }, ensure_ascii=False, default=str)
 
     else:
-        try:
-            rows = _backend.execute_sql(
-                f"SELECT display_name, total_sent, total_received,"
-                f" total_sent + total_received AS total_volume,"
-                f" ROUND(total_sent * 100.0 / NULLIF(total_sent + total_received, 0), 1) AS sent_pct"
-                f" FROM {activity_table}"
-                f" WHERE LOWER(display_name) LIKE :pattern",
-                params={"pattern": pattern},
-            )
-        except Exception as exc:
-            return f"Communication stats query failed: {exc}"
+        rows = None
+        for email_pat in resolved.email_patterns:
+            try:
+                rows = _backend.execute_sql(
+                    f"SELECT person_id,"
+                    f" SUM(COALESCE(emails_sent, 0)) AS total_sent,"
+                    f" SUM(COALESCE(emails_received, 0)) AS total_received"
+                    f" FROM {activity_table}"
+                    f" WHERE LOWER(person_id) LIKE :email_pat"
+                    f" GROUP BY person_id",
+                    params={"email_pat": email_pat},
+                )
+            except Exception as exc:
+                return f"Communication stats query failed: {exc}"
+            if rows:
+                break
+        activity = []
+        for row in rows or []:
+            sent = int(row.get("total_sent") or 0)
+            received = int(row.get("total_received") or 0)
+            total = sent + received
+            activity.append({
+                "name": resolved.canonical_name,
+                "email": row.get("person_id", ""),
+                "total_sent": sent,
+                "total_received": received,
+                "total_volume": total,
+                "sent_pct": round(sent * 100.0 / total, 1) if total else 0.0,
+            })
         return json.dumps({
-            "entity": entity_name,
+            "entity": resolved.canonical_name,
             "group_by": "direction",
-            "activity": rows if rows else [],
+            "activity": activity,
+            "resolution": _resolution_metadata(resolved),
         }, ensure_ascii=False, default=str)
 
 
@@ -4875,6 +5155,89 @@ def query_org_hierarchy(entity_name: str) -> str:
 
 
 @tool
+def get_email_full_body(
+    message_id: str = "", thread_id: str = "", limit: int = 3,
+) -> str:
+    """Retrieve the FULL untruncated email body for specific message(s).
+
+    Use when you need to quote actual email content to prove a claim.
+    Provide either message_id (for a single email) or thread_id (for all
+    emails in a thread). Returns complete body text, not truncated previews.
+
+    Args:
+        message_id: Specific email message_id to retrieve (exact match).
+        thread_id: Thread ID to retrieve all emails from that thread.
+        limit: Max emails to return (default 3, max 5).
+    """
+    if CORPUS != "enron":
+        return "Full body retrieval is only available for the Enron corpus."
+
+    if not message_id and not thread_id:
+        return json.dumps({"error": "Provide either message_id or thread_id"})
+
+    cfg = _get_corpus_config()
+    src_table = cfg["source_table"]
+    limit = min(int(limit), 5)
+
+    try:
+        if message_id:
+            rows = _backend.execute_sql(
+                f"SELECT message_id, sender, date, subject, thread_id, body,"
+                f" COALESCE(ARRAY_JOIN(to_recipients, ', '), '') AS to_list,"
+                f" COALESCE(ARRAY_JOIN(cc_recipients, ', '), '') AS cc_list"
+                f" FROM {src_table}"
+                f" WHERE message_id = :mid"
+                f" LIMIT {limit}",
+                params={"mid": message_id},
+            )
+        else:
+            rows = _backend.execute_sql(
+                f"SELECT message_id, sender, date, subject, thread_id, body,"
+                f" COALESCE(ARRAY_JOIN(to_recipients, ', '), '') AS to_list,"
+                f" COALESCE(ARRAY_JOIN(cc_recipients, ', '), '') AS cc_list"
+                f" FROM {src_table}"
+                f" WHERE thread_id = :tid"
+                f" ORDER BY date"
+                f" LIMIT {limit}",
+                params={"tid": thread_id},
+            )
+    except Exception as exc:
+        log.warning("get_email_full_body failed: %s", exc)
+        return json.dumps({"error": str(exc)})
+
+    if not rows:
+        return json.dumps({
+            "message_id": message_id,
+            "thread_id": thread_id,
+            "emails": [],
+            "note": "No email found with the given identifier.",
+        })
+
+    emails = []
+    for r in rows:
+        body = r.get("body", "") or ""
+        emails.append({
+            "message_id": r.get("message_id", ""),
+            "date": str(r.get("date", ""))[:10],
+            "sender": r.get("sender", ""),
+            "to": r.get("to_list", ""),
+            "cc": r.get("cc_list", ""),
+            "subject": r.get("subject", ""),
+            "thread_id": r.get("thread_id", ""),
+            "body": body[:4000],
+            "body_length": len(body),
+            "truncated": len(body) > 4000,
+        })
+
+    return json.dumps({
+        "message_id": message_id,
+        "thread_id": thread_id,
+        "email_count": len(emails),
+        "emails": emails,
+    }, ensure_ascii=False)
+
+
+@tool
 def get_hierarchy_evidence(
     person_name: str, manager_name: str = "", limit: int = 5,
 ) -> str:
@@ -4993,7 +5356,7 @@ def get_hierarchy_evidence(
 
 
 LOCAL_TOOLS = [find_entity, find_connections, find_top_contacts, get_top_email_pairs,
-               get_top_individuals, get_emails_between, get_dyad_topics,
+               get_top_individuals, get_emails_between, get_email_full_body, get_dyad_topics,
                get_relationship_evidence, get_source_evidence, get_entity_summary,
                list_entities_by_book, find_cross_book_entities, trace_path, compare_entity_sets,
                query_timeline, query_org_hierarchy, get_hierarchy_evidence,
@@ -5408,10 +5771,11 @@ You have tools that let you search the knowledge graph for entities, relationshi
 - **find_connections(entity_name, relationship_type="")** — find relationships for an entity, optionally filtered by type (REPORTS_TO, MANAGES, SENT_TO, DISCUSSES, COLLABORATES_WITH, etc.). Returns `evidence_count`, `first_observed`, `last_observed`, and `confidence` per relationship.
 - **find_top_contacts(entity_name, direction, limit)** — ranked list of who communicated most with an entity (sent/received/total counts). Automatically deduplicates aliased entities.
 - **get_top_email_pairs(limit)** — corpus-wide ranking of the pairs of people who exchanged the most emails. Returns `is_self_email` flag for pairs that are the same person emailing themselves across domains.
-- **get_emails_between(entity_a, entity_b)** — retrieve emails between two people. Check `match_type`: "header" = direct, "body_mention" = both mentioned in same email.
+- **get_emails_between(entity_a, entity_b)** — retrieve emails between two people. Check `match_type`: "header" = direct, "body_mention" = both mentioned in same email. Results include `message_id` for drill-down.
+- **get_email_full_body(message_id="", thread_id="", limit=3)** — retrieve the FULL untruncated email body for a specific message or thread. Use after any evidence tool to get complete email text when body previews are truncated. Essential for proving claims with actual email quotes.
 - **find_emails(person_a="", person_b="", keywords="", date_from="", date_to="", hour_from=-1, hour_to=-1, limit=15)** — unified email search: find emails by people, keywords, date range, and/or time of day. Use `hour_from=18` for after-hours emails, `hour_to=8` for early morning. Replaces separate search_emails/get_emails_between/get_source_evidence for flexible queries.
 - **get_dyad_topics(entity_a, entity_b)** — discussion topics between two people using AI-generated thread summaries.
-- **get_relationship_evidence(source_entity, target_entity, relationship_type="")** — retrieve original emails where a graph relationship was extracted from.
+- **get_relationship_evidence(source_entity, target_entity, relationship_type="")** — retrieve original emails where a graph relationship was extracted from. Results include `thread_id` for drill-down.
 - **get_source_evidence(entity_name)** — find emails mentioning an entity in the body text; supports 'A AND B' syntax.
 - **get_entity_summary(entity_name)** — comprehensive entity profile: relationships, and for Enron Person entities: email addresses, title, department, graph centrality (pagerank, degree).
 - **trace_path(entity_a, entity_b)** — find shortest path between two entities via relationship traversal.
@@ -5439,6 +5803,15 @@ You have tools that let you search the knowledge graph for entities, relationshi
 - For questions about how two people or entities are connected, use **trace_path**.
 - For temporal questions ("what happened in August 2001?", "timeline of events"), use **query_timeline** with date range filters. Combine with **get_source_evidence** to find emails from the same period.
 - For multi-entity questions, **call tools multiple times** — once per entity — to build a complete picture.
+
+## Evidence Chaining (CRITICAL — follow this for ALL evidence requests)
+When the user asks for "proof", "evidence", "show me the emails", or "how do you know?":
+1. First call **get_relationship_evidence** or **get_hierarchy_evidence** to find emails linked to graph relationships. These return `thread_id` and `message_id`.
+2. If the body_preview is truncated or too short to prove the claim, call **get_email_full_body(message_id=...)** to retrieve the complete untruncated email body.
+3. Quote the relevant portion of the email body in your response — the user wants to see actual email text, not just metadata.
+4. If no evidence tools return results, try **search_emails** with relevant keywords, then use **get_email_full_body** on promising results.
+5. NEVER say "no email evidence available" without first trying: get_hierarchy_evidence → get_relationship_evidence → search_emails → get_email_full_body.
+6. Tool results include a `hint` field pointing to get_email_full_body — follow it when deeper evidence is needed.
 
 ## Investigative Analysis Strategy
 - For **data exfiltration / self-emailing** questions ("who forwarded to personal email?"), use **detect_self_emails** — it finds corporate-to-personal same-person pairs with volume and date ranges.
@@ -5470,6 +5843,9 @@ For any substantive question:
 14. Include a "Supporting Evidence Table" ONLY when tools returned actual email data. Each row must cite a real email from tool results — NEVER fabricate citations. If no tool returned emails, state "No email evidence retrieved" and omit the table entirely
 15. When citing email evidence, ALWAYS use the exact date, sender, and subject from the tool results. Do NOT paraphrase or generalize the subject line
 16. If a tool's output includes a "resolution.correction" field, mention the spelling correction to the user (e.g., "Note: 'Dassovich' was corrected to 'Dasovich'")
+17. **MANDATORY EVIDENCE DRILL-DOWN**: When any evidence tool returns emails with body_preview that is truncated (look for "..." or short text), you MUST call **get_email_full_body(message_id=...)** on the most relevant 1-2 emails to retrieve their complete body text. Then QUOTE the specific body passages that support your claims.
+18. When the user asks "prove it", "show me the evidence", or "how do you know?", ALWAYS execute this chain: get_relationship_evidence → get_email_full_body(message_id from results) → quote body text in your answer. This is NON-NEGOTIABLE.
+19. Tool results that include a "hint" field are actionable — follow them. For example, if hint says "Use get_email_full_body(message_id=...)", do it immediately.
 
 ## Response Guidelines
 - **Be direct and comprehensive.** Answer the question fully. Do not restate the question.
@@ -5497,7 +5873,10 @@ Only include emails that DIRECTLY support a claim in your answer. Each row must 
 
 ### Provenance
 End EVERY response with a Provenance section using this exact format:
-- **Sources**: [list each tool called and what it returned, e.g., "find_connections(Jeff Skilling, REPORTS_TO) → 5 relationships"]
+- **Sources**: List EVERY tool you called using its exact function name and result summary. Format:
+  `tool_name(args) → result summary`
+  Examples: "find_entity(Jeff Skilling) → 1 entity (PERSON)", "find_connections(Jeff Skilling, REPORTS_TO) → 5 relationships", "get_emails_between(Jeff Skilling, Andrew Fastow) → 12 emails", "search_emails(California energy) → 8 threads"
+  You MUST list ALL tools called — omitting a tool from Sources is a provenance error.
 - **Data Lineage**: [table origins for key claims, e.g., "communication_dyads ← emails via sender/recipient aggregation"]
 - **Grounding**: [One of: "All claims grounded in graph data" | "Partially grounded — some claims from graph, some from general knowledge" | "Not found in graph"]
 - **Confidence per claim**:
@@ -5519,7 +5898,15 @@ PROVENANCE_FORMAT = """
 
 ### Provenance
 After your answer, include a Provenance section using this exact format:
-- **Sources**: [list each tool called and what it returned, e.g., "find_connections(Jeff Skilling, REPORTS_TO) → 5 relationships"]
+- **Sources**: List EVERY tool called using its exact function name and what it returned. Format each as:
+  `tool_name(args) → result summary`
+  Examples:
+  - "find_entity(Jeff Skilling) → 1 entity (PERSON)"
+  - "find_connections(Jeff Skilling, REPORTS_TO) → 5 relationships"
+  - "get_emails_between(Jeff Skilling, Andrew Fastow) → 12 emails"
+  - "search_emails(California energy crisis) → 8 threads"
+  - "get_entity_summary(Kenneth Lay) → pagerank 0.034, 145 connections"
+  You MUST include ALL tools from the data section above — do not omit any.
 - **Data Lineage**: [table origins for key claims, e.g., "communication_dyads ← emails via sender/recipient aggregation (07c)"]
 - **Grounding**: [One of: "All claims grounded in graph data" | "Partially grounded — some claims from graph, some from general knowledge" | "Not found in graph"]
 - **Confidence per claim**:
@@ -5542,6 +5929,282 @@ Rules:
 - If no email-level data was retrieved at all, omit the table entirely and note: "No individual email data was retrieved. Ask about a specific contact to see their emails."
 - NEVER invent email citations. If get_emails_between returned 0 emails, do NOT include that person in the table.
 """
+
+
+def _tool_name_from_call(call: str) -> str:
+    return call.split("(", 1)[0].strip()
+
+
+def _collect_tool_entries_from_sub_results(all_sub_results: dict[str, str]) -> list[tuple[str, str]]:
+    """Recover per-tool call/result pairs from serialized sub-question outputs."""
+    entries: list[tuple[str, str]] = []
+    for sq_id in sorted(all_sub_results.keys()):
+        raw = all_sub_results[sq_id]
+        brace_idx = raw.find("{")
+        if brace_idx == -1:
+            continue
+        try:
+            data = json.loads(raw[brace_idx:])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(data, dict):
+            entries.extend((call, result) for call, result in data.items())
+    return entries
+
+
+def _summarize_tool_result(result: str) -> tuple[str, bool, bool, bool]:
+    """Return (summary, meaningful, has_email_level_data, had_error)."""
+    if not isinstance(result, str) or not result.strip():
+        return ("no result", False, False, False)
+
+    lower = result.lower()
+    if result.startswith("Error:") or "query failed" in lower or '"error"' in lower:
+        compact = result.strip().replace("\n", " ")
+        return (compact[:140], False, False, True)
+
+    try:
+        data = json.loads(result)
+    except (json.JSONDecodeError, TypeError):
+        if "no " in lower and "found" in lower:
+            return ("no matching records", False, False, False)
+        return ("text result", True, False, False)
+
+    if isinstance(data, list):
+        count = len(data)
+        return (f"{count} records", count > 0, False, False)
+
+    if not isinstance(data, dict):
+        return ("structured result", True, False, False)
+
+    list_fields = (
+        ("emails", "emails", True),
+        ("evidence_emails", "emails", True),
+        ("evidence", "evidence rows", True),
+        ("top_contacts", "contacts", False),
+        ("contacts", "contacts", False),
+        ("results", "rows", False),
+        ("time_series", "time periods", False),
+        ("monthly_trend", "months", False),
+        ("activity", "activity rows", False),
+        ("stats", "rows", False),
+        ("topics", "topics", False),
+        ("individuals", "people", False),
+        ("pairs", "pairs", False),
+    )
+    for key, label, email_level in list_fields:
+        value = data.get(key)
+        if isinstance(value, list):
+            count = len(value)
+            return (f"{count} {label}", count > 0, email_level and count > 0, False)
+
+    for key, label in (
+        ("row_count", "rows"),
+        ("email_count", "emails"),
+        ("total_emails", "emails"),
+        ("topic_count", "topics"),
+        ("showing", "rows shown"),
+    ):
+        if key in data:
+            count = int(data.get(key) or 0)
+            return (
+                f"{count} {label}",
+                count > 0,
+                key in {"email_count", "total_emails"} and count > 0,
+                False,
+            )
+
+    if data.get("note"):
+        note = str(data.get("note", "")).replace("\n", " ")
+        return (note[:140], False, False, False)
+
+    return ("structured result", True, False, False)
+
+
+def _tool_lineage_hint(tool_name: str) -> str:
+    if tool_name in {
+        "search_emails", "semantic_search_emails", "get_source_evidence",
+        "get_email_full_body", "get_emails_between",
+    }:
+        return "emails ← raw Enron email corpus"
+    if tool_name in {"query_timeline"}:
+        return "investigation_timeline ← curated event chronology"
+    if tool_name in {"query_org_hierarchy", "get_hierarchy_evidence"}:
+        return "org_hierarchy ← curated SEC/DOJ hierarchy records"
+    if tool_name in {
+        "find_top_contacts", "get_communication_stats", "get_communication_timeline",
+        "get_top_individuals", "get_top_email_pairs", "query_and_enrich",
+    }:
+        return "communication_dyads/person_activity ← email header aggregations"
+    if tool_name in {
+        "find_entity", "find_connections", "trace_path", "get_relationship_evidence",
+        "get_entity_summary", "get_dyad_topics", "browse_topics", "get_entity_context",
+    }:
+        return "entities/relationships/entity_mentions/threads ← extraction pipeline"
+    return ""
+
+
+def _build_provenance_metadata(
+    tool_entries: list[tuple[str, str]],
+    evidence_strength: str,
+) -> dict:
+    source_lines: list[str] = []
+    lineage_lines: list[str] = []
+    caveats: list[str] = []
+    seen_calls: set[str] = set()
+    meaningful_count = 0
+    email_level_hits = 0
+
+    for call, result in tool_entries:
+        if call in seen_calls:
+            continue
+        seen_calls.add(call)
+        summary, meaningful, has_email_level, had_error = _summarize_tool_result(result)
+        source_lines.append(f"- `{call}` → {summary}")
+        if meaningful:
+            meaningful_count += 1
+        if has_email_level:
+            email_level_hits += 1
+        if had_error:
+            caveats.append(summary)
+        lineage = _tool_lineage_hint(_tool_name_from_call(call))
+        if lineage and lineage not in lineage_lines:
+            lineage_lines.append(lineage)
+
+    if evidence_strength != "STRONG":
+        caveats.append(
+            f"Evidence strength was {evidence_strength.lower()}; unsupported details should be treated as unverified."
+        )
+    if email_level_hits == 0:
+        caveats.append("No email-level records were retrieved for direct quotation.")
+    if meaningful_count == 0:
+        caveats.append("The retrieved graph data did not return substantive rows for this question.")
+
+    confidence = "High" if evidence_strength == "STRONG" else "Medium" if evidence_strength == "MODERATE" else "Low"
+    grounding = "All claims grounded in graph data" if meaningful_count > 0 else "Not found in graph"
+
+    return {
+        "sources": source_lines or ["- No tools returned usable data."],
+        "lineage": lineage_lines or ["Retrieved graph tables used by the active tools"],
+        "grounding": grounding,
+        "confidence": confidence,
+        "caveats": list(dict.fromkeys(caveats)),
+        "meaningful_count": meaningful_count,
+    }
+
+
+def _estimate_evidence_strength(tool_entries: list[tuple[str, str]]) -> str:
+    meaningful = 0
+    for _call, result in tool_entries:
+        _summary, is_meaningful, _has_email_level, _had_error = _summarize_tool_result(result)
+        if is_meaningful:
+            meaningful += 1
+    if meaningful >= 4:
+        return "STRONG"
+    if meaningful >= 2:
+        return "MODERATE"
+    return "LIMITED"
+
+
+def _format_canonical_provenance(tool_entries: list[tuple[str, str]], evidence_strength: str) -> str:
+    meta = _build_provenance_metadata(tool_entries, evidence_strength)
+    sources_block = "\n".join(meta["sources"])
+    lineage = "; ".join(meta["lineage"])
+    caveats = "; ".join(meta["caveats"]) if meta["caveats"] else "None noted in retrieved data."
+    return (
+        "### Provenance\n"
+        "- **Sources**:\n"
+        f"{sources_block}\n"
+        f"- **Data Lineage**: {lineage}\n"
+        f"- **Grounding**: {meta['grounding']}\n"
+        "- **Confidence per claim**:\n"
+        f"  - [Retrieved factual claims]: {meta['confidence']} — based on the retrieved tool outputs for this answer.\n"
+        f"- **Coverage caveats**: {caveats}"
+    )
+
+
+def _build_provenance_guardrail_block(tool_entries: list[tuple[str, str]], evidence_strength: str) -> str:
+    canonical = _format_canonical_provenance(tool_entries, evidence_strength)
+    return (
+        "\n\n## CANONICAL PROVENANCE (MANDATORY)\n"
+        "Use the following provenance metadata exactly. Do not add tool calls that were not actually run.\n\n"
+        f"{canonical}\n"
+    )
+
+
+def _apply_provenance_guardrails(
+    response_text: str,
+    tool_entries: list[tuple[str, str]],
+    evidence_strength: str,
+) -> str:
+    """Replace or append the provenance section with a deterministic version."""
+    canonical = _format_canonical_provenance(tool_entries, evidence_strength)
+    prov_marker = "### Provenance"
+    support_marker = "### Supporting Evidence"
+    prov_idx = response_text.find(prov_marker)
+    support_idx = response_text.find(support_marker)
+
+    if prov_idx != -1:
+        prefix = response_text[:prov_idx].rstrip()
+        suffix = response_text[support_idx:].lstrip() if support_idx > prov_idx else ""
+        return prefix + "\n\n" + canonical + (f"\n\n{suffix}" if suffix else "")
+
+    if support_idx != -1:
+        prefix = response_text[:support_idx].rstrip()
+        suffix = response_text[support_idx:].lstrip()
+        return prefix + "\n\n" + canonical + f"\n\n{suffix}"
+
+    return response_text.rstrip() + "\n\n" + canonical
+
+
+def _extract_evidence_ids_for_drilldown(
+    tool_results: dict, limit: int = 2,
+) -> list[tuple[str, str]]:
+    """Extract (message_id, thread_id) pairs from evidence tool results for full-body drill-down.
+
+    Scans get_emails_between, get_relationship_evidence, search_emails, and
+    get_hierarchy_evidence results. Returns the top N most relevant email
+    identifiers sorted by relevance_score descending.
+    """
+    candidates: list[tuple[float, str, str]] = []
+
+    for result_str in tool_results.values():
+        if not isinstance(result_str, str):
+            continue
+        try:
+            data = json.loads(result_str)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+
+        email_lists = []
+        for key in ("emails", "evidence_emails", "evidence"):
+            if key in data and isinstance(data[key], list):
+                email_lists.extend(data[key])
+
+        for email in email_lists:
+            if not isinstance(email, dict):
+                continue
+            mid = email.get("message_id", "") or email.get("id", "")
+            tid = email.get("thread_id", "")
+            if not mid and not tid:
+                continue
+            score = float(email.get("relevance_score", 0.5))
+            candidates.append((score, mid, tid))
+
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    seen: set[str] = set()
+    results: list[tuple[str, str]] = []
+    for _score, mid, tid in candidates:
+        dedup_key = mid or tid
+        if dedup_key in seen:
+            continue
+        seen.add(dedup_key)
+        results.append((mid, tid))
+        if len(results) >= limit:
+            break
+
+    return results
 
 
 def _extract_top_contacts_for_evidence(tool_results: dict, limit: int = 3) -> list[str]:
@@ -5713,8 +6376,8 @@ def _fast_path_invoke_tool(payload: tuple) -> tuple:
 # ---------------------------------------------------------------------------
 # Query Planner — PDES architecture
 # ---------------------------------------------------------------------------
-PLANNER_ENDPOINT = os.environ.get("GRAPHRAG_PLANNER_ENDPOINT", LLM_ENDPOINT)
-PLANNER_MAX_TOKENS = int(os.environ.get("GRAPHRAG_PLANNER_MAX_TOKENS", "1024"))
+PLANNER_ENDPOINT = os.environ.get("GRAPHRAG_PLANNER_ENDPOINT", "databricks-gpt-5-4-nano")
+PLANNER_MAX_TOKENS = int(os.environ.get("GRAPHRAG_PLANNER_MAX_TOKENS", "512"))
 PLANNER_TEMPERATURE = float(os.environ.get("GRAPHRAG_PLANNER_TEMPERATURE", "0.0"))
 
 VALID_PATTERNS = {"entity_structure", "entity_explore", "entity_pair", "timeline", "keyword_search", "general", "genie_analytics"}
@@ -6275,9 +6938,10 @@ class AgentState(TypedDict):
 
 class GraphRAGAgent(ResponsesAgent):
     def __init__(self, endpoint=None, tools=None):
-        self.llm = _get_llm(endpoint=endpoint or LLM_ENDPOINT)
+        self.llm = _get_llm(endpoint=endpoint or SYNTHESIS_ENDPOINT)
+        self.react_llm = _get_llm(endpoint=REACT_ENDPOINT)
         self.tools = tools or GRAPH_TOOLS
-        self.llm_with_tools = self.llm.bind_tools(self.tools)
+        self.llm_with_tools = self.react_llm.bind_tools(self.tools)
         self.entity_memory = EntityMemory()
         if not TOOL_MAP:
             _build_tool_map()
@@ -6287,6 +6951,8 @@ class GraphRAGAgent(ResponsesAgent):
         base_prompt = _get_system_prompt() if CORPUS == "bible" else corpus_cfg["system_prompt"]
         system_prompt = base_prompt + prelookup_context
 
+        llm_with_tools = self.llm_with_tools
+
         def should_continue(state):
             last = state["messages"][-1]
             if isinstance(last, AIMessage) and last.tool_calls:
@@ -6295,7 +6961,7 @@ class GraphRAGAgent(ResponsesAgent):
 
         def call_model(state):
             messages = [{"role": "system", "content": system_prompt}] + state["messages"]
-            response = self.llm_with_tools.invoke(messages)
+            response = llm_with_tools.invoke(messages)
             return {"messages": [response]}
 
         graph = StateGraph(AgentState)
@@ -6436,9 +7102,17 @@ class GraphRAGAgent(ResponsesAgent):
         if _PARALLEL_TOOLS and len(work) > 1:
             max_workers = min(8, len(work))
             with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                futures = [pool.submit(_fast_path_invoke_tool, item) for item in work]
-                for fut in as_completed(futures):
-                    step, resolved, call_id, result = fut.result()
+                ordered_results = [None] * len(work)
+                future_to_idx = {
+                    pool.submit(_fast_path_invoke_tool, item): idx
+                    for idx, item in enumerate(work)
+                }
+                for fut in as_completed(future_to_idx):
+                    ordered_results[future_to_idx[fut]] = fut.result()
+                for item in ordered_results:
+                    if item is None:
+                        continue
+                    step, resolved, call_id, result = item
                     tool_results[f"{step.tool_name}({json.dumps(resolved)})"] = result
                     yield ResponsesAgentStreamEvent(
                         type="response.output_item.done",
@@ -6523,14 +7197,20 @@ class GraphRAGAgent(ResponsesAgent):
                 "Do NOT ignore contradictions between tools.\n"
             )
 
-        context_limit = 12000 if pattern.name in ("keyword_search", "general") else 8000
+        if pattern.name in ("entity_explore", "timeline"):
+            tool_results = _prioritize_email_results(tool_results)
+        if pattern.name in ("entity_explore", "timeline"):
+            context_limit = 10000
+        elif pattern.name in ("keyword_search", "general"):
+            context_limit = 8000
+        else:
+            context_limit = 6000
         context_raw = json.dumps(tool_results, ensure_ascii=False, indent=2)
         context = _truncate_json_aware(context_raw, context_limit)
-        useful_tools = sum(1 for v in tool_results.values()
-                           if v and isinstance(v, str) and len(v) > 50)
+        tool_entries = list(tool_results.items())
+        strength = _estimate_evidence_strength(tool_entries)
         fp_evidence_block = ""
-        if useful_tools < 3:
-            strength = "MODERATE" if useful_tools >= 2 else "LIMITED"
+        if strength != "STRONG":
             fp_evidence_block = (
                 f"\n\n## Evidence Strength: {strength}\n"
                 "The data retrieval returned fewer results than usual. "
@@ -6538,12 +7218,22 @@ class GraphRAGAgent(ResponsesAgent):
                 "Explicitly state when information is not available. "
                 "Do NOT compensate with general knowledge.\n"
             )
-        synthesis_system = pattern.synthesis_prompt + consistency_block + fp_evidence_block + PROVENANCE_FORMAT + f"\n\nData:\n{context}"
+        provenance_guardrail = _build_provenance_guardrail_block(tool_entries, strength)
+        synthesis_system = (
+            pattern.synthesis_prompt
+            + consistency_block
+            + fp_evidence_block
+            + PROVENANCE_FORMAT
+            + provenance_guardrail
+            + f"\n\nData:\n{context}"
+        )
 
         response = self.llm.invoke([
             {"role": "system", "content": synthesis_system},
             {"role": "user", "content": question},
         ])
+        if isinstance(getattr(response, "content", None), str):
+            response.content = _apply_provenance_guardrails(response.content, tool_entries, strength)
 
         yield from output_to_responses_items_stream([response])
 
@@ -6568,6 +7258,7 @@ class GraphRAGAgent(ResponsesAgent):
     ) -> Generator[ResponsesAgentStreamEvent, None, None]:
         """Execute a query plan: run each sub-question's primitive, then synthesize."""
         all_sub_results: dict[str, str] = {}
+        all_sub_tool_entries: dict[str, list[tuple[str, str]]] = {}
         completed_ids: set[str] = set()
 
         independent = [sq for sq in plan.sub_questions if not sq.depends_on]
@@ -6668,10 +7359,10 @@ class GraphRAGAgent(ResponsesAgent):
                         return discovered
             return discovered
 
-        def _execute_sub_question(sq: SubQuestion) -> str:
+        def _execute_sub_question(sq: SubQuestion) -> tuple[str, list[tuple[str, str]]]:
             pattern = PATTERN_REGISTRY.get(sq.pattern)
             if not pattern or not pattern.steps:
-                return ""
+                return "", []
             entities = sq.entities or []
             metadata = {}
             _date_re = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -6715,17 +7406,53 @@ class GraphRAGAgent(ResponsesAgent):
             else:
                 _run_steps(pattern.steps, entities, metadata, sq, tool_results)
 
+            # --- Parallel follow-up: top-contact emails + evidence drill-down ---
+            followup_steps: list[ExecutionStep] = []
+
             if sq.pattern == "entity_explore" and entities:
                 primary = entities[0].get("name", "")
                 if primary:
                     top_names = _extract_top_contacts_for_evidence(tool_results, limit=3)
                     for contact_name in top_names:
-                        ev_step = ExecutionStep("get_emails_between", {
+                        followup_steps.append(ExecutionStep("get_emails_between", {
                             "entity_a": primary,
                             "entity_b": contact_name,
                             "limit": 3,
-                        })
-                        item = _invoke_step(ev_step, entities, metadata, sq)
+                        }))
+
+            if CORPUS == "enron" and sq.pattern in (
+                "entity_structure", "entity_pair", "entity_explore",
+                "keyword_search", "timeline",
+            ):
+                drill_ids = _extract_evidence_ids_for_drilldown(tool_results, limit=4)
+                for mid, tid in drill_ids:
+                    drill_params = {}
+                    if mid:
+                        drill_params["message_id"] = mid
+                    elif tid:
+                        drill_params["thread_id"] = tid
+                    drill_params["limit"] = 2
+                    followup_steps.append(ExecutionStep("get_email_full_body", drill_params))
+
+            if followup_steps:
+                if _PARALLEL_TOOLS and len(followup_steps) > 1:
+                    with ThreadPoolExecutor(max_workers=min(8, len(followup_steps))) as pool:
+                        ordered_results = [None] * len(followup_steps)
+                        future_to_idx = {
+                            pool.submit(_invoke_step, step, entities, metadata, sq): idx
+                            for idx, step in enumerate(followup_steps)
+                        }
+                        for fut in as_completed(future_to_idx):
+                            ordered_results[future_to_idx[fut]] = fut.result()
+                        for item in ordered_results:
+                            if item:
+                                key, result, tool_name = item
+                                tool_results[key] = result
+                                if tools_invoked_out is not None:
+                                    tools_invoked_out.append(tool_name)
+                else:
+                    for step in followup_steps:
+                        item = _invoke_step(step, entities, metadata, sq)
                         if item:
                             key, result, tool_name = item
                             tool_results[key] = result
@@ -6736,24 +7463,34 @@ class GraphRAGAgent(ResponsesAgent):
                 if isinstance(result_str, str):
                     self.entity_memory.extract(result_str)
 
+            if tool_results and sq.pattern in ("entity_explore", "timeline"):
+                tool_results = _prioritize_email_results(tool_results)
+
             raw = json.dumps(tool_results, ensure_ascii=False) if tool_results else ""
-            limit = 12000 if sq.pattern in ("keyword_search", "general") else 8000
-            return _truncate_json_aware(raw, limit)
+            if sq.pattern in ("entity_explore", "timeline"):
+                limit = 10000
+            elif sq.pattern in ("keyword_search", "general"):
+                limit = 8000
+            else:
+                limit = 6000
+            return _truncate_json_aware(raw, limit), list(tool_results.items())
 
         if _PARALLEL_TOOLS and len(independent) > 1:
             with ThreadPoolExecutor(max_workers=min(8, len(independent))) as pool:
                 futures = {pool.submit(_execute_sub_question, sq): sq for sq in independent}
                 for fut in as_completed(futures):
                     sq = futures[fut]
-                    result = fut.result()
+                    result, tool_entries = fut.result()
                     if result:
                         all_sub_results[sq.id] = f"[{sq.pattern}] {sq.question}\n{result}"
+                    all_sub_tool_entries[sq.id] = tool_entries
                     completed_ids.add(sq.id)
         else:
             for sq in independent:
-                result = _execute_sub_question(sq)
+                result, tool_entries = _execute_sub_question(sq)
                 if result:
                     all_sub_results[sq.id] = f"[{sq.pattern}] {sq.question}\n{result}"
+                all_sub_tool_entries[sq.id] = tool_entries
                 completed_ids.add(sq.id)
 
         for sq in dependent:
@@ -6761,9 +7498,10 @@ class GraphRAGAgent(ResponsesAgent):
             if not deps_met:
                 log.warning("PDES: skipping sq %s — unmet dependencies %s", sq.id, sq.depends_on)
                 continue
-            result = _execute_sub_question(sq)
+            result, tool_entries = _execute_sub_question(sq)
             if result:
                 all_sub_results[sq.id] = f"[{sq.pattern}] {sq.question}\n{result}"
+            all_sub_tool_entries[sq.id] = tool_entries
             completed_ids.add(sq.id)
 
         if not all_sub_results:
@@ -6773,21 +7511,10 @@ class GraphRAGAgent(ResponsesAgent):
             f"### Sub-question: {all_sub_results[k]}" for k in sorted(all_sub_results.keys())
         )
 
-        tool_call_count = 0
-        for v in all_sub_results.values():
-            if not v or len(v) < 50:
-                continue
-            try:
-                brace_start = v.index("{")
-                tool_data = json.loads(v[brace_start:])
-                tool_call_count += len(tool_data) if isinstance(tool_data, dict) else 1
-            except (ValueError, json.JSONDecodeError):
-                tool_call_count += 1
-        evidence_strength = (
-            "STRONG" if tool_call_count >= 3
-            else "MODERATE" if tool_call_count >= 2
-            else "LIMITED"
-        )
+        tool_entries: list[tuple[str, str]] = []
+        for sq_id in sorted(all_sub_tool_entries.keys()):
+            tool_entries.extend(all_sub_tool_entries[sq_id])
+        evidence_strength = _estimate_evidence_strength(tool_entries)
         evidence_block = ""
         if evidence_strength != "STRONG":
             evidence_block = (
@@ -6809,6 +7536,7 @@ class GraphRAGAgent(ResponsesAgent):
                 "Do NOT ignore contradictions between tools.\n"
             )
 
+        provenance_guardrail = _build_provenance_guardrail_block(tool_entries, evidence_strength)
         unique_patterns = list({sq.pattern for sq in plan.sub_questions})
         if len(unique_patterns) == 1:
             sole_pattern = PATTERN_REGISTRY.get(unique_patterns[0])
@@ -6818,6 +7546,7 @@ class GraphRAGAgent(ResponsesAgent):
                     + pdes_consistency_block
                     + evidence_block
                     + PROVENANCE_FORMAT
+                    + provenance_guardrail
                     + f"\n\n## Data Retrieved\n\n{sub_answers_block}"
                 )
             else:
@@ -6826,6 +7555,7 @@ class GraphRAGAgent(ResponsesAgent):
                     + pdes_consistency_block
                     + evidence_block
                     + PROVENANCE_FORMAT
+                    + provenance_guardrail
                     + f"\n\n## Data Retrieved\n\n{sub_answers_block}"
                 )
         else:
@@ -6853,6 +7583,7 @@ class GraphRAGAgent(ResponsesAgent):
                 "- If sub-queries returned conflicting information, note the discrepancy.\n"
                 "- Do NOT fabricate information not present in any sub-query result.\n"
                 + PROVENANCE_FORMAT
+                + provenance_guardrail
                 + f"\n\n## Sub-Query Results\n\n{sub_answers_block}"
             )
 
@@ -6860,6 +7591,8 @@ class GraphRAGAgent(ResponsesAgent):
             {"role": "system", "content": synthesis_prompt},
             {"role": "user", "content": plan.resolved_question},
         ])
+        if isinstance(getattr(response, "content", None), str):
+            response.content = _apply_provenance_guardrails(response.content, tool_entries, evidence_strength)
 
         yield from output_to_responses_items_stream([response])
 
@@ -6887,6 +7620,8 @@ class GraphRAGAgent(ResponsesAgent):
         import time
 
         clear_resolve_cache()
+        if hasattr(_backend, "clear"):
+            _backend.clear()
 
         t0 = time.perf_counter()
         question = ""
@@ -6916,7 +7651,7 @@ class GraphRAGAgent(ResponsesAgent):
                         self.entity_memory.record_user_entity(name)
                 pre_conf = pre_classification.get("confidence", 0.0)
                 pre_pattern = pre_classification.get("pattern", "general")
-                if pre_conf >= 0.85 and pre_pattern != "general":
+                if pre_conf >= 0.7 and pre_pattern != "general":
                     log.info("PDES: high-confidence bypass (%.2f %s), skipping planner LLM",
                              pre_conf, pre_pattern)
                     plan = _plan_from_classification(question, pre_classification, em_context)
