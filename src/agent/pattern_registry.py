@@ -369,6 +369,8 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
         steps=[
             ExecutionStep("search_emails", {
                 "keywords": "$KEYWORDS",
+                "date_from": "$DATE_FROM",
+                "date_to": "$DATE_TO",
             }),
             ExecutionStep("semantic_search_emails", {
                 "query": "$QUESTION",
@@ -376,8 +378,8 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
             ExecutionStep("browse_topics", {}),
             ExecutionStep("query_timeline", {
                 "person_name": "",
-                "date_from": "",
-                "date_to": "",
+                "date_from": "$DATE_FROM",
+                "date_to": "$DATE_TO",
             }),
             ExecutionStep("find_connections", {
                 "entity_name": "$ENTITY",
