@@ -1,17 +1,24 @@
-"""Client for querying the GraphRAG agent via Model Serving endpoint."""
+"""Client for querying the shared GraphRAG runtime or endpoint."""
 
 from __future__ import annotations
 
 import json
 import os
 import re
+import sys
 from dataclasses import dataclass, field
 
 from databricks.sdk import WorkspaceClient
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+
+from runtime import RuntimeQuery, SharedRuntimeOrchestrator
+from runtime.config import RuntimeConfig
+
 _client: WorkspaceClient | None = None
 _client_created: float = 0
 _CLIENT_TTL = 1800  # refresh SDK client every 30 min
+_orchestrators: dict[tuple[str, ...], SharedRuntimeOrchestrator] = {}
 
 
 def _get_client() -> WorkspaceClient:
@@ -22,6 +29,52 @@ def _get_client() -> WorkspaceClient:
         _client = WorkspaceClient()
         _client_created = now
     return _client
+
+
+def _runtime_transport_for_app() -> str:
+    mode = (os.environ.get("GRAPHRAG_APP_RUNTIME_MODE") or "shared").strip().lower()
+    if mode == "endpoint":
+        return "endpoint"
+    return "direct"
+
+
+def _get_orchestrator(*, transport: str | None = None) -> SharedRuntimeOrchestrator:
+    env = dict(os.environ)
+    env["GRAPHRAG_RUNTIME_TRANSPORT"] = transport or _runtime_transport_for_app()
+    config = RuntimeConfig.from_env(env)
+    key = (
+        config.transport.value,
+        config.data_backend.value,
+        config.llm_provider,
+        config.router_transport.value,
+        config.planner_transport.value,
+        config.graph_transport.value,
+        config.evidence_transport.value,
+        config.analytics_transport.value,
+    )
+    if key not in _orchestrators:
+        _orchestrators[key] = SharedRuntimeOrchestrator(config)
+    return _orchestrators[key]
+
+
+def _query_runtime(
+    *,
+    corpus: str,
+    question: str,
+    permitted_books: list[str] | None = None,
+    tier: str = "",
+    endpoint_name: str = "",
+):
+    orchestrator = _get_orchestrator()
+    return orchestrator.query(
+        RuntimeQuery(
+            question=question,
+            corpus=corpus,
+            permitted_books=permitted_books or [],
+            user_tier=tier,
+            endpoint_name=endpoint_name,
+        )
+    )
 
 
 @dataclass
@@ -169,41 +222,21 @@ def _extract_entities(text: str) -> list[str]:
 
 
 def query_agent(question: str, permitted_books: list[str] | None = None) -> AgentResponse:
-    """Send a question to the GraphRAG agent endpoint and return parsed result.
+    """Query the Bible runtime and return the parsed response.
 
     Args:
         permitted_books: Optional list of book names the user is permitted to
             access. When set, the agent restricts graph traversal to these books
-            via Lakebase RLS (``app.permitted_books`` session variable).
+            via runtime-scoped access controls.
     """
     from backend.graph_client import lookup_verses
 
-    endpoint = os.getenv("GRAPHRAG_ENDPOINT_NAME", "graphrag-bible-agent")
-    w = _get_client()
-
-    body: dict = {"input": [{"role": "user", "content": question}]}
-    if permitted_books is not None:
-        body.setdefault("custom_inputs", {})["permitted_books"] = ",".join(permitted_books)
-
-    resp = w.api_client.do(
-        "POST",
-        f"/serving-endpoints/{endpoint}/invocations",
-        body=body,
+    parsed = _query_runtime(
+        corpus="bible",
+        question=question,
+        permitted_books=permitted_books,
     )
-
-    texts = []
-    for item in resp.get("output", []):
-        if item.get("type") == "message":
-            for part in item.get("content", []):
-                if part.get("type") == "output_text":
-                    texts.append(part["text"])
-        elif "text" in item:
-            texts.append(item["text"])
-    text = "\n".join(texts) if texts else str(resp)
-
-    answer, prov_raw, path, sources, grounding, coverage = _parse_provenance(text)
-    entities = _extract_entities(path or answer)
-    verse_refs = _extract_verse_refs(text)
+    verse_refs = _extract_verse_refs(parsed.full_text)
 
     try:
         verse_texts = lookup_verses(verse_refs)
@@ -211,15 +244,19 @@ def query_agent(question: str, permitted_books: list[str] | None = None) -> Agen
         verse_texts = {}
 
     return AgentResponse(
-        answer=answer,
-        provenance_raw=prov_raw,
-        path=path,
-        sources=sources,
-        grounding=grounding,
-        full_text=text,
-        coverage=coverage,
-        entities_mentioned=entities,
+        answer=parsed.answer,
+        provenance_raw=parsed.provenance_raw,
+        path=parsed.path,
+        sources=parsed.sources,
+        grounding=parsed.grounding,
+        full_text=parsed.full_text,
+        coverage=parsed.coverage,
+        entities_mentioned=parsed.entities_mentioned,
         verse_texts=verse_texts,
+        tool_calls=[
+            ToolCall(name=tc.name, arguments=tc.arguments, output=tc.output)
+            for tc in parsed.tool_calls
+        ],
     )
 
 
@@ -330,52 +367,33 @@ def _match_mock(question: str) -> str:
 
 
 def query_agent_enron(question: str, tier: str = "") -> AgentResponse:
-    """Send a question to the Enron GraphRAG agent endpoint and return parsed result.
+    """Query the Enron runtime and return the parsed response.
 
     Args:
         tier: Access tier (legal_team, executive_team, analyst_team).  When set,
-            the agent restricts graph visibility via Lakebase RLS
-            (``app.user_tier`` session variable).
+            the runtime restricts graph visibility via environment-backed access
+            controls and can be rolled between shared/direct and endpoint modes.
     """
-    endpoint = os.getenv("GRAPHRAG_ENRON_ENDPOINT_NAME", "graphrag-enron-agent")
-    w = _get_client()
-
-    body: dict = {"input": [{"role": "user", "content": question}]}
-    if tier:
-        body.setdefault("custom_inputs", {})["user_tier"] = tier
-
-    resp = w.api_client.do(
-        "POST",
-        f"/serving-endpoints/{endpoint}/invocations",
-        body=body,
+    parsed = _query_runtime(
+        corpus="enron",
+        question=question,
+        tier=tier,
+        endpoint_name=os.environ.get("GRAPHRAG_ENRON_ENDPOINT_NAME", ""),
     )
 
-    output_items = resp.get("output", [])
-    tool_calls = _extract_tool_calls(output_items)
-
-    texts = []
-    for item in output_items:
-        if item.get("type") == "message":
-            for part in item.get("content", []):
-                if part.get("type") == "output_text":
-                    texts.append(part["text"])
-        elif "text" in item:
-            texts.append(item["text"])
-    text = "\n".join(texts) if texts else str(resp)
-
-    answer, prov_raw, path, sources, grounding, coverage = _parse_provenance(text)
-    entities = _extract_entities(path or answer)
-
     return AgentResponse(
-        answer=answer,
-        provenance_raw=prov_raw,
-        path=path,
-        sources=sources,
-        grounding=grounding,
-        full_text=text,
-        coverage=coverage,
-        entities_mentioned=entities,
-        tool_calls=tool_calls,
+        answer=parsed.answer,
+        provenance_raw=parsed.provenance_raw,
+        path=parsed.path,
+        sources=parsed.sources,
+        grounding=parsed.grounding,
+        full_text=parsed.full_text,
+        coverage=parsed.coverage,
+        entities_mentioned=parsed.entities_mentioned,
+        tool_calls=[
+            ToolCall(name=tc.name, arguments=tc.arguments, output=tc.output)
+            for tc in parsed.tool_calls
+        ],
     )
 
 

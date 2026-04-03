@@ -29,7 +29,7 @@ from typing import Optional
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-os.environ.setdefault("GRAPHRAG_BACKEND", "databricks")
+os.environ.setdefault("GRAPHRAG_BACKEND", "lakebase")
 os.environ.setdefault("GRAPHRAG_CORPUS", "enron")
 os.environ.setdefault("GRAPHRAG_SCHEMA", "graphrag_enron")
 

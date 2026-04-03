@@ -140,16 +140,27 @@ def build_enron_serving_environment(
     lakebase_dbname: str | None = None,
     extra_env: dict[str, str] | None = None,
 ) -> dict[str, str]:
+    graph_transport = "local" if backend == "local" else "mcp"
+    evidence_transport = "local" if backend == "local" else "mcp"
+    analytics_transport = "local" if backend == "local" else "mcp"
     env = {
         "GRAPHRAG_CORPUS": "enron",
         "GRAPHRAG_SCHEMA": schema,
         "GRAPHRAG_ENRON_SCHEMA": schema,
         "GRAPHRAG_BACKEND": backend,
+        "GRAPHRAG_DATA_BACKEND": backend,
         "GRAPHRAG_LLM_PROVIDER": llm_provider,
         "GRAPHRAG_LLM_ENDPOINT": llm_endpoint,
         "GRAPHRAG_SYNTHESIS_ENDPOINT": synthesis_endpoint,
         "GRAPHRAG_REACT_ENDPOINT": react_endpoint,
         "GRAPHRAG_SMALL_LLM_ENDPOINT": small_llm_endpoint,
+        "GRAPHRAG_RUNTIME_TRANSPORT": "direct",
+        "GRAPHRAG_ROUTER_TRANSPORT": "local",
+        "GRAPHRAG_PLANNER_TRANSPORT": "local",
+        "GRAPHRAG_GRAPH_TRANSPORT": graph_transport,
+        "GRAPHRAG_EVIDENCE_TRANSPORT": evidence_transport,
+        "GRAPHRAG_ANALYTICS_TRANSPORT": analytics_transport,
+        "GRAPHRAG_ANALYTICS_BACKEND": "databricks_sql",
     }
     env.update(GENIE_SPACE_IDS)
 

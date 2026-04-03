@@ -27,7 +27,7 @@ _project_root = os.path.join(os.path.dirname(__file__), "..", "..")
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-os.environ.setdefault("GRAPHRAG_BACKEND", "databricks")
+os.environ.setdefault("GRAPHRAG_BACKEND", "lakebase")
 os.environ.setdefault("GRAPHRAG_CORPUS", "enron")
 os.environ.setdefault("GRAPHRAG_SCHEMA", "graphrag_enron")
 
@@ -99,7 +99,7 @@ def _call_llm_json(endpoint: str, prompt: str, max_tokens: int = 2048):
 
 # DBTITLE 1,SQL Executor (DuckDB local or Databricks remote)
 _EVAL_BACKEND = os.environ.get("GRAPHRAG_EVAL_BACKEND",
-                                os.environ.get("GRAPHRAG_BACKEND", "databricks"))
+                                os.environ.get("GRAPHRAG_BACKEND", "lakebase"))
 _DUCKDB_CONN = None
 _DUCKDB_LOCK = None
 

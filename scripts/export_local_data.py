@@ -18,6 +18,13 @@ import argparse
 import json
 import os
 import sys
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parents[1]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from src.runtime.enron_corpus_tables import ENRON_CORPUS_TABLE_NAMES
 
 CATALOG = os.environ.get("GRAPHRAG_CATALOG", "serverless_8e8gyh_catalog")
 SCHEMA = os.environ.get("GRAPHRAG_SCHEMA", "graphrag_bible")
@@ -33,32 +40,8 @@ BIBLE_TABLES = [
     "entity_analytics",
 ]
 
-ENRON_TABLES = [
-    "entities",
-    "relationships",
-    "emails",
-    "entity_analytics",
-    "entity_paths",
-    "entity_mentions",
-    "entity_aliases",
-    "communication_dyads",
-    "person_activity",
-    "participants",
-    "org_hierarchy",
-    "org_hierarchy_evidence",
-    "investigation_timeline",
-    "person_identity",
-    "ontology_registry",
-    "corpus_coverage",
-    "extraction_provenance",
-    "entity_resolution_audit",
-    "email_classification",
-    "data_quality_report",
-    "person_role_timeline",
-    "topic_taxonomy",
-    "pipeline_lineage",
-    "threads",
-]
+# Same table set as Lakebase `setup_lakebase.py --enron` (see src/runtime/enron_corpus_tables.py).
+ENRON_TABLES = list(ENRON_CORPUS_TABLE_NAMES)
 
 TABLES = BIBLE_TABLES
 
@@ -144,6 +127,24 @@ def _wait_for_result(w, result):
     return result
 
 
+def _merge_result_data_rows(w, result) -> list:
+    """Append all inline/chunk rows — Databricks caps rows per chunk (~64k); omitting chunks truncated exports."""
+    if not result or not result.result:
+        return []
+    rows = list(result.result.data_array or [])
+    statement_id = result.statement_id
+    next_chunk = result.result.next_chunk_index
+    while next_chunk is not None:
+        chunk = w.statement_execution.get_statement_result_chunk_n(
+            statement_id=statement_id,
+            chunk_index=next_chunk,
+        )
+        if chunk.data_array:
+            rows.extend(chunk.data_array)
+        next_chunk = chunk.next_chunk_index
+    return rows
+
+
 def _fetch_table(w, warehouse_id: str, table_name: str, schema: str = None):
     """Fetch all rows + column metadata from a Delta table via Statement Execution API.
 
@@ -173,13 +174,13 @@ def _fetch_table(w, warehouse_id: str, table_name: str, schema: str = None):
         print(f" FAILED: {msg}")
         return [], [], {}
 
-    if not result.manifest or not result.result:
+    if not result.manifest:
         print(" (empty)")
         return [], [], {}
 
     columns = [col.name for col in result.manifest.schema.columns]
     col_types = {col.name: _resolve_type_name(col) for col in result.manifest.schema.columns}
-    rows = result.result.data_array or []
+    rows = _merge_result_data_rows(w, result)
     type_summary = ", ".join(f"{c}={col_types[c]}" for c in columns if col_types[c] != "STRING")
     print(f" {len(rows)} rows, {len(columns)} columns" + (f" [{type_summary}]" if type_summary else ""))
     return columns, rows, col_types
@@ -235,19 +236,19 @@ def _fetch_table_paged(w, warehouse_id: str, fqn: str, effective_schema: str,
         if not ok:
             msg = result.status.error.message if result.status.error else f"state={result.status.state}"
             print(f"\n    Page at offset {offset} FAILED: {msg}")
-            offset += page_size
-            continue
+            break
 
         if columns is None and result.manifest:
             columns = [col.name for col in result.manifest.schema.columns]
             col_types = {col.name: _resolve_type_name(col) for col in result.manifest.schema.columns}
 
-        page_rows = result.result.data_array or []
+        page_rows = _merge_result_data_rows(w, result)
         all_rows.extend(page_rows)
         fetched = len(page_rows)
         print(f" +{fetched}", end="", flush=True)
-        offset += fetched if fetched > 0 else page_size
-
+        if fetched == 0:
+            break
+        offset += fetched
         if fetched < page_size:
             break
 

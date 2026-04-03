@@ -239,24 +239,34 @@ def layer4_agent_quality() -> LayerResult:
 
 
 def layer5_model_packaging() -> LayerResult:
-    """Verify agent_serving.py can be imported and GraphRAGAgent instantiated.
+    """Verify shared runtime imports and serving compatibility survive packaging.
 
-    Uses subprocess isolation since agent_serving.py has heavy top-level
-    imports (mlflow, langchain, langgraph) that can conflict with the
-    preflight process.
+    Uses subprocess isolation since both the shared runtime and agent_serving.py
+    have heavy top-level imports (mlflow, langchain, langgraph) that can
+    conflict with the preflight process.
     """
-    r = LayerResult(5, "Model packaging dry-run")
+    r = LayerResult(5, "Runtime packaging dry-run")
 
     check_script = '''\
 import os, sys
 os.environ.setdefault("GRAPHRAG_BACKEND", "local")
 os.environ.setdefault("GRAPHRAG_LLM_PROVIDER", "openai")
+os.environ.setdefault("GRAPHRAG_RUNTIME_TRANSPORT", "direct")
 sys.path.insert(0, os.getcwd())
+sys.path.insert(0, os.path.join(os.getcwd(), "src"))
+from runtime import SharedRuntimeOrchestrator
+orchestrator = SharedRuntimeOrchestrator()
+modules = orchestrator.modules()
 from src.agent.agent_serving import AGENT, GraphRAGAgent
 from mlflow.pyfunc import ResponsesAgent
 assert isinstance(AGENT, ResponsesAgent), f"AGENT is {type(AGENT).__name__}, not ResponsesAgent"
 tool_names = [getattr(t, "name", str(t)) for t in getattr(AGENT, "tools", [])]
-print(f"{type(AGENT).__name__}|{len(tool_names)}|{','.join(tool_names[:6])}")
+print(
+    f"{type(AGENT).__name__}|{len(tool_names)}|"
+    f"{modules.topology.router.transport.value}/{modules.topology.planner.transport.value}/"
+    f"{modules.topology.graph.transport.value}/{modules.topology.evidence.transport.value}/"
+    f"{modules.topology.analytics.transport.value}|{','.join(tool_names[:6])}"
+)
 '''
 
     env = os.environ.copy()
@@ -272,9 +282,10 @@ print(f"{type(AGENT).__name__}|{len(tool_names)}|{','.join(tool_names[:6])}")
         parts = result.stdout.strip().split("|")
         cls_name = parts[0] if len(parts) > 0 else "?"
         tool_count = parts[1] if len(parts) > 1 else "?"
-        tool_list = parts[2] if len(parts) > 2 else ""
+        topology = parts[2] if len(parts) > 2 else "?"
+        tool_list = parts[3] if len(parts) > 3 else ""
         r.passed = True
-        r.detail = f"{cls_name} with {tool_count} tools: {tool_list}"
+        r.detail = f"{cls_name} with {tool_count} tools, topology={topology}: {tool_list}"
     else:
         stderr = result.stderr.strip()
         last_lines = "\n".join(stderr.splitlines()[-3:]) if stderr else "Unknown error"
@@ -479,7 +490,7 @@ def main():
             2: "Data integrity",
             3: "Graph engine tests",
             4: "Agent quality gates",
-            5: "Model packaging dry-run",
+            5: "Runtime packaging dry-run",
             6: "Dash app smoke test",
             7: "MCP server import",
             8: "Bundle validation",

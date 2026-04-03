@@ -705,6 +705,23 @@ class TestParallelExecution:
         assert "Kenneth Lay" in names or "Jeff Skilling" in names
 
 
+class TestLakebaseSqlTranslation:
+
+    def test_translates_string_and_varchar_casts_to_text(self, mod):
+        sql = (
+            "SELECT LOWER(CAST(to_recipients as string)) AS recipients_text, "
+            "CAST('|' || e.entity_id || '|' AS VARCHAR(4000)) AS visited "
+            "FROM emails e"
+        )
+
+        translated = mod.LakebaseBackend._translate_spark_sql_for_pg(sql)
+
+        assert "CAST(to_recipients AS TEXT)" in translated
+        assert "CAST('|' || e.entity_id || '|' AS TEXT)" in translated
+        assert "AS STRING" not in translated.upper()
+        assert "VARCHAR(4000)" not in translated.upper()
+
+
 # ===================================================================
 # Investigative Trust Tools — Unit Tests (MockBackend)
 # ===================================================================

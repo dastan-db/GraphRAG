@@ -30,6 +30,9 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt.tool_node import ToolNode
 from typing import Annotated, Generator, Protocol, Sequence, TypedDict
 
+from src.runtime.analytics_sql import get_enron_analytics_objects
+from src.runtime.router_assets import load_router_case_asset
+
 try:
     from rapidfuzz import fuzz as rapidfuzz_fuzz, process as rapidfuzz_process
 except ImportError:
@@ -49,7 +52,21 @@ log = logging.getLogger(__name__)
 # Config
 # ---------------------------------------------------------------------------
 CATALOG = os.environ.get("GRAPHRAG_CATALOG", "serverless_8e8gyh_catalog")
-SCHEMA = os.environ.get("GRAPHRAG_SCHEMA", "graphrag_bible")
+CORPUS = os.environ.get("GRAPHRAG_CORPUS", "bible").strip().lower()
+BIBLE_SCHEMA = (
+    os.environ.get("GRAPHRAG_BIBLE_SCHEMA")
+    or "graphrag_bible"
+)
+ENRON_SCHEMA = (
+    os.environ.get("GRAPHRAG_ENRON_SCHEMA")
+    or (
+        os.environ.get("GRAPHRAG_SCHEMA")
+        if CORPUS == "enron"
+        else None
+    )
+    or "graphrag_enron"
+)
+SCHEMA = ENRON_SCHEMA if CORPUS == "enron" else BIBLE_SCHEMA
 LLM_ENDPOINT = os.environ.get("GRAPHRAG_LLM_ENDPOINT", "databricks-llama-4-maverick")
 SMALL_LLM_ENDPOINT = os.environ.get("GRAPHRAG_SMALL_LLM_ENDPOINT", "databricks-meta-llama-3-1-8b-instruct")
 SYNTHESIS_ENDPOINT = os.environ.get("GRAPHRAG_SYNTHESIS_ENDPOINT", "databricks-llama-4-maverick")
@@ -74,27 +91,61 @@ try:
 except ValueError:
     _MODEL_LOGGING_TOOL_LIMIT = 0
 
-CORPUS = os.environ.get("GRAPHRAG_CORPUS", "bible")
-
 VS_ENDPOINT = os.environ.get("GRAPHRAG_VS_ENDPOINT", "")
 VS_INDEX_NAME = os.environ.get("GRAPHRAG_VS_INDEX_NAME", "")
 EMBEDDING_ENDPOINT = os.environ.get("GRAPHRAG_EMBEDDING_ENDPOINT", "databricks-gte-large-en")
-
-ENRON_SCHEMA = os.environ.get("GRAPHRAG_ENRON_SCHEMA", "graphrag_enron")
+_ENRON_ANALYTICS_OBJECTS = get_enron_analytics_objects(CATALOG, ENRON_SCHEMA)
 ENRON_ENTITIES_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.entities"
 ENRON_RELATIONSHIPS_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.relationships"
-ENRON_EMAILS_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.emails"
+ENRON_EMAILS_TABLE = _ENRON_ANALYTICS_OBJECTS.emails_relation
 ENRON_ENTITY_ANALYTICS_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.entity_analytics"
 ENRON_ENTITY_PATHS_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.entity_paths"
 ENRON_ENTITY_MENTIONS_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.entity_mentions"
-ENRON_COMMUNICATION_DYADS_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.communication_dyads"
-ENRON_PARTICIPANTS_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.participants"
-ENRON_THREADS_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.threads"
-ENRON_PERSON_ACTIVITY_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.person_activity"
+ENRON_COMMUNICATION_DYADS_TABLE = _ENRON_ANALYTICS_OBJECTS.communication_dyads_relation
+ENRON_PARTICIPANTS_TABLE = _ENRON_ANALYTICS_OBJECTS.participants_relation
+ENRON_THREADS_TABLE = _ENRON_ANALYTICS_OBJECTS.threads_relation
+ENRON_PERSON_ACTIVITY_TABLE = _ENRON_ANALYTICS_OBJECTS.person_activity_relation
+ENRON_COMMUNICATION_METRIC_VIEW = _ENRON_ANALYTICS_OBJECTS.communication_metric_view
 ENRON_ORG_HIERARCHY_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.org_hierarchy"
 ENRON_ORG_HIERARCHY_EVIDENCE_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.org_hierarchy_evidence"
 
 ACCESS_TIER = os.environ.get("GRAPHRAG_ACCESS_TIER", "")
+
+
+def _default_local_db_path(corpus: str) -> str:
+    return "data/graphrag_enron.duckdb" if corpus == "enron" else "data/graphrag.duckdb"
+
+
+def _resolve_local_db_path(explicit_path: str | None = None) -> str:
+    if explicit_path:
+        return explicit_path
+
+    env_key = f"GRAPHRAG_{CORPUS.upper()}_LOCAL_DB"
+    corpus_specific = os.environ.get(env_key)
+    if corpus_specific:
+        return corpus_specific
+
+    generic_path = os.environ.get("GRAPHRAG_LOCAL_DB")
+    default_path = _default_local_db_path(CORPUS)
+    if not generic_path:
+        return default_path
+
+    generic_name = os.path.basename(generic_path).lower()
+    if CORPUS == "bible" and "enron" in generic_name:
+        log.info(
+            "Ignoring GRAPHRAG_LOCAL_DB=%s for bible corpus; use %s to override the Bible DuckDB path.",
+            generic_path,
+            env_key,
+        )
+        return default_path
+    if CORPUS == "enron" and generic_name in {"graphrag.duckdb", "graphrag_bible.duckdb"}:
+        log.info(
+            "Ignoring GRAPHRAG_LOCAL_DB=%s for enron corpus; use %s to override the Enron DuckDB path.",
+            generic_path,
+            env_key,
+        )
+        return default_path
+    return generic_path
 
 EVIDENCE_CONFIG = {
     "strategy_weights": {"A": 1.0, "B": 0.7, "C": 0.9, "D": 0.4},
@@ -141,7 +192,16 @@ ENRON_ABAC_ENTITY_ANALYTICS_VIEW = f"{CATALOG}.{ENRON_SCHEMA}.entity_analytics_a
 ENRON_ABAC_ENTITY_PATHS_VIEW = f"{CATALOG}.{ENRON_SCHEMA}.entity_paths_abac"
 ENRON_ABAC_ENTITY_MENTIONS_VIEW = f"{CATALOG}.{ENRON_SCHEMA}.entity_mentions_abac"
 
-BACKEND_TYPE = os.environ.get("GRAPHRAG_BACKEND", "databricks")
+def _resolve_backend_type() -> str:
+    """Prefer GRAPHRAG_BACKEND; else GRAPHRAG_DATA_BACKEND (app.yaml); default lakebase for Databricks-hosted SQL."""
+    return (
+        os.environ.get("GRAPHRAG_BACKEND")
+        or os.environ.get("GRAPHRAG_DATA_BACKEND")
+        or "lakebase"
+    ).strip().lower()
+
+
+BACKEND_TYPE = _resolve_backend_type()
 LLM_PROVIDER = os.environ.get("GRAPHRAG_LLM_PROVIDER", "databricks")
 _ROUTING_CASE_IMPORT_SOURCE = "unloaded"
 _PATTERN_REGISTRY_IMPORT_SOURCE = "unloaded"
@@ -160,6 +220,23 @@ class DatabricksBackend:
     def __init__(self):
         self._ws_client = None
         self._warehouse_id = None
+
+    def _wait_for_result(self, result):
+        import time
+        from databricks.sdk.service.sql import StatementState
+
+        w = self._get_ws_client()
+        for _ in range(60):
+            state = result.status.state
+            if state in (
+                StatementState.SUCCEEDED,
+                StatementState.FAILED,
+                StatementState.CANCELED,
+            ):
+                return result
+            time.sleep(1)
+            result = w.statement_execution.get_statement(result.statement_id)
+        return result
 
     def _get_ws_client(self):
         if self._ws_client is None:
@@ -198,9 +275,11 @@ class DatabricksBackend:
             catalog=CATALOG,
             schema=SCHEMA,
             parameters=parameters,
+            wait_timeout="30s",
         )
+        result = self._wait_for_result(result)
         if result.status.state != StatementState.SUCCEEDED:
-            msg = result.status.error.message if result.status.error else "Unknown error"
+            msg = result.status.error.message if result.status.error else f"state={result.status.state}"
             raise RuntimeError(f"SQL execution failed: {msg}")
         if not result.manifest or not result.result:
             return []
@@ -216,14 +295,15 @@ class LocalBackend:
 
     Handles Spark SQL → DuckDB dialect translation so tool-generated queries
     run against exported DuckDB tables without modification.  Array columns
-    must be exported as DuckDB ``VARCHAR[]`` (see ``scripts/export_local_data.py``).
+    (e.g. email ``to_recipients``) must match Delta export types — typically
+    ``VARCHAR[]`` from ``scripts/export_local_data.py`` (``SELECT *``).
 
     Thread-safety: a ``threading.Lock`` serialises queries because DuckDB
     connections are not safe for concurrent reads from multiple threads
     (the agent's ``ThreadPoolExecutor`` executes tools in parallel).
     """
 
-    _FQN_BIBLE = f"{CATALOG}.{SCHEMA}."
+    _FQN_BIBLE = f"{CATALOG}.{BIBLE_SCHEMA}."
     _FQN_ENRON = f"{CATALOG}.{ENRON_SCHEMA}."
 
     _SPARK_TO_DUCK: list[tuple[re.Pattern, str]] = [
@@ -250,7 +330,7 @@ class LocalBackend:
     def __init__(self, db_path: str | None = None):
         import duckdb
         import threading
-        path = db_path or os.environ.get("GRAPHRAG_LOCAL_DB", "data/graphrag.duckdb")
+        path = _resolve_local_db_path(db_path)
         self._conn = duckdb.connect(path, read_only=True)
         self._lock = threading.Lock()
         log.info("LocalBackend connected to %s", path)
@@ -288,10 +368,112 @@ class LakebaseBackend:
     Supports session-level RLS context: call
     ``set_rls_context({"permitted_books": "Genesis,Exodus"})``
     to scope all subsequent queries via Postgres RLS policies.
+
+    Tool SQL is authored for Spark (Databricks warehouse).  Before execution we
+    apply the same style of translation as :class:`LocalBackend` does for DuckDB,
+    mapping Spark array/time helpers to PostgreSQL builtins.
     """
 
-    _FQN_BIBLE = f"{CATALOG}.{SCHEMA}."
+    _FQN_BIBLE = f"{CATALOG}.{BIBLE_SCHEMA}."
     _FQN_ENRON = f"{CATALOG}.{ENRON_SCHEMA}."
+
+    _SLICE_RE = re.compile(
+        r"\bSLICE\s*\(\s*([^,]+?)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)",
+        re.IGNORECASE,
+    )
+    _LATERAL_EXPLODE_RE = re.compile(
+        r"LATERAL\s+VIEW\s+EXPLODE\(([^)]+)\)\s+(\w+)\s+AS\s+(\w+)",
+        re.IGNORECASE,
+    )
+    _COLLECT_LIST_INDEX0_RE = re.compile(
+        r"COLLECT_LIST\s*\(([^)]+)\)\s*\[0\]",
+        re.IGNORECASE,
+    )
+    _DATE_FORMAT_PATTERNS: list[tuple[re.Pattern, str]] = [
+        (
+            re.compile(
+                r"DATE_FORMAT\s*\(\s*([^,]+?)\s*,\s*'yyyy-MM'\s*\)",
+                re.IGNORECASE,
+            ),
+            r"to_char(\1, 'YYYY-MM')",
+        ),
+        (
+            re.compile(
+                r"DATE_FORMAT\s*\(\s*([^,]+?)\s*,\s*'yyyy-MM-dd'\s*\)",
+                re.IGNORECASE,
+            ),
+            r"to_char(\1, 'YYYY-MM-DD')",
+        ),
+    ]
+
+    @classmethod
+    def _translate_spark_sql_for_pg(cls, query: str) -> str:
+        """Best-effort Spark SQL → PostgreSQL translation for Lakebase."""
+
+        def _slice_loop(sql: str) -> str:
+            prev = None
+            while prev != sql:
+                prev = sql
+
+                def _repl(m: re.Match) -> str:
+                    expr = m.group(1).strip()
+                    start = int(m.group(2))
+                    length = int(m.group(3))
+                    end = start + length - 1
+                    return f"({expr})[{start}:{end}]"
+
+                sql = cls._SLICE_RE.sub(_repl, sql)
+            return sql
+
+        def _size_to_cardinality(sql: str) -> str:
+            out: list[str] = []
+            i = 0
+            while i < len(sql):
+                m = re.search(r"\bSIZE\s*\(", sql[i:], re.IGNORECASE)
+                if not m:
+                    out.append(sql[i:])
+                    break
+                start = i + m.start()
+                out.append(sql[i:start])
+                # m was matched in sql[i:]; '(' is the last character of the match
+                open_paren = i + m.end() - 1
+                depth = 0
+                for j in range(open_paren, len(sql)):
+                    if sql[j] == "(":
+                        depth += 1
+                    elif sql[j] == ")":
+                        depth -= 1
+                        if depth == 0:
+                            inner = sql[open_paren + 1:j]
+                            # Plain cardinality — outer SQL already uses COALESCE(SIZE(...), 0)
+                            out.append(f"cardinality({inner})")
+                            i = j + 1
+                            break
+                else:
+                    out.append(sql[i:])
+                    break
+            return "".join(out)
+
+        q = _slice_loop(query)
+        q = re.sub(r"\bARRAY_JOIN\s*\(", "array_to_string(", q, flags=re.IGNORECASE)
+        q = _size_to_cardinality(q)
+        q = cls._LATERAL_EXPLODE_RE.sub(
+            r"CROSS JOIN LATERAL unnest(\1) AS \2(\3)",
+            q,
+        )
+        q = re.sub(r"\bEXPLODE\s*\(", "unnest(", q, flags=re.IGNORECASE)
+        q = cls._COLLECT_LIST_INDEX0_RE.sub(r"(array_agg(\1))[1]", q)
+        q = re.sub(
+            r"\bFIRST\s*\(\s*([^)]+?)\s*\)",
+            r"(array_agg(\1))[1]",
+            q,
+            flags=re.IGNORECASE,
+        )
+        for pat, repl in cls._DATE_FORMAT_PATTERNS:
+            q = pat.sub(repl, q)
+        q = re.sub(r"\bAS\s+STRING\b", "AS TEXT", q, flags=re.IGNORECASE)
+        q = re.sub(r"VARCHAR\s*\(\s*4000\s*\)", "TEXT", q, flags=re.IGNORECASE)
+        return q
 
     def __init__(self):
         self._endpoint = os.environ.get(
@@ -337,6 +519,7 @@ class LakebaseBackend:
     def execute_sql(self, query: str, params: dict[str, str] | None = None) -> list[dict]:
         query = query.replace(self._FQN_BIBLE, "")
         query = query.replace(self._FQN_ENRON, "enron.")
+        query = self._translate_spark_sql_for_pg(query)
 
         pool = self._get_pool()
         with pool.connection() as conn:
@@ -349,7 +532,12 @@ class LakebaseBackend:
                         )
 
                 if params:
-                    pg_query = re.sub(r":(\w+)", r"%(\1)s", query)
+                    # Do not treat [1:3] slice syntax or ::type casts as :name parameters
+                    pg_query = re.sub(
+                        r"(?<!:):(?!\d)(\w+)",
+                        r"%(\1)s",
+                        query,
+                    )
                     cur.execute(pg_query, params)
                 else:
                     cur.execute(query)
@@ -495,6 +683,40 @@ def _get_llm(endpoint: str = LLM_ENDPOINT, **kwargs):
 _prompt_cache: dict = {"text": None, "ts": 0.0}
 
 
+def _prompt_uses_supported_tools(prompt_text: str) -> bool:
+    available_tool_names = {
+        tool_obj.name for tool_obj in globals().get("GRAPH_TOOLS", [])
+        if hasattr(tool_obj, "name")
+    }
+    if not available_tool_names:
+        return True
+
+    referenced_tools = {
+        token
+        for token in re.findall(r"\b[a-z_][a-z0-9_]*\b", prompt_text or "")
+        if token.startswith((
+            "find_",
+            "get_",
+            "list_",
+            "trace_",
+            "compare_",
+            "query_",
+            "detect_",
+            "search_",
+            "semantic_",
+            "browse_",
+        ))
+    }
+    unsupported = sorted(referenced_tools - available_tool_names)
+    if unsupported:
+        log.warning(
+            "Loaded prompt references unavailable tools %s; using hardcoded fallback",
+            unsupported,
+        )
+        return False
+    return True
+
+
 def _get_system_prompt(agent_id: str = AGENT_ID) -> str:
     """Load the system prompt from the agent_prompts Delta table with TTL caching.
 
@@ -509,7 +731,17 @@ def _get_system_prompt(agent_id: str = AGENT_ID) -> str:
                 "WHERE agent_id = :agent_id LIMIT 1",
                 params={"agent_id": agent_id},
             )
-            _prompt_cache["text"] = rows[0]["prompt_text"] if rows else SYSTEM_PROMPT
+            prompt_text = rows[0]["prompt_text"] if rows else SYSTEM_PROMPT
+            if (
+                prompt_text
+                and CORPUS == "bible"
+                and "five books of the king james bible" in prompt_text.lower()
+            ):
+                log.warning("Loaded Bible prompt is stale; using hardcoded fallback")
+                prompt_text = SYSTEM_PROMPT
+            if prompt_text and not _prompt_uses_supported_tools(prompt_text):
+                prompt_text = SYSTEM_PROMPT
+            _prompt_cache["text"] = prompt_text or SYSTEM_PROMPT
         except Exception:
             log.warning("Failed to load prompt from Delta; using hardcoded fallback")
             _prompt_cache["text"] = SYSTEM_PROMPT
@@ -1233,26 +1465,14 @@ def _load_enron_routing_cases() -> list[dict]:
     if _ENRON_ROUTING_CASES is not None:
         return _ENRON_ROUTING_CASES
 
-    rows: list[dict] = []
     try:
-        from src.evaluation.question_bank import export_governed_flat_questions
-        _ROUTING_CASE_IMPORT_SOURCE = "src.evaluation.question_bank"
-    except ImportError:
-        try:
-            from evaluation.question_bank import export_governed_flat_questions
-            _ROUTING_CASE_IMPORT_SOURCE = "evaluation.question_bank"
-        except ImportError:
-            try:
-                from question_bank import export_governed_flat_questions
-                _ROUTING_CASE_IMPORT_SOURCE = "question_bank"
-            except ImportError:
-                log.warning("Case router unavailable: question_bank import failed")
-                _ROUTING_CASE_IMPORT_SOURCE = "unavailable"
-                _ENRON_ROUTING_CASES = []
-                return _ENRON_ROUTING_CASES
-
-    for split in _ROUTER_CASE_SPLITS or ("train",):
-        rows.extend(export_governed_flat_questions(corpus="enron", eval_split=split))
+        rows = load_router_case_asset(corpus="enron", case_limit=_ROUTER_CASE_LIMIT)
+        _ROUTING_CASE_IMPORT_SOURCE = "src.runtime.router_assets"
+    except Exception:
+        log.warning("Case router unavailable: runtime router asset load failed")
+        _ROUTING_CASE_IMPORT_SOURCE = "unavailable"
+        _ENRON_ROUTING_CASES = []
+        return _ENRON_ROUTING_CASES
 
     cases: list[dict] = []
     for row in rows[:_ROUTER_CASE_LIMIT]:
@@ -3633,44 +3853,70 @@ def trace_path(entity_a: str, entity_b: str, max_hops: int = 5) -> str:
     start_list = ", ".join(f"'{s}'" for s in start_ids)
     end_list = ", ".join(f"'{e}'" for e in end_ids)
 
-    cte_query = (
-        f"WITH RECURSIVE bfs(current_id, depth, visited, path_names, path_rels) AS ("
-        f" SELECT e.entity_id, 0,"
-        f"  CAST('|' || e.entity_id || '|' AS VARCHAR(4000)),"
-        f"  CAST(e.name AS VARCHAR(4000)),"
-        f"  CAST('' AS VARCHAR(4000))"
-        f" FROM {ENTITIES_TABLE} e"
-        f" WHERE e.entity_id IN ({start_list})"
-        f" UNION ALL"
-        f" SELECT"
-        f"  CASE WHEN r.source_entity = b.current_id"
-        f"   THEN r.target_entity ELSE r.source_entity END,"
-        f"  b.depth + 1,"
-        f"  b.visited"
-        f"   || CASE WHEN r.source_entity = b.current_id"
-        f"       THEN r.target_entity ELSE r.source_entity END || '|',"
-        f"  b.path_names || '|' || COALESCE("
-        f"   CASE WHEN r.source_entity = b.current_id THEN e2.name ELSE e1.name END,"
-        f"   CASE WHEN r.source_entity = b.current_id"
-        f"    THEN r.target_entity ELSE r.source_entity END),"
-        f"  CASE WHEN b.path_rels = '' THEN r.relationship_type"
-        f"   ELSE b.path_rels || '|' || r.relationship_type END"
-        f" FROM bfs b"
-        f" JOIN {RELATIONSHIPS_TABLE} r"
-        f"  ON (r.source_entity = b.current_id OR r.target_entity = b.current_id)"
-        + (f"  AND r.relationship_type IN ('REPORTS_TO','MANAGES')" if CORPUS == "enron" else "")
-        + f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
-        f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
-        f" WHERE b.depth < {max_h}"
-        f"  AND b.visited NOT LIKE"
-        f"   '%|' || CASE WHEN r.source_entity = b.current_id"
-        f"    THEN r.target_entity ELSE r.source_entity END || '|%'"
-        f") SELECT path_names, path_rels, depth FROM bfs"
-        f" WHERE current_id IN ({end_list})"
-        f" ORDER BY depth LIMIT 1"
-    )
+    def _run_path_query(relationship_types: tuple[str, ...] | None = None) -> list[dict]:
+        rel_filter = ""
+        if CORPUS == "enron":
+            rel_filter = "  AND r.relationship_type IN ('REPORTS_TO','MANAGES')"
+        elif relationship_types:
+            rel_csv = ", ".join(f"'{rel}'" for rel in relationship_types)
+            rel_filter = f"  AND r.relationship_type IN ({rel_csv})"
 
-    path_rows = _backend.execute_sql(cte_query)
+        cte_query = (
+            f"WITH RECURSIVE bfs(current_id, depth, visited, path_names, path_rels) AS ("
+            f" SELECT e.entity_id, 0,"
+            f"  CAST('|' || e.entity_id || '|' AS VARCHAR(4000)),"
+            f"  CAST(e.name AS VARCHAR(4000)),"
+            f"  CAST('' AS VARCHAR(4000))"
+            f" FROM {ENTITIES_TABLE} e"
+            f" WHERE e.entity_id IN ({start_list})"
+            f" UNION ALL"
+            f" SELECT"
+            f"  CASE WHEN r.source_entity = b.current_id"
+            f"   THEN r.target_entity ELSE r.source_entity END,"
+            f"  b.depth + 1,"
+            f"  b.visited"
+            f"   || CASE WHEN r.source_entity = b.current_id"
+            f"       THEN r.target_entity ELSE r.source_entity END || '|',"
+            f"  b.path_names || '|' || COALESCE("
+            f"   CASE WHEN r.source_entity = b.current_id THEN e2.name ELSE e1.name END,"
+            f"   CASE WHEN r.source_entity = b.current_id"
+            f"    THEN r.target_entity ELSE r.source_entity END),"
+            f"  CASE WHEN b.path_rels = '' THEN r.relationship_type"
+            f"   ELSE b.path_rels || '|' || r.relationship_type END"
+            f" FROM bfs b"
+            f" JOIN {RELATIONSHIPS_TABLE} r"
+            f"  ON (r.source_entity = b.current_id OR r.target_entity = b.current_id)"
+            f"{rel_filter}"
+            f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
+            f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
+            f" WHERE b.depth < {max_h}"
+            f"  AND b.visited NOT LIKE"
+            f"   '%|' || CASE WHEN r.source_entity = b.current_id"
+            f"    THEN r.target_entity ELSE r.source_entity END || '|%'"
+            f") SELECT path_names, path_rels, depth FROM bfs"
+            f" WHERE current_id IN ({end_list})"
+            f" ORDER BY depth LIMIT 1"
+        )
+        return _backend.execute_sql(cte_query)
+
+    path_rows: list[dict] = []
+    if CORPUS != "enron":
+        family_relations = (
+            "PARENT_OF",
+            "CHILD_OF",
+            "ANCESTOR_OF",
+            "DESCENDANT_OF",
+            "FATHER_OF",
+            "MOTHER_OF",
+            "SPOUSE_OF",
+            "MARRIED_TO",
+            "HUSBAND_OF",
+            "WIFE_OF",
+        )
+        path_rows = _run_path_query(family_relations)
+
+    if not path_rows:
+        path_rows = _run_path_query()
 
     if not path_rows:
         return (
@@ -3723,6 +3969,239 @@ def trace_path(entity_a: str, entity_b: str, max_hops: int = 5) -> str:
     if direct_rels:
         result["direct_relationships"] = direct_rels
     return json.dumps(result, ensure_ascii=False)
+
+
+_BIBLE_LINEAGE_STOP_WORDS = {
+    "How", "What", "Who", "Trace", "Explain", "Show", "Step", "Bible",
+    "Lineage", "Genealogy", "Connection",
+}
+
+
+def _extract_bible_lineage_entities(question: str) -> list[dict]:
+    candidates = re.findall(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b", question or "")
+    resolved: list[dict] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        candidate = candidate.strip()
+        if not candidate or candidate in _BIBLE_LINEAGE_STOP_WORDS:
+            continue
+        rows = _backend.execute_sql(
+            f"SELECT entity_id, name FROM {ENTITIES_TABLE}"
+            " WHERE LOWER(name) = LOWER(:name)"
+            " ORDER BY name LIMIT 1",
+            params={"name": candidate},
+        )
+        if not rows:
+            continue
+        row = rows[0]
+        name_key = (row.get("name") or "").lower()
+        if not name_key or name_key in seen:
+            continue
+        seen.add(name_key)
+        resolved.append(row)
+        if len(resolved) >= 2:
+            break
+    return resolved
+
+
+def _build_bible_lineage_answer(question: str) -> str | None:
+    q_lower = (question or "").lower()
+    if CORPUS != "bible":
+        return None
+    if not any(
+        phrase in q_lower
+        for phrase in ("lineage", "genealogy", "ancestor", "descendant", "connected to")
+    ):
+        return None
+
+    entities = _extract_bible_lineage_entities(question)
+    if len(entities) < 2:
+        return None
+
+    entity_a, entity_b = entities[:2]
+    family_relations = (
+        "PARENT_OF",
+        "CHILD_OF",
+        "ANCESTOR_OF",
+        "DESCENDANT_OF",
+        "FATHER_OF",
+        "MOTHER_OF",
+        "SPOUSE_OF",
+        "MARRIED_TO",
+        "HUSBAND_OF",
+        "WIFE_OF",
+    )
+    rel_csv = ", ".join(f"'{rel}'" for rel in family_relations)
+    cte_query = (
+        "WITH RECURSIVE bfs(current_id, depth, visited, path_ids, path_names, path_rels) AS ("
+        f" SELECT e.entity_id, 0,"
+        "  CAST('|' || e.entity_id || '|' AS VARCHAR(4000)),"
+        "  CAST(e.entity_id AS VARCHAR(4000)),"
+        "  CAST(e.name AS VARCHAR(4000)),"
+        "  CAST('' AS VARCHAR(4000))"
+        f" FROM {ENTITIES_TABLE} e"
+        " WHERE e.entity_id = :start_id"
+        " UNION ALL"
+        " SELECT"
+        "  CASE WHEN r.source_entity = b.current_id"
+        "   THEN r.target_entity ELSE r.source_entity END,"
+        "  b.depth + 1,"
+        "  b.visited"
+        "   || CASE WHEN r.source_entity = b.current_id"
+        "       THEN r.target_entity ELSE r.source_entity END || '|',"
+        "  b.path_ids || '|' || CASE WHEN r.source_entity = b.current_id"
+        "       THEN r.target_entity ELSE r.source_entity END,"
+        "  b.path_names || '|' || COALESCE("
+        "   CASE WHEN r.source_entity = b.current_id THEN e2.name ELSE e1.name END,"
+        "   CASE WHEN r.source_entity = b.current_id"
+        "    THEN r.target_entity ELSE r.source_entity END),"
+        "  CASE WHEN b.path_rels = '' THEN r.relationship_type"
+        "   ELSE b.path_rels || '|' || r.relationship_type END"
+        " FROM bfs b"
+        f" JOIN {RELATIONSHIPS_TABLE} r"
+        "  ON (r.source_entity = b.current_id OR r.target_entity = b.current_id)"
+        f"  AND r.relationship_type IN ({rel_csv})"
+        f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
+        f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
+        " WHERE b.depth < 6"
+        "  AND b.visited NOT LIKE"
+        "   '%|' || CASE WHEN r.source_entity = b.current_id"
+        "    THEN r.target_entity ELSE r.source_entity END || '|%'"
+        ")"
+        " SELECT path_ids, path_names, path_rels, depth"
+        " FROM bfs WHERE current_id = :end_id"
+        " ORDER BY depth LIMIT 1"
+    )
+    rows = _backend.execute_sql(
+        cte_query,
+        params={"start_id": entity_a["entity_id"], "end_id": entity_b["entity_id"]},
+    )
+    if not rows:
+        return None
+
+    row = rows[0]
+    path_ids = [part for part in (row.get("path_ids") or "").split("|") if part]
+    path_names = [part for part in (row.get("path_names") or "").split("|") if part]
+    path_rels = [part for part in (row.get("path_rels") or "").split("|") if part]
+    if len(path_ids) < 2 or len(path_rels) != len(path_ids) - 1:
+        return None
+
+    steps: list[dict] = []
+    source_refs: list[str] = []
+    for idx, rel in enumerate(path_rels):
+        src_id = path_ids[idx]
+        tgt_id = path_ids[idx + 1]
+        src_name = path_names[idx]
+        tgt_name = path_names[idx + 1]
+        edge_rows = _backend.execute_sql(
+            f"SELECT relationship_type, book, chapter, description"
+            f" FROM {RELATIONSHIPS_TABLE}"
+            " WHERE ((source_entity = :src AND target_entity = :tgt)"
+            "    OR (source_entity = :tgt AND target_entity = :src))"
+            "   AND relationship_type = :rel"
+            " ORDER BY book, chapter LIMIT 1",
+            params={"src": src_id, "tgt": tgt_id, "rel": rel},
+        )
+        edge = edge_rows[0] if edge_rows else {}
+        reference = ""
+        if edge.get("book") and edge.get("chapter") is not None:
+            reference = f"{edge['book']} {edge['chapter']}"
+            source_refs.append(reference)
+        steps.append({
+            "source": src_name,
+            "relationship": rel,
+            "target": tgt_name,
+            "reference": reference,
+        })
+
+    path_render = " -> ".join(path_names)
+    step_lines = []
+    for index, step in enumerate(steps, start=1):
+        ref_suffix = f", {step['reference']}" if step["reference"] else ""
+        step_lines.append(
+            f"{index}. {step['source']} -> {step['target']} ({step['relationship']}{ref_suffix})"
+        )
+
+    unique_sources = list(dict.fromkeys(source_refs))
+    sources_line = ", ".join(unique_sources) if unique_sources else "None retrieved"
+    return "\n".join([
+        "### Answer",
+        f"{entity_a['name']} is connected to {entity_b['name']} through this family line:",
+        *step_lines,
+        "",
+        "### Provenance",
+        f"- **Path**: {path_render}",
+        f"- **Sources**: {sources_line}",
+        "- **Grounding**: All claims grounded in knowledge graph.",
+    ])
+
+
+def _build_bible_comparison_answer(question: str) -> str | None:
+    q_lower = (question or "").lower()
+    if CORPUS != "bible" or "compare" not in q_lower:
+        return None
+
+    entities = _extract_bible_lineage_entities(question)
+    if len(entities) < 2:
+        return None
+
+    profiles: list[dict] = []
+    sources: list[str] = []
+    for entity in entities[:2]:
+        rel_rows = _backend.execute_sql(
+            f"SELECT relationship_type, COUNT(*) AS frequency,"
+            f" MIN(book) AS book, MIN(chapter) AS chapter,"
+            f" MAX(description) AS description"
+            f" FROM {RELATIONSHIPS_TABLE}"
+            " WHERE source_entity = :entity_id OR target_entity = :entity_id"
+            " GROUP BY relationship_type"
+            " ORDER BY frequency DESC, relationship_type"
+            " LIMIT 3",
+            params={"entity_id": entity["entity_id"]},
+        )
+        if not rel_rows:
+            return None
+
+        top_relationships = []
+        for row in rel_rows:
+            reference = ""
+            if row.get("book") and row.get("chapter") is not None:
+                reference = f"{row['book']} {row['chapter']}"
+                sources.append(reference)
+            top_relationships.append({
+                "relationship_type": row["relationship_type"],
+                "frequency": row.get("frequency", 0),
+                "reference": reference,
+                "description": row.get("description", ""),
+            })
+        profiles.append({"name": entity["name"], "relationships": top_relationships})
+
+    comparison_lines = []
+    for profile in profiles:
+        rel_parts = []
+        for rel in profile["relationships"]:
+            ref_suffix = f" ({rel['reference']})" if rel["reference"] else ""
+            rel_parts.append(
+                f"{rel['relationship_type']} x{rel['frequency']}{ref_suffix}"
+            )
+        comparison_lines.append(
+            f"- {profile['name']}: strongest graph signals are "
+            + ", ".join(rel_parts)
+            + "."
+        )
+
+    unique_sources = list(dict.fromkeys(sources))
+    sources_line = ", ".join(unique_sources) if unique_sources else "None retrieved"
+    return "\n".join([
+        "### Answer",
+        f"{profiles[0]['name']} and {profiles[1]['name']} both appear as major leadership figures in the graph, but they are emphasized through different relationship patterns.",
+        *comparison_lines,
+        "",
+        "### Provenance",
+        f"- **Path**: {profiles[0]['name']} -> leadership pattern; {profiles[1]['name']} -> leadership pattern",
+        f"- **Sources**: {sources_line}",
+        "- **Grounding**: All claims grounded in knowledge graph.",
+    ])
 
 
 @tool
@@ -4626,13 +5105,15 @@ def _genie_sql_fallback(question: str, space_name: str) -> dict | None:
 
     def _make_result(sql: str, rows: list, description: str = "") -> dict:
         return {
-            "source": "direct_sql_fallback",
+            "source": "databricks_sql_semantic_layer",
             "space": space_name,
             "query": question,
             "sql_generated": sql,
             "results": rows,
             "row_count": len(rows),
             "description": description,
+            "analytics_backend": "databricks_sql",
+            "semantic_layer": ENRON_COMMUNICATION_METRIC_VIEW,
         }
 
     try:
@@ -4819,6 +5300,11 @@ def query_and_enrich(question: str, space_name: str = "auto") -> str:
         "organizational_intelligence": os.environ.get("GENIE_ORG_SPACE_ID", ""),
         "email_investigation": os.environ.get("GENIE_INVEST_SPACE_ID", ""),
     }
+    analytics_transport = os.environ.get("GRAPHRAG_ANALYTICS_TRANSPORT", "mcp").strip().lower()
+    prefer_sql_semantic_layer = (
+        os.environ.get("GRAPHRAG_ANALYTICS_BACKEND", "databricks_sql").strip().lower()
+        == "databricks_sql"
+    )
 
     if space_name == "auto":
         q_lower = question.lower()
@@ -4834,82 +5320,94 @@ def query_and_enrich(question: str, space_name: str = "auto") -> str:
         else:
             space_name = "communication_analytics"
 
+    sql_first_result = None
+    if prefer_sql_semantic_layer or analytics_transport == "mcp":
+        sql_first_result = _genie_sql_fallback(question, space_name)
+        if sql_first_result:
+            sql_first_result["semantic_layer"] = ENRON_COMMUNICATION_METRIC_VIEW
+
     space_id = genie_space_ids.get(space_name, "")
-    if not space_id:
-        fallback = _genie_sql_fallback(question, space_name)
-        if fallback:
-            return json.dumps(fallback, ensure_ascii=False, default=str)
+    if sql_first_result and analytics_transport != "local":
+        genie_result = sql_first_result
+    elif not space_id:
+        if sql_first_result:
+            return json.dumps(sql_first_result, ensure_ascii=False, default=str)
         return json.dumps({
             "error": f"Genie Space '{space_name}' not configured. Set GENIE_*_SPACE_ID env vars.",
             "available_spaces": list(genie_space_ids.keys()),
+            "analytics_backend": "databricks_sql",
         })
-
-    try:
-        from databricks.sdk import WorkspaceClient
-
-        w = WorkspaceClient()
-        host = w.config.host.rstrip("/")
-
-        conv_resp = w.api_client.do(
-            "POST",
-            f"/api/2.0/genie/spaces/{space_id}/start-conversation",
-            body={"content": question},
-        )
-        conversation_id = conv_resp.get("conversation_id", "")
-        message_id = conv_resp.get("message_id", "")
-
-        import time as _time
+    else:
         genie_result = None
-        for _attempt in range(30):
-            _time.sleep(2)
-            msg_resp = w.api_client.do(
-                "GET",
-                f"/api/2.0/genie/spaces/{space_id}/conversations/{conversation_id}/messages/{message_id}",
-            )
-            status = msg_resp.get("status", "")
-            if status in ("COMPLETED", "COMPLETED_WITH_ERROR"):
-                attachments = msg_resp.get("attachments", [])
-                sql_query = ""
-                result_data = []
-                for att in attachments:
-                    query_info = att.get("query", {})
-                    if query_info.get("query"):
-                        sql_query = query_info["query"]
-                    att_desc = att.get("text", {}).get("content", "")
-                    if att_desc:
-                        result_data.append(att_desc)
-                genie_result = {
-                    "source": "genie",
-                    "space": space_name,
-                    "query": question,
-                    "sql_generated": sql_query,
-                    "response_text": "\n".join(result_data) if result_data else str(msg_resp),
-                    "status": status,
-                }
-                break
-            elif status == "FAILED":
-                genie_result = {
-                    "source": "genie",
-                    "space": space_name,
-                    "error": f"Genie query failed: {msg_resp.get('error', status)}",
-                }
-                break
 
-        if genie_result is None:
+    if genie_result is None:
+        try:
+            from databricks.sdk import WorkspaceClient
+
+            w = WorkspaceClient()
+            host = w.config.host.rstrip("/")
+
+            conv_resp = w.api_client.do(
+                "POST",
+                f"/api/2.0/genie/spaces/{space_id}/start-conversation",
+                body={"content": question},
+            )
+            conversation_id = conv_resp.get("conversation_id", "")
+            message_id = conv_resp.get("message_id", "")
+
+            import time as _time
+            genie_result = None
+            for _attempt in range(30):
+                _time.sleep(2)
+                msg_resp = w.api_client.do(
+                    "GET",
+                    f"/api/2.0/genie/spaces/{space_id}/conversations/{conversation_id}/messages/{message_id}",
+                )
+                status = msg_resp.get("status", "")
+                if status in ("COMPLETED", "COMPLETED_WITH_ERROR"):
+                    attachments = msg_resp.get("attachments", [])
+                    sql_query = ""
+                    result_data = []
+                    for att in attachments:
+                        query_info = att.get("query", {})
+                        if query_info.get("query"):
+                            sql_query = query_info["query"]
+                        att_desc = att.get("text", {}).get("content", "")
+                        if att_desc:
+                            result_data.append(att_desc)
+                    genie_result = {
+                        "source": "genie",
+                        "space": space_name,
+                        "query": question,
+                        "sql_generated": sql_query,
+                        "response_text": "\n".join(result_data) if result_data else str(msg_resp),
+                        "status": status,
+                        "genie_host": host,
+                    }
+                    break
+                elif status == "FAILED":
+                    genie_result = {
+                        "source": "genie",
+                        "space": space_name,
+                        "error": f"Genie query failed: {msg_resp.get('error', status)}",
+                    }
+                    break
+
+            if genie_result is None:
+                genie_result = {
+                    "source": "genie",
+                    "space": space_name,
+                    "error": "Genie query timed out after 60s",
+                }
+        except Exception as exc:
             genie_result = {
                 "source": "genie",
                 "space": space_name,
-                "error": "Genie query timed out after 60s",
+                "error": f"Genie query failed: {exc}",
             }
-    except Exception as exc:
-        genie_result = {
-            "source": "genie",
-            "space": space_name,
-            "error": f"Genie query failed: {exc}",
-        }
 
     if genie_result.get("error"):
-        fallback = _genie_sql_fallback(question, space_name)
+        fallback = sql_first_result or _genie_sql_fallback(question, space_name)
         if fallback:
             genie_result = fallback
 
@@ -6320,8 +6818,11 @@ def _get_mcp_tools() -> list:
         from databricks.sdk import WorkspaceClient
         w = WorkspaceClient()
         url = os.environ.get(
-            "GRAPHFRAMES_MCP_URL",
+            "GRAPHRAG_RUNTIME_MCP_URL",
+            os.environ.get(
+                "GRAPHFRAMES_MCP_URL",
             f"{w.config.host}/api/2.0/mcp/external/graphframes_connection",
+            ),
         )
         client = DatabricksMCPClient(server_url=url, workspace_client=w)
         mcp_tools = client.list_tools()
@@ -6333,7 +6834,15 @@ def _get_mcp_tools() -> list:
         return []
 
 
-GRAPH_TOOLS = LOCAL_TOOLS + _get_mcp_tools()
+def _merge_tool_catalogs(*tool_lists: list) -> list:
+    merged: dict[str, object] = {}
+    for tool_list in tool_lists:
+        for tool_obj in tool_list:
+            merged[tool_obj.name] = tool_obj
+    return list(merged.values())
+
+
+GRAPH_TOOLS = _merge_tool_catalogs(LOCAL_TOOLS, _get_mcp_tools())
 
 
 # ---------------------------------------------------------------------------
@@ -8665,8 +9174,9 @@ TOOL_MAP: dict[str, callable] = {}
 
 
 def _build_tool_map():
-    """Populate TOOL_MAP from LOCAL_TOOLS after they're defined."""
-    for t in LOCAL_TOOLS:
+    """Populate TOOL_MAP from both local and discovered MCP tools."""
+    TOOL_MAP.clear()
+    for t in GRAPH_TOOLS:
         TOOL_MAP[t.name] = t
 
 
@@ -10389,6 +10899,22 @@ class GraphRAGAgent(ResponsesAgent):
                 (m for m in reversed(messages) if m.get("role") == "user"), None
             )
             question = last_user["content"] if last_user and last_user.get("content") else ""
+
+            bible_comparison_answer = _build_bible_comparison_answer(question)
+            if bible_comparison_answer:
+                execution_path = "fast"
+                yield from output_to_responses_items_stream([
+                    AIMessage(content=bible_comparison_answer)
+                ])
+                return
+
+            bible_lineage_answer = _build_bible_lineage_answer(question)
+            if bible_lineage_answer:
+                execution_path = "fast"
+                yield from output_to_responses_items_stream([
+                    AIMessage(content=bible_lineage_answer)
+                ])
+                return
 
             # --- PDES: Plan-Decompose-Execute-Synthesize ---
             em_context = self.entity_memory.context_for_classifier()

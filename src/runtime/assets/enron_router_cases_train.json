@@ -1,0 +1,876 @@
+{
+  "corpus": "enron",
+  "eval_splits": [
+    "train"
+  ],
+  "case_count": 57,
+  "cases": [
+    {
+      "question_id": "enron-core-5675612b20",
+      "question_text": "How many emails were exchanged between Kenneth Lay and Leonardo Pacheco?",
+      "primitive": "genie_analytics",
+      "expected_entities": [
+        "Kenneth Lay",
+        "Leonardo Pacheco"
+      ],
+      "graph_ground_truth": "communication_dyads shows ~28 emails from Pacheco to Lay. The direction is one-way: Pacheco -> Lay. The response must specify direction, not just say 'exchanged'.",
+      "attorney_category": "quantitative_analysis",
+      "architecture_primary": "analytics_sql_genie",
+      "eval_split": "train",
+      "suite_tags": [
+        "enron_core_e2e",
+        "eval_local",
+        "eval_deployed",
+        "notebook_08"
+      ]
+    },
+    {
+      "question_id": "enron-core-f225d796b7",
+      "question_text": "Who was Andrew Fastow's boss?",
+      "primitive": "entity_structure",
+      "expected_entities": [
+        "Andrew Fastow",
+        "Jeff Skilling"
+      ],
+      "graph_ground_truth": "The graph shows Andrew Fastow REPORTS_TO Jeff Skilling. The org_hierarchy table confirms Fastow as CFO reporting to Skilling from 1998 to Oct 2001.",
+      "attorney_category": "person_profile",
+      "architecture_primary": "org_hierarchy_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "enron_core_e2e",
+        "eval_local",
+        "eval_deployed",
+        "notebook_08"
+      ]
+    },
+    {
+      "question_id": "enron-curated-pacheco-summary-topics",
+      "question_text": "What topics recur in the EnronOnline executive summaries that Leonardo Pacheco sent to Kenneth Lay?",
+      "primitive": "keyword_search",
+      "expected_entities": [
+        "Leonardo Pacheco",
+        "Kenneth Lay",
+        "EnronOnline"
+      ],
+      "graph_ground_truth": "Pacheco's EnronOnline summaries to Lay repeatedly cover transaction counts, 30-day trailing averages, notional value, business-unit percentage mix, and user/counterparty activity.",
+      "attorney_category": "topic_investigation",
+      "architecture_primary": "topic_keyword_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "rubric_seed",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-kobra-request-submitted-evidence",
+      "question_text": "What documentary evidence shows that access to Market Data Kobra was submitted through a formal approval request?",
+      "primitive": "keyword_search",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "documentary_evidence",
+      "architecture_primary": "evidence_drilldown",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-research-directory-overdue-evidence",
+      "question_text": "What documentary evidence shows that read/write access to the Houston Research directory required approval?",
+      "primitive": "keyword_search",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "documentary_evidence",
+      "architecture_primary": "evidence_drilldown",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-isda-edit-view-segmentation-evidence",
+      "question_text": "What documentary evidence shows that the ISDA Master Agreement Data Base distinguished full edit access from view-only access?",
+      "primitive": "keyword_search",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "documentary_evidence",
+      "architecture_primary": "evidence_drilldown",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-arsystem-submission-to-overdue-synthesis",
+      "question_text": "How do the Kenneth Parkhill submission notice and the Seung-Taek Oh overdue notices together show a staged ARSystem access workflow?",
+      "primitive": "general",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-application-directory-approval-synthesis",
+      "question_text": "How do the Market Data Kobra and Research directory ARSystem notices show that the same approval system governed both application and directory access?",
+      "primitive": "general",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-workflow-plus-role-boundary-synthesis",
+      "question_text": "How do the ARSystem notices and the ISDA Master Agreement Data Base email show that Enron combined workflow approval with role-based permission boundaries?",
+      "primitive": "general",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-joe-hirko-ebs-leadership-evidence",
+      "question_text": "What documentary evidence shows that Joe Hirko held a top leadership role in Enron Broadband Services?",
+      "primitive": "keyword_search",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "documentary_evidence",
+      "architecture_primary": "evidence_drilldown",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-kevin-hannon-ebs-ops-evidence",
+      "question_text": "What documentary evidence shows that Kevin Hannon moved into a top operating role in Enron Broadband Services?",
+      "primitive": "keyword_search",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "documentary_evidence",
+      "architecture_primary": "evidence_drilldown",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-ebs-governance-integration-synthesis",
+      "question_text": "How do the Organizational Changes email and the March 2001 Corporate Policy Committee announcement show that Enron Broadband Services leadership was integrated into broader corporate governance?",
+      "primitive": "general",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-ebs-priorities-vs-dcb-fit-synthesis",
+      "question_text": "How do the Organizational Changes email and the Datacentric Broadband briefing show the difference between EBS's operating priorities and investments it did not view as a strategic fit?",
+      "primitive": "general",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-ebs-venture-pipeline-synthesis",
+      "question_text": "How do the EBS Ventures weekly deal tracking sheet and the Datacentric Broadband briefing show that broadband opportunities were being managed through a structured venture pipeline?",
+      "primitive": "general",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-joe-hirko-ebs-profile",
+      "question_text": "Who was Joe Hirko in Enron Broadband Services, and what role did he play?",
+      "primitive": "entity_structure",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "person_profile",
+      "architecture_primary": "entity_summary_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-kevin-hannon-ebs-profile",
+      "question_text": "Who was Kevin Hannon in Enron Broadband Services, and what role did he play?",
+      "primitive": "entity_structure",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "person_profile",
+      "architecture_primary": "entity_summary_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-mark-frevert-business-unit-profile",
+      "question_text": "Who was Mark Frevert in Enron's business-unit structure, and what role did he play?",
+      "primitive": "entity_structure",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "person_profile",
+      "architecture_primary": "entity_summary_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-ebs-to-skilling-path",
+      "question_text": "What path connected Enron Broadband Services to Jeff Skilling in the local hierarchy?",
+      "primitive": "entity_pair",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "relationship_analysis",
+      "architecture_primary": "relationship_path_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-ees-to-lay-path",
+      "question_text": "What path connected Enron Energy Services to Kenneth Lay in the 2001 operating hierarchy?",
+      "primitive": "entity_pair",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "relationship_analysis",
+      "architecture_primary": "relationship_path_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-ews-to-lay-path",
+      "question_text": "What path connected Enron Wholesale Services to Kenneth Lay in the 2001 hierarchy?",
+      "primitive": "entity_pair",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "relationship_analysis",
+      "architecture_primary": "relationship_path_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-skilling-ceo-direct-reports-2001",
+      "question_text": "Which executives reported directly to Jeff Skilling while he was CEO in 2001?",
+      "primitive": "entity_structure",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "org_structure",
+      "architecture_primary": "org_hierarchy_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-lay-direct-reports-pre-feb-2001",
+      "question_text": "Which executives are explicitly shown as reporting directly to Kenneth Lay before Jeff Skilling became CEO in February 2001?",
+      "primitive": "entity_structure",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "org_structure",
+      "architecture_primary": "org_hierarchy_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-lay-direct-reports-post-mcmahon",
+      "question_text": "Which executives are explicitly shown as reporting directly to Kenneth Lay after Jeff McMahon became CFO in late October 2001?",
+      "primitive": "entity_structure",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "org_structure",
+      "architecture_primary": "org_hierarchy_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-skilling-to-lay-governance-shift-synthesis",
+      "question_text": "How do the August 14, 2001 resignation record and the hierarchy rows show a shift from Skilling-centered governance to Lay-centered governance?",
+      "primitive": "general",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-cpc-and-leadership-committees-synthesis",
+      "question_text": "How do the March 2001 Organizational Announcement and Leadership Committees emails show that Enron distributed senior governance through formal committees?",
+      "primitive": "general",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-fastow-removal-leadership-reshuffle-synthesis",
+      "question_text": "How do the Fastow removal record and the late-October hierarchy rows show a crisis-driven reshaping of Kenneth Lay's leadership team?",
+      "primitive": "general",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-mark-frevert-to-lay-path",
+      "question_text": "What path connected Mark Frevert to Kenneth Lay in Enron's 2001 leadership hierarchy?",
+      "primitive": "entity_pair",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "relationship_analysis",
+      "architecture_primary": "relationship_path_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-rick-causey-name-resolution",
+      "question_text": "How do the March 2001 leadership emails and the hierarchy rows corroborate that 'Rick Causey' is the same executive as Richard Causey in Enron's finance hierarchy?",
+      "primitive": "entity_pair",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "corroboration_challenge",
+      "architecture_primary": "entity_resolution",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-ljm-issue-name-resolution",
+      "question_text": "How do the October 22 valuation warning and the November 8 restatement message corroborate that the LJM transactions under review were the same off-balance-sheet problem?",
+      "primitive": "entity_pair",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "corroboration_challenge",
+      "architecture_primary": "entity_resolution",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-sec-to-restatement-finance-timeline",
+      "question_text": "What sequence of finance-crisis events led from the first SEC inquiry to Enron's November 8 earnings restatement?",
+      "primitive": "timeline",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "timeline_reconstruction",
+      "architecture_primary": "timeline_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-restatement-to-bankruptcy-finance-timeline",
+      "question_text": "What late-2001 finance-crisis sequence took Enron from the restatement announcement to the failed Dynegy rescue and bankruptcy?",
+      "primitive": "timeline",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "timeline_reconstruction",
+      "architecture_primary": "timeline_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-watkins-to-derrick-crisis-path",
+      "question_text": "What path connected Sherron Watkins to James Derrick after her August 2001 warning reached Kenneth Lay?",
+      "primitive": "entity_pair",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "relationship_analysis",
+      "architecture_primary": "relationship_path_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-skilling-to-derrick-transition-path",
+      "question_text": "What path connected Jeff Skilling to James Derrick in Enron's post-resignation crisis leadership structure?",
+      "primitive": "entity_pair",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "relationship_analysis",
+      "architecture_primary": "relationship_path_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-skilling-resignation-to-watkins-warning-timeline",
+      "question_text": "What sequence of crisis communications took Enron from Skilling's resignation to Watkins's warning reaching Kenneth Lay in August 2001?",
+      "primitive": "timeline",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "timeline_reconstruction",
+      "architecture_primary": "timeline_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-late-october-crisis-monitoring-timeline",
+      "question_text": "What sequence of crisis-monitoring communications shows Enron's late-October 2001 narrative moving from partnership concerns to SEC scrutiny and emergency financing?",
+      "primitive": "timeline",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "timeline_reconstruction",
+      "architecture_primary": "timeline_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-employee-crisis-operations-timeline",
+      "question_text": "What sequence of employee-facing communications shows Enron moving into internal crisis operations between November 30 and December 7, 2001?",
+      "primitive": "timeline",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "timeline_reconstruction",
+      "architecture_primary": "timeline_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-oct19-enron-mentions-themes",
+      "question_text": "What themes dominated the October 19, 2001 'Enron Mentions' digest?",
+      "primitive": "keyword_search",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "topic_investigation",
+      "architecture_primary": "topic_keyword_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-oct23-enron-mentions-themes",
+      "question_text": "What themes dominated the October 23, 2001 'Enron Mentions' digests?",
+      "primitive": "keyword_search",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "topic_investigation",
+      "architecture_primary": "topic_keyword_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-oct29-enron-mentions-themes",
+      "question_text": "What themes dominated the October 29, 2001 'Enron Mentions' digest?",
+      "primitive": "keyword_search",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "topic_investigation",
+      "architecture_primary": "topic_keyword_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-enrononline-to-lay-reporting-path",
+      "question_text": "What path connected EnronOnline to Kenneth Lay in the local trading-platform reporting stream?",
+      "primitive": "entity_pair",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "relationship_analysis",
+      "architecture_primary": "relationship_path_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-pacheco-lay-june19-dyad-count",
+      "question_text": "How many direct Pacheco-to-Lay messages are recorded for the week beginning June 19, 2000 in the local communication dyad?",
+      "primitive": "genie_analytics",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "quantitative_analysis",
+      "architecture_primary": "analytics_sql_genie",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-pacheco-lay-june26-dyad-count",
+      "question_text": "How many direct Pacheco-to-Lay messages are recorded for the week beginning June 26, 2000 in the local communication dyad?",
+      "primitive": "genie_analytics",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "quantitative_analysis",
+      "architecture_primary": "analytics_sql_genie",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-pacheco-lay-december-dyad-comparison",
+      "question_text": "How did the direct Pacheco-to-Lay message count change from the week beginning December 4, 2000 to the week beginning December 11, 2000?",
+      "primitive": "genie_analytics",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "quantitative_analysis",
+      "architecture_primary": "analytics_sql_genie",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-pacheco-early-june-management-timeline",
+      "question_text": "What early-June 2000 management-report sequence did Leonardo Pacheco send Kenneth Lay before the later late-June reporting cadence?",
+      "primitive": "timeline",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "timeline_reconstruction",
+      "architecture_primary": "timeline_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-pacheco-november-december-summary-timeline",
+      "question_text": "What sequence of EnronOnline executive summaries did Leonardo Pacheco send Kenneth Lay from late November into early December 2000?",
+      "primitive": "timeline",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "timeline_reconstruction",
+      "architecture_primary": "timeline_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-pacheco-december-reporting-cadence-timeline",
+      "question_text": "What short EnronOnline reporting cadence is visible in Pacheco's December 8 through December 12, 2000 messages to Kenneth Lay?",
+      "primitive": "timeline",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "timeline_reconstruction",
+      "architecture_primary": "timeline_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-june22-management-report-themes",
+      "question_text": "What themes dominate the EnronOnline Management Report for June 22, 2000 that Leonardo Pacheco sent to Kenneth Lay?",
+      "primitive": "keyword_search",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "topic_investigation",
+      "architecture_primary": "topic_keyword_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-dec7-executive-summary-themes",
+      "question_text": "What themes dominate the EnronOnline Executive Summary for December 7, 2000 that Leonardo Pacheco sent to Kenneth Lay?",
+      "primitive": "keyword_search",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "topic_investigation",
+      "architecture_primary": "topic_keyword_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-andersen-audit-folder-evidence",
+      "question_text": "What documentary evidence shows Enron was routing sensitive audit materials to Arthur Andersen through a controlled folder rather than ordinary email?",
+      "primitive": "keyword_search",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "documentary_evidence",
+      "architecture_primary": "evidence_drilldown",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-fbi-cooperation-notice-evidence",
+      "question_text": "What documentary evidence shows Enron employees were told to cooperate with FBI searches and interviews over document-destruction allegations?",
+      "primitive": "keyword_search",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "documentary_evidence",
+      "architecture_primary": "evidence_drilldown",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-restatement-audit-adjustments-evidence",
+      "question_text": "What documentary evidence shows Kenneth Lay's November 8 restatement message tied Enron's legal crisis to prior-year audit adjustments and SEC scrutiny?",
+      "primitive": "keyword_search",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "documentary_evidence",
+      "architecture_primary": "evidence_drilldown",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-andersen-to-lay-audit-adjustment-path",
+      "question_text": "What path connected Arthur Andersen to Kenneth Lay through the audit-adjustment issues in Enron's legal crisis?",
+      "primitive": "entity_pair",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "relationship_analysis",
+      "architecture_primary": "relationship_path_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-sec-to-lay-restatement-path",
+      "question_text": "What path connected the SEC inquiry to Kenneth Lay's November 8 restatement message in the local legal evidence?",
+      "primitive": "entity_pair",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "relationship_analysis",
+      "architecture_primary": "relationship_path_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-andersen-to-fbi-cooperation-path",
+      "question_text": "What path connected Arthur Andersen to Enron's January 24, 2002 FBI cooperation notice?",
+      "primitive": "entity_pair",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "relationship_analysis",
+      "architecture_primary": "relationship_path_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-andersen-audit-folder-themes",
+      "question_text": "What themes dominate Beth Apollo's April 10, 2001 email about passing information to Arthur Andersen?",
+      "primitive": "keyword_search",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "topic_investigation",
+      "architecture_primary": "topic_keyword_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-fbi-cooperation-notice-themes",
+      "question_text": "What themes dominate Enron's January 24, 2002 'Cooperation with the FBI' notice?",
+      "primitive": "keyword_search",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "topic_investigation",
+      "architecture_primary": "topic_keyword_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    },
+    {
+      "question_id": "enron-curated-restatement-message-themes",
+      "question_text": "What themes dominate Kenneth Lay's November 8, 2001 'SEC Information/Earnings Restatement' message?",
+      "primitive": "keyword_search",
+      "expected_entities": [],
+      "graph_ground_truth": "",
+      "attorney_category": "topic_investigation",
+      "architecture_primary": "topic_keyword_retrieval",
+      "eval_split": "train",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ]
+    }
+  ]
+}

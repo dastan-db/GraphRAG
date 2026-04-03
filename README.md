@@ -28,6 +28,7 @@ GraphRAG/
 │   ├── extraction/            LLM extraction: prompts, pipeline, dedup
 │   ├── agent/                 LangGraph agent: tools, serving, pattern registry
 │   ├── evaluation/            Governance scorers, MLflow evaluation, baselines
+│   ├── runtime/               Shared orchestrator, contracts, module adapters
 │   └── app/                   Dash web application (7 pages, backend, assets)
 │
 ├── notebooks/                 DATABRICKS NOTEBOOKS
@@ -201,6 +202,52 @@ The Enron email corpus demonstrates the pattern on corporate communication data,
 **Setup:**
 ```bash
 pip install -e ".[dev]"
+```
+
+For **`GRAPHRAG_BACKEND=lakebase`** (Lakebase Autoscaling / PostgreSQL), install the pool driver:
+
+```bash
+pip install -e ".[dev,lakebase]"
+```
+
+**Lakebase schema and data (Databricks workspace):**
+
+1. **Unity Catalog** — Build Delta tables first: Enron graph (`notebooks/07_Enron_Build_Knowledge_Graph.py`), communication aggregations (`07c_Enron_Communication_Aggregations.py`), etc., so `relationships` (with `edge_count`, `source_threads`), `communication_dyads`, and `person_activity` exist in your catalog.
+2. **Sync to Lakebase** — Create tables, migrate older schemas, and load from the warehouse:
+
+```bash
+python scripts/setup_lakebase.py --enron
+```
+
+Reload data after pipeline or script changes:
+
+```bash
+python scripts/setup_lakebase.py --enron --refresh
+```
+
+Batch sync from the workspace is also available in `notebooks/08_Enron_Lakebase_Sync.py`. See `scripts/setup_lakebase.py --help` for `--indexes-only`, `--rls-only`, and `--teardown`.
+
+**Data parity (Delta vs DuckDB vs Lakebase):** after export and/or `--refresh`, compare row counts across all three:
+
+```bash
+python scripts/check_data_parity.py --corpus enron
+# Compare only sources you have: e.g. --skip-lakebase if Lakebase is down
+```
+
+If DuckDB counts are **low** (e.g. stuck at ~64k) while Delta/Lakebase match, re-run **`export_local_data.py`** — the exporter now follows **all** Statement API result chunks (not just the first).
+**`enron.threads`** is created and loaded with **manifest DDL** (same columns as Delta, including optional `summary` / `key_topics`). If **`threads`** load failed under an older fixed schema, run once in Lakebase: `DROP TABLE IF EXISTS enron.threads;` then **`python scripts/setup_lakebase.py --enron --refresh`**.
+
+**Shared runtime modes:**
+- `local-fast`: `GRAPHRAG_BACKEND=local`, direct runtime, local adapters, fastest edit/test loop
+- `local-integration`: `GRAPHRAG_BACKEND=lakebase` (default for remote data) or `databricks` (SQL warehouse / Statement Execution API), direct runtime, same orchestrator surface without a serving deploy
+- `databricks-prod`: app/backend defaults to shared runtime with env-controlled module transports (`GRAPHRAG_ROUTER_TRANSPORT`, `GRAPHRAG_PLANNER_TRANSPORT`, `GRAPHRAG_GRAPH_TRANSPORT`, `GRAPHRAG_EVIDENCE_TRANSPORT`, `GRAPHRAG_ANALYTICS_TRANSPORT`)
+
+**Local validation:**
+```bash
+python scripts/test_local.py "Who is Abraham?"
+python scripts/validate_local.py --corpus both
+python scripts/validate_parity.py --llm databricks
+python scripts/preflight.py --parity
 ```
 
 **Deployment:**

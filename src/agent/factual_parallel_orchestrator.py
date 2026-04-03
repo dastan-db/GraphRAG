@@ -48,7 +48,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
-os.environ.setdefault("GRAPHRAG_BACKEND", "databricks")
+os.environ.setdefault("GRAPHRAG_BACKEND", "lakebase")
 os.environ.setdefault("GRAPHRAG_CORPUS", "enron")
 os.environ.setdefault("GRAPHRAG_SCHEMA", "graphrag_enron")
 
@@ -1993,7 +1993,7 @@ def _classify_latency_failure_buckets(
     expected = row.get("primitive") or ""
     actual = row.get("runtime_primary_pattern") or expected
     latency_mode = latency_artifact.get("mode", "isolated")
-    backend = os.environ.get("GRAPHRAG_BACKEND", "databricks")
+    backend = os.environ.get("GRAPHRAG_BACKEND", "lakebase")
     text = (row.get("response_text") or "").lower()
     tool_count = int(row.get("tool_count", 0) or 0)
     cache_hits = row.get("cache_hits")

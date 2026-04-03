@@ -24,9 +24,17 @@
 # COMMAND ----------
 
 # DBTITLE 1,Widgets and imports
+import os
+import sys
 import traceback
 
 from databricks.sdk import WorkspaceClient
+
+# Canonical Enron Delta table list — keep in sync with scripts/export_local_data.py and setup_lakebase.py.
+_REPO_ROOT = os.path.abspath(os.path.join(os.getcwd(), ".."))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+from src.runtime.enron_corpus_tables import ENRON_CORPUS_TABLE_NAMES
 
 try:
     dbutils.widgets.text(
@@ -44,31 +52,7 @@ PG_SCHEMA = dbutils.widgets.get("LAKEBASE_PG_SCHEMA")
 CATALOG = config["catalog"]
 ENRON_SCHEMA = config["enron_schema"]
 
-TABLES = [
-    "entities",
-    "relationships",
-    "emails",
-    "entity_analytics",
-    "entity_paths",
-    "entity_mentions",
-    "entity_aliases",
-    "communication_dyads",
-    "person_activity",
-    "participants",
-    "org_hierarchy",
-    "investigation_timeline",
-    "threads",
-    "person_identity",
-    "ontology_registry",
-    "corpus_coverage",
-    "extraction_provenance",
-    "email_classification",
-    "data_quality_report",
-    "person_role_timeline",
-    "topic_taxonomy",
-    "pipeline_lineage",
-    "entity_resolution_audit",
-]
+TABLES = list(ENRON_CORPUS_TABLE_NAMES)
 
 # COMMAND ----------
 

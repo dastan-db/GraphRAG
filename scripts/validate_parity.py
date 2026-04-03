@@ -1,24 +1,8 @@
-"""Parity check: compare local (DuckDB) vs Databricks backend responses.
+"""Parity check for the shared GraphRAG runtime across local and Databricks backends."""
 
-Runs the same test cases against both backends and flags divergences in
-entity recall and tool usage. Catches SQL translation bugs in LocalBackend
-(FQN stripping, param syntax rewriting) before deployment.
+from __future__ import annotations
 
-Usage:
-    python scripts/validate_parity.py
-    python scripts/validate_parity.py --output data/parity_results.json
-
-Prerequisites:
-    - Local DB exported:  python scripts/export_local_data.py
-    - Databricks auth configured (DATABRICKS_HOST + DATABRICKS_TOKEN)
-    - LLM provider configured in .env.local
-
-Exit codes:
-    0 — parity within tolerance
-    1 — significant divergences detected
-"""
 import argparse
-import importlib
 import json
 import os
 import sys
@@ -26,8 +10,10 @@ import time
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _ROOT_DIR = os.path.join(_SCRIPT_DIR, "..")
+_SRC_DIR = os.path.join(_ROOT_DIR, "src")
 
 PARITY_THRESHOLD = 0.80
+ENRON_PARITY_THRESHOLD = 0.67
 
 
 def _load_env_file(path: str):
@@ -43,171 +29,187 @@ def _load_env_file(path: str):
 
 
 _load_env_file(os.path.join(_ROOT_DIR, ".env.local"))
+os.environ.setdefault("GRAPHRAG_RUNTIME_TRANSPORT", "direct")
 os.environ.setdefault("GRAPHRAG_LLM_PROVIDER", "openai")
 
+sys.path.insert(0, _SCRIPT_DIR)
+sys.path.insert(0, _SRC_DIR)
+sys.path.insert(0, _ROOT_DIR)
 
-def _run_with_backend(backend: str, question: str):
-    """Run the agent with a specific backend and return (text, tool_calls, elapsed).
+from runtime import RuntimeQuery, SharedRuntimeOrchestrator
+from test_cases import ENRON_TEST_CASES, TEST_CASES, score_enron_response, score_response
 
-    Reloads the agent module to pick up the new BACKEND_TYPE.
-    """
+
+def _apply_local_tool_cap():
+    if (
+        os.environ.get("GRAPHRAG_LLM_PROVIDER", "").strip().lower() == "databricks"
+        and not os.environ.get("GRAPHRAG_MODEL_LOGGING_TOOL_LIMIT")
+    ):
+        os.environ["GRAPHRAG_MODEL_LOGGING_TOOL_LIMIT"] = "32"
+
+
+def _run_with_backend(backend: str, corpus: str, question: str):
     os.environ["GRAPHRAG_BACKEND"] = backend
-
-    import src.agent.agent_serving as mod
-    importlib.reload(mod)
-
-    from mlflow.types.responses import ResponsesAgentRequest
-    from test_cases import extract_answer_text, extract_tool_calls
-
-    agent = mod.GraphRAGAgent()
-    request = ResponsesAgentRequest(input=[{"role": "user", "content": question}])
-
+    orchestrator = SharedRuntimeOrchestrator()
     start = time.time()
-    response = agent.predict(request)
+    response = orchestrator.query(RuntimeQuery(question=question, corpus=corpus))
     elapsed = time.time() - start
+    return response.full_text, [tc.name for tc in response.tool_calls], elapsed
 
-    return extract_answer_text(response), extract_tool_calls(response), elapsed
+
+def _safe_run_with_backend(backend: str, corpus: str, question: str):
+    try:
+        text, tools, elapsed = _run_with_backend(backend, corpus, question)
+        return text, tools, elapsed, ""
+    except Exception as exc:
+        return "", [], 0.0, str(exc)
 
 
 def _entity_parity(hits_a: list[str], hits_b: list[str], expected: list[str]) -> dict:
-    """Compare entity recall between two runs."""
-    set_a = set(h.lower() for h in hits_a)
-    set_b = set(h.lower() for h in hits_b)
-    set_exp = set(e.lower() for e in expected)
-
-    both = set_a & set_b
-    local_only = set_a - set_b
-    db_only = set_b - set_a
-
-    recall_a = len(set_a & set_exp) / len(set_exp) if set_exp else 1.0
-    recall_b = len(set_b & set_exp) / len(set_exp) if set_exp else 1.0
-    recall_diff = abs(recall_a - recall_b)
-
+    set_a = set(hit.lower() for hit in hits_a)
+    set_b = set(hit.lower() for hit in hits_b)
+    set_expected = set(exp.lower() for exp in expected)
+    recall_a = len(set_a & set_expected) / len(set_expected) if set_expected else 1.0
+    recall_b = len(set_b & set_expected) / len(set_expected) if set_expected else 1.0
     return {
-        "both": sorted(both),
-        "local_only": sorted(local_only),
-        "databricks_only": sorted(db_only),
+        "both": sorted(set_a & set_b),
+        "local_only": sorted(set_a - set_b),
+        "databricks_only": sorted(set_b - set_a),
         "recall_local": round(recall_a, 2),
         "recall_databricks": round(recall_b, 2),
-        "recall_diff": round(recall_diff, 2),
+        "recall_diff": round(abs(recall_a - recall_b), 2),
+    }
+
+
+def _run_bible_parity() -> dict:
+    results = []
+    parity_scores = []
+    for case in TEST_CASES:
+        question = case["question"]
+        local_text, local_tools, local_time, local_error = _safe_run_with_backend("local", "bible", question)
+        db_text, db_tools, db_time, db_error = _safe_run_with_backend("databricks", "bible", question)
+        local_scores = score_response(local_text, case["expected_entities"])
+        db_scores = score_response(db_text, case["expected_entities"])
+        parity = _entity_parity(
+            local_scores.get("entity_hits", []),
+            db_scores.get("entity_hits", []),
+            case["expected_entities"],
+        )
+        tool_match = set(local_tools) == set(db_tools)
+        parity_scores.append(1.0 - parity["recall_diff"])
+        results.append(
+            {
+                "question": question[:60],
+                "category": case["category"],
+                "local": {
+                    "entity_recall": local_scores.get("entity_recall", 0.0),
+                    "citations": local_scores.get("citations", 0),
+                    "tool_calls": local_tools,
+                    "latency": round(local_time, 1),
+                    "error": local_error,
+                },
+                "databricks": {
+                    "entity_recall": db_scores.get("entity_recall", 0.0),
+                    "citations": db_scores.get("citations", 0),
+                    "tool_calls": db_tools,
+                    "latency": round(db_time, 1),
+                    "error": db_error,
+                },
+                "parity": parity,
+                "tool_parity": tool_match,
+            }
+        )
+
+    return {
+        "threshold": PARITY_THRESHOLD,
+        "parity_ok": all(score >= PARITY_THRESHOLD for score in parity_scores),
+        "results": results,
+        "avg_score": round(sum(parity_scores) / len(parity_scores), 2) if parity_scores else 0.0,
+    }
+
+
+def _run_enron_parity() -> dict:
+    results = []
+    parity_scores = []
+    for case in ENRON_TEST_CASES:
+        question = case["question"]
+        local_text, local_tools, local_time, local_error = _safe_run_with_backend("local", "enron", question)
+        db_text, db_tools, db_time, db_error = _safe_run_with_backend("databricks", "enron", question)
+        local_scores = score_enron_response(local_text, local_tools, case)
+        db_scores = score_enron_response(db_text, db_tools, case)
+
+        expected_agreement = float(local_scores["expected_tool_hit"] == db_scores["expected_tool_hit"])
+        forbidden_agreement = float(local_scores["forbidden_tool_avoided"] == db_scores["forbidden_tool_avoided"])
+        tool_match = float(set(local_tools) == set(db_tools))
+        parity_score = round((expected_agreement + forbidden_agreement + tool_match) / 3, 2)
+        parity_scores.append(parity_score)
+
+        results.append(
+            {
+                "question": question[:60],
+                "category": case["category"],
+                "local": {
+                    "expected_tool_hit": local_scores["expected_tool_hit"],
+                    "forbidden_tool_avoided": local_scores["forbidden_tool_avoided"],
+                    "tool_calls": local_tools,
+                    "latency": round(local_time, 1),
+                    "error": local_error,
+                },
+                "databricks": {
+                    "expected_tool_hit": db_scores["expected_tool_hit"],
+                    "forbidden_tool_avoided": db_scores["forbidden_tool_avoided"],
+                    "tool_calls": db_tools,
+                    "latency": round(db_time, 1),
+                    "error": db_error,
+                },
+                "parity_score": parity_score,
+            }
+        )
+
+    return {
+        "threshold": ENRON_PARITY_THRESHOLD,
+        "parity_ok": all(score >= ENRON_PARITY_THRESHOLD for score in parity_scores),
+        "results": results,
+        "avg_score": round(sum(parity_scores) / len(parity_scores), 2) if parity_scores else 0.0,
     }
 
 
 def main():
     parser = argparse.ArgumentParser(description="Local-vs-Databricks parity check")
     parser.add_argument("--output", "-o", default="data/parity_results.json", help="JSON output path")
-    parser.add_argument("--llm", choices=["databricks", "openai", "ollama"], help="Override GRAPHRAG_LLM_PROVIDER")
+    parser.add_argument("--llm", choices=["databricks", "openai", "ollama", "gateway"], help="Override GRAPHRAG_LLM_PROVIDER")
     args = parser.parse_args()
 
     if args.llm:
         os.environ["GRAPHRAG_LLM_PROVIDER"] = args.llm
-
-    sys.path.insert(0, _SCRIPT_DIR)
-    sys.path.insert(0, _ROOT_DIR)
-
-    from test_cases import TEST_CASES, score_response
+    _apply_local_tool_cap()
 
     llm = os.environ.get("GRAPHRAG_LLM_PROVIDER")
 
     print("=" * 80)
     print(f"  PARITY CHECK — local vs databricks, llm: {llm}")
-    print(f"  {len(TEST_CASES)} test cases, threshold: {PARITY_THRESHOLD:.0%}")
+    print(f"  Bible threshold: {PARITY_THRESHOLD:.0%} | Enron threshold: {ENRON_PARITY_THRESHOLD:.0%}")
     print("=" * 80)
 
-    results = []
-    parity_scores = []
-
-    for i, case in enumerate(TEST_CASES, 1):
-        q = case["question"]
-        print(f"\n{'─' * 80}")
-        print(f"  Q{i} [{case['category']}] {q[:60]}")
-        print(f"{'─' * 80}")
-
-        local_text, local_tools, local_time = "", [], 0.0
-        db_text, db_tools, db_time = "", [], 0.0
-
-        try:
-            print(f"  Running local backend...", end="", flush=True)
-            local_text, local_tools, local_time = _run_with_backend("local", q)
-            print(f" {local_time:.1f}s")
-        except Exception as e:
-            print(f" ERROR: {e}")
-
-        try:
-            print(f"  Running databricks backend...", end="", flush=True)
-            db_text, db_tools, db_time = _run_with_backend("databricks", q)
-            print(f" {db_time:.1f}s")
-        except Exception as e:
-            print(f" ERROR: {e}")
-
-        local_scores = score_response(local_text, case["expected_entities"]) if local_text else {}
-        db_scores = score_response(db_text, case["expected_entities"]) if db_text else {}
-
-        parity = _entity_parity(
-            local_scores.get("entity_hits", []),
-            db_scores.get("entity_hits", []),
-            case["expected_entities"],
-        )
-        parity_scores.append(parity["recall_diff"])
-
-        tool_match = set(local_tools) == set(db_tools)
-
-        result = {
-            "question": q[:60],
-            "category": case["category"],
-            "local": {
-                "entity_recall": local_scores.get("entity_recall", 0),
-                "citations": local_scores.get("citations", 0),
-                "tool_calls": local_tools,
-                "latency": round(local_time, 1),
-            },
-            "databricks": {
-                "entity_recall": db_scores.get("entity_recall", 0),
-                "citations": db_scores.get("citations", 0),
-                "tool_calls": db_tools,
-                "latency": round(db_time, 1),
-            },
-            "parity": parity,
-            "tool_parity": tool_match,
-        }
-        results.append(result)
-
-        print(f"  Entity recall:  local={parity['recall_local']:.0%}  db={parity['recall_databricks']:.0%}  diff={parity['recall_diff']:.0%}")
-        if parity["local_only"]:
-            print(f"    local-only entities: {parity['local_only']}")
-        if parity["databricks_only"]:
-            print(f"    db-only entities:    {parity['databricks_only']}")
-        print(f"  Tool parity:    {'MATCH' if tool_match else 'MISMATCH'}")
-        if not tool_match:
-            print(f"    local:  {local_tools}")
-            print(f"    db:     {db_tools}")
+    bible_payload = _run_bible_parity()
+    enron_payload = _run_enron_parity()
+    parity_ok = bible_payload["parity_ok"] and enron_payload["parity_ok"]
 
     print(f"\n{'=' * 80}")
     print("  PARITY SUMMARY")
     print(f"{'=' * 80}")
-
-    avg_diff = sum(parity_scores) / len(parity_scores) if parity_scores else 1.0
-    tool_matches = sum(1 for r in results if r["tool_parity"])
-    max_diff = max(parity_scores) if parity_scores else 1.0
-
-    parity_ok = all(1.0 - d >= PARITY_THRESHOLD for d in parity_scores)
-
-    print(f"  Avg recall diff:   {avg_diff:.2f}")
-    print(f"  Max recall diff:   {max_diff:.2f}")
-    print(f"  Tool match rate:   {tool_matches}/{len(results)}")
-    print(f"  Parity threshold:  {PARITY_THRESHOLD:.0%}")
+    print(f"  Bible avg parity: {bible_payload['avg_score']:.2f}")
+    print(f"  Enron avg parity: {enron_payload['avg_score']:.2f}")
     print(f"\n  {'PARITY OK' if parity_ok else 'PARITY FAILED'}")
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
     output_data = {
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "llm": llm,
-        "parity_threshold": PARITY_THRESHOLD,
+        "runtime_transport": os.environ.get("GRAPHRAG_RUNTIME_TRANSPORT", "direct"),
         "parity_ok": parity_ok,
-        "avg_recall_diff": round(avg_diff, 2),
-        "max_recall_diff": round(max_diff, 2),
-        "tool_match_rate": f"{tool_matches}/{len(results)}",
-        "results": results,
+        "bible": bible_payload,
+        "enron": enron_payload,
     }
     with open(args.output, "w") as f:
         json.dump(output_data, f, indent=2, default=str)

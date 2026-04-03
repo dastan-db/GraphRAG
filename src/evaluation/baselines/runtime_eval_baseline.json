@@ -1,0 +1,36 @@
+{
+  "version": "1.0",
+  "enron": {
+    "local_core_eval": {
+      "slice": "balanced_test",
+      "question_count": 9,
+      "judge_endpoint": "databricks-claude-sonnet-4-6",
+      "overall_score_min": 0.64,
+      "elapsed_s_max": 240.0,
+      "score_delta_tolerance": 0.08,
+      "notes": "Frozen from the current Enron factual QA slice before modular cutover."
+    },
+    "deployed_core_eval": {
+      "slice": "balanced_test",
+      "question_count": 9,
+      "judge_endpoint": "databricks-claude-sonnet-4-6",
+      "overall_score_min": 0.58,
+      "elapsed_s_max": 320.0,
+      "score_delta_tolerance": 0.1,
+      "notes": "Deployment parity gate relative to the in-process local runtime."
+    }
+  },
+  "bible": {
+    "local_quality_gate": {
+      "entity_recall_min": 0.6,
+      "citations_min": 1.0,
+      "success_rate_min": 0.8,
+      "notes": "Existing local validation suite remains the frozen Bible runtime baseline."
+    },
+    "local_databricks_parity": {
+      "recall_parity_min": 0.8,
+      "tool_match_rate_min": 0.6,
+      "notes": "Parity guard between DuckDB local-fast and Databricks-backed local-integration."
+    }
+  }
+}

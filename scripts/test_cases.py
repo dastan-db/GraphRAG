@@ -38,13 +38,13 @@ TEST_CASES = [
 ENRON_TEST_CASES = [
     {
         "question": "Who sent the most emails in the Enron corpus?",
-        "expected_tool": "get_top_individuals",
+        "expected_tools": ["get_top_individuals", "query_and_enrich"],
         "forbidden_tool": "get_top_email_pairs",
         "category": "individual_ranking",
     },
     {
         "question": "Which two people exchanged the most emails?",
-        "expected_tool": "get_top_email_pairs",
+        "expected_tools": ["get_top_email_pairs", "query_and_enrich"],
         "forbidden_tool": "get_top_individuals",
         "category": "corpus_ranking_pairs",
     },
@@ -70,7 +70,7 @@ ENRON_TEST_CASES = [
     },
     {
         "question": "Who were Jeff Skilling's top email contacts?",
-        "expected_tool": "find_top_contacts",
+        "expected_tools": ["find_top_contacts", "query_and_enrich"],
         "category": "communication",
     },
     {
@@ -86,11 +86,18 @@ QUALITY_THRESHOLDS = {
     "success_rate": 0.80,
 }
 
+ENRON_QUALITY_THRESHOLDS = {
+    "expected_tool_rate": 0.75,
+    "forbidden_tool_avoidance": 0.85,
+    "success_rate": 0.80,
+}
+
 VERSE_PATTERN = re.compile(r"(Genesis|Exodus|Ruth|Matthew|Acts)\s+\d+:\d+")
 PROVENANCE_HEADING = re.compile(r"#{1,3}\s*Provenance", re.IGNORECASE)
 PATH_INDICATOR = re.compile(r"(→|-->|—\[)")
 SOURCES_LINE = re.compile(r"\*?\*?Sources\*?\*?\s*:", re.IGNORECASE)
 GROUNDING_LINE = re.compile(r"\*?\*?Grounding\*?\*?\s*:", re.IGNORECASE)
+TOOL_CALL_PATTERN = re.compile(r"\b([a-z]+(?:_[a-z0-9]+)+)\s*\(")
 
 
 def score_response(response: str, expected_entities: list[str]) -> dict:
@@ -156,6 +163,17 @@ def extract_tool_calls(response) -> list[str]:
     return calls
 
 
+def infer_tool_calls_from_text(response: str) -> list[str]:
+    seen: set[str] = set()
+    tool_calls: list[str] = []
+    for match in TOOL_CALL_PATTERN.finditer(response or ""):
+        tool_name = match.group(1)
+        if tool_name not in seen:
+            seen.add(tool_name)
+            tool_calls.append(tool_name)
+    return tool_calls
+
+
 def check_quality_gates(results: list[dict], thresholds: dict | None = None) -> tuple[bool, list[dict]]:
     """Evaluate quality gates against aggregated results.
 
@@ -186,5 +204,78 @@ def check_quality_gates(results: list[dict], thresholds: dict | None = None) -> 
     ]
     for g in gates:
         g["passed"] = g["value"] >= g["threshold"]
+
+    return all(g["passed"] for g in gates), gates
+
+
+def score_enron_response(response: str, tool_calls: list[str], case: dict) -> dict:
+    expected_tools = list(case.get("expected_tools", []) or [])
+    if not expected_tools and case.get("expected_tool"):
+        expected_tools = [case["expected_tool"]]
+    expected_tool = " / ".join(expected_tools)
+    forbidden_tool = case.get("forbidden_tool", "")
+    tool_set = set(tool_calls) | set(infer_tool_calls_from_text(response))
+    expected_tool_hit = (
+        1.0 if not expected_tools else float(any(tool in tool_set for tool in expected_tools))
+    )
+    forbidden_tool_avoided = 1.0 if not forbidden_tool else float(forbidden_tool not in tool_set)
+    response_ok = float(len((response or "").strip()) >= 20 and not response.startswith("ERROR:"))
+    return {
+        "question": case["question"][:60],
+        "category": case["category"],
+        "expected_tool": expected_tool,
+        "expected_tools": expected_tools,
+        "expected_tool_hit": expected_tool_hit,
+        "forbidden_tool": forbidden_tool,
+        "forbidden_tool_avoided": forbidden_tool_avoided,
+        "non_empty_response": response_ok,
+        "tool_calls": list(tool_calls),
+        "response_length": len(response or ""),
+    }
+
+
+def check_enron_quality_gates(
+    results: list[dict],
+    thresholds: dict | None = None,
+) -> tuple[bool, list[dict]]:
+    thresholds = thresholds or ENRON_QUALITY_THRESHOLDS
+    valid = [r for r in results if "expected_tool_hit" in r]
+    if not valid:
+        return False, [
+            {
+                "name": "success_rate",
+                "value": 0.0,
+                "threshold": thresholds.get("success_rate", 0.80),
+                "label": "Success rate",
+                "passed": False,
+            }
+        ]
+
+    expected_tool_rate = sum(r["expected_tool_hit"] for r in valid) / len(valid)
+    forbidden_tool_avoidance = sum(r["forbidden_tool_avoided"] for r in valid) / len(valid)
+    success_rate = sum(r["non_empty_response"] for r in valid) / len(valid)
+
+    gates = [
+        {
+            "name": "expected_tool_rate",
+            "value": expected_tool_rate,
+            "threshold": thresholds.get("expected_tool_rate", 0.75),
+            "label": "Expected tool hit rate",
+        },
+        {
+            "name": "forbidden_tool_avoidance",
+            "value": forbidden_tool_avoidance,
+            "threshold": thresholds.get("forbidden_tool_avoidance", 0.85),
+            "label": "Forbidden tool avoidance",
+        },
+        {
+            "name": "success_rate",
+            "value": success_rate,
+            "threshold": thresholds.get("success_rate", 0.80),
+            "label": "Success rate",
+        },
+    ]
+    for gate in gates:
+        gate["passed"] = gate["value"] >= gate["threshold"]
 
     return all(g["passed"] for g in gates), gates

@@ -36,6 +36,9 @@ local = [
 gateway = [
     "litellm[proxy]",
 ]
+lakebase = [
+    "psycopg[pool]>=3.0",
+]
 
 [tool.pytest.ini_options]
 markers = [

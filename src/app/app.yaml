@@ -25,5 +25,19 @@ env:
     value: "projects/graphrag/branches/production/endpoints/primary"
   - name: GRAPHRAG_DATA_BACKEND
     value: "lakebase"
+  - name: GRAPHRAG_APP_RUNTIME_MODE
+    value: "shared"
+  - name: GRAPHRAG_RUNTIME_TRANSPORT
+    value: "direct"
+  - name: GRAPHRAG_ROUTER_TRANSPORT
+    value: "local"
+  - name: GRAPHRAG_PLANNER_TRANSPORT
+    value: "local"
+  - name: GRAPHRAG_GRAPH_TRANSPORT
+    value: "mcp"
+  - name: GRAPHRAG_EVIDENCE_TRANSPORT
+    value: "mcp"
+  - name: GRAPHRAG_ANALYTICS_TRANSPORT
+    value: "mcp"
   - name: GRAPHRAG_NOTEBOOK_PATH
     value: "/Workspace/Users/dastan.aitzhanov@databricks.com/.bundle/graphrag-solution-accelerator/dev/files/notebooks"

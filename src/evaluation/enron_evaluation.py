@@ -455,3 +455,84 @@ Return ONLY a JSON object with keys "score" (float) and "justification" (string)
         hallucination_detection,
         answer_completeness,
     ]
+
+
+def build_enron_eval_records(dataset=None) -> list[dict]:
+    """Return normalized MLflow eval records for the Enron dataset."""
+    records = dataset if dataset is not None else ENRON_EVAL_DATASET
+    return [normalize_eval_record(record) for record in records]
+
+
+def get_enron_score_columns(results_df):
+    import pandas as pd
+
+    return [
+        col
+        for col in results_df.columns
+        if col.endswith("/value")
+        and col != "evidence_required/value"
+        and pd.api.types.is_numeric_dtype(results_df[col])
+    ]
+
+
+def summarize_enron_eval_results(results, eval_df, elapsed_s: float) -> dict:
+    """Summarize MLflow eval output into a stable JSON payload."""
+    import pandas as pd
+
+    results_df = results.tables["eval_results"].copy()
+    categories = eval_df["expectations"].apply(
+        lambda value: value.get("category", "unknown")
+    )
+    results_df["category"] = categories.values
+
+    score_cols = get_enron_score_columns(results_df)
+    overall_metrics: dict[str, float] = {}
+    overall_score = None
+    score_matrix: dict[str, dict[str, float]] = {}
+    worst_questions: list[dict] = []
+
+    if score_cols:
+        overall = results_df[score_cols].mean()
+        overall_metrics = {
+            col.replace("/value", ""): round(float(overall[col]), 4)
+            for col in score_cols
+        }
+        overall_score = round(float(overall.mean()), 4)
+
+        score_agg = {col: "mean" for col in score_cols}
+        summary = results_df.groupby("category").agg(score_agg).round(2)
+        summary.columns = [col.replace("/value", "") for col in summary.columns]
+        score_matrix = {
+            str(index): {
+                str(col): round(float(value), 4) for col, value in row.items()
+            }
+            for index, row in summary.to_dict(orient="index").items()
+        }
+
+        results_df["avg_score"] = (
+            results_df[score_cols]
+            .apply(pd.to_numeric, errors="coerce")
+            .mean(axis=1)
+        )
+        worst = results_df.nsmallest(min(5, len(results_df)), "avg_score")
+        for _, row in worst.iterrows():
+            question = row.get("inputs/question", row.get("inputs", ""))
+            if isinstance(question, dict):
+                question = question.get("question", str(question))
+            worst_questions.append(
+                {
+                    "category": row["category"],
+                    "question": question,
+                    "avg_score": round(float(row["avg_score"]), 4),
+                }
+            )
+
+    return {
+        "score_columns": [col.replace("/value", "") for col in score_cols],
+        "overall_metrics": overall_metrics,
+        "overall_score": overall_score,
+        "score_matrix_by_category": score_matrix,
+        "worst_questions": worst_questions,
+        "slice_question_count": len(eval_df),
+        "elapsed_s": round(float(elapsed_s), 1),
+    }

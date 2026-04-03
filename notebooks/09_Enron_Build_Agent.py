@@ -3,8 +3,10 @@
 # MAGIC # 09 — Build the Enron GraphRAG Agent
 # MAGIC
 # MAGIC Log and deploy a GraphRAG agent for the **Enron email corpus**.
-# MAGIC The same `agent_serving.py` module powers both the Bible and Enron agents —
-# MAGIC the `GRAPHRAG_CORPUS` environment variable selects the corpus at runtime.
+# MAGIC The same `agent_serving.py` module powers both the Bible and Enron agents,
+# MAGIC while the shared runtime orchestrator now controls transport and module-routing
+# MAGIC through `GRAPHRAG_*_TRANSPORT` environment variables.
+# MAGIC `GRAPHRAG_CORPUS` still selects the corpus at runtime.
 # MAGIC
 # MAGIC **Prerequisites:** Notebooks 06 (Data Prep) and 07 (Build KG) must have run
 # MAGIC so that the `graphrag_enron` schema tables exist.
@@ -89,6 +91,16 @@ print(
     "Lakebase ready:",
     lakebase_readiness["endpoint_name"],
     lakebase_readiness["host"],
+)
+print(
+    "Runtime transports:",
+    {
+        "router": serving_env.get("GRAPHRAG_ROUTER_TRANSPORT"),
+        "planner": serving_env.get("GRAPHRAG_PLANNER_TRANSPORT"),
+        "graph": serving_env.get("GRAPHRAG_GRAPH_TRANSPORT"),
+        "evidence": serving_env.get("GRAPHRAG_EVIDENCE_TRANSPORT"),
+        "analytics": serving_env.get("GRAPHRAG_ANALYTICS_TRANSPORT"),
+    },
 )
 
 log_model_kwargs = build_enron_log_model_kwargs(
