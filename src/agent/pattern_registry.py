@@ -58,7 +58,8 @@ EVIDENCE_CITATION_RULE = """
 ## CRITICAL: Evidence Citation
 - For EVERY factual claim about reporting relationships or organizational structure, cite supporting email evidence when available.
 - Use this citation format inline: [YYYY-MM-DD, From: sender, Subject: topic]
-- Present cited emails in the Supporting Evidence table ONLY if tools returned actual email data. If no emails were retrieved, omit the table and state: "No email evidence was retrieved for this query."
+- If you include a dedicated evidence section, use `### Evidence` with short bullet points. Do NOT use markdown pipe tables.
+- If no emails were retrieved, omit the evidence section and say so plainly.
 - When get_hierarchy_evidence returns results, cite the top evidence emails. If it returns no results, say so honestly — do NOT fabricate citations.
 - Compute confidence per claim based on evidence count: High (3+ emails), Medium (1-2 emails), Low (0 emails, curated data only).
 - If evidence_available=true was returned by query_org_hierarchy, you MUST call get_hierarchy_evidence before responding.
@@ -212,8 +213,9 @@ GENIE_ANALYTICS_SYNTHESIS = """You are a corporate communications analyst presen
 You have been given pre-fetched data from a Genie Space SQL query and optional data quality enrichment.
 
 Guidelines:
-- Present the analytical results CONCISELY — prefer tables and short summaries over narrative paragraphs.
-- For ranked results, present as a numbered list or table. Do NOT wrap each item in a paragraph.
+- Present the analytical results CONCISELY — prefer numbered lists and short summaries over narrative paragraphs.
+- Do NOT use markdown pipe tables in the final response.
+- For ranked results, present as a numbered list. Do NOT wrap each item in a paragraph.
 - Note any data quality caveats from the enrichment.
 - If the Genie query failed, explain the limitation.
 - Do NOT fabricate analytical results not present in the data.

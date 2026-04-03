@@ -39,6 +39,7 @@ class AgentResponse:
     sources: list[str]
     grounding: str
     full_text: str
+    coverage: str = ""
     entities_mentioned: list[str] = field(default_factory=list)
     verse_texts: dict[str, str] = field(default_factory=dict)
     tool_calls: list[ToolCall] = field(default_factory=list)
@@ -65,26 +66,75 @@ def _extract_tool_calls(output_items: list[dict]) -> list[ToolCall]:
     return list(calls.values())
 
 
-def _parse_provenance(text: str) -> tuple[str, str, str, list[str], str]:
+def _split_sources_field(value: str) -> list[str]:
+    cleaned = value.strip()
+    if not cleaned:
+        return []
+    if ";" in cleaned:
+        parts = cleaned.split(";")
+    elif "→" not in cleaned and "," in cleaned:
+        parts = cleaned.split(",")
+    else:
+        parts = [cleaned]
+    return [part.strip().replace("`", "") for part in parts if part.strip()]
+
+
+def _parse_provenance(text: str) -> tuple[str, str, str, list[str], str, str]:
     """Split agent response into answer and provenance components."""
     parts = re.split(r"###?\s*Provenance", text, maxsplit=1)
     answer = parts[0].strip()
     if len(parts) < 2:
-        return answer, "", "", [], ""
+        return answer, "", "", [], "", ""
 
     prov = parts[1].strip()
+    fields: dict[str, str | list[str]] = {
+        "path": "",
+        "sources": [],
+        "grounding": "",
+        "coverage": "",
+    }
+    current_field = ""
+    field_names = {"path", "sources", "grounding", "coverage"}
 
-    path_match = re.search(r"\*?\*?Path\*?\*?\s*:\s*(.+)", prov)
-    path = path_match.group(1).strip() if path_match else ""
+    for raw_line in prov.splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
 
-    sources_match = re.search(r"\*?\*?Sources\*?\*?\s*:\s*(.+)", prov)
-    sources_raw = sources_match.group(1).strip() if sources_match else ""
-    sources = [s.strip() for s in sources_raw.split(",") if s.strip()]
+        match = re.match(
+            r"^[-*]?\s*\*?\*?(Path|Sources|Grounding|Coverage)\*?\*?\s*:\s*(.*)$",
+            stripped,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            current_field = match.group(1).lower()
+            value = match.group(2).strip()
+            if current_field == "sources":
+                fields["sources"] = _split_sources_field(value)
+            else:
+                fields[current_field] = value
+            continue
 
-    grounding_match = re.search(r"\*?\*?Grounding\*?\*?\s*:\s*(.+)", prov)
-    grounding = grounding_match.group(1).strip() if grounding_match else ""
+        if current_field == "sources":
+            nested = stripped.lstrip("- ").strip()
+            if nested:
+                cast_sources = list(fields.get("sources", []))
+                cast_sources.append(nested.replace("`", ""))
+                fields["sources"] = cast_sources
+            continue
 
-    return answer, prov, path, sources, grounding
+        if current_field in field_names - {"sources"}:
+            current_value = str(fields.get(current_field, "") or "")
+            fields[current_field] = f"{current_value} {stripped}".strip()
+
+    return (
+        answer,
+        prov,
+        str(fields["path"]),
+        list(fields["sources"]),
+        str(fields["grounding"]),
+        str(fields["coverage"]),
+    )
 
 
 _VERSE_REF_RE = re.compile(
@@ -151,7 +201,7 @@ def query_agent(question: str, permitted_books: list[str] | None = None) -> Agen
             texts.append(item["text"])
     text = "\n".join(texts) if texts else str(resp)
 
-    answer, prov_raw, path, sources, grounding = _parse_provenance(text)
+    answer, prov_raw, path, sources, grounding, coverage = _parse_provenance(text)
     entities = _extract_entities(path or answer)
     verse_refs = _extract_verse_refs(text)
 
@@ -167,6 +217,7 @@ def query_agent(question: str, permitted_books: list[str] | None = None) -> Agen
         sources=sources,
         grounding=grounding,
         full_text=text,
+        coverage=coverage,
         entities_mentioned=entities,
         verse_texts=verse_texts,
     )
@@ -312,7 +363,7 @@ def query_agent_enron(question: str, tier: str = "") -> AgentResponse:
             texts.append(item["text"])
     text = "\n".join(texts) if texts else str(resp)
 
-    answer, prov_raw, path, sources, grounding = _parse_provenance(text)
+    answer, prov_raw, path, sources, grounding, coverage = _parse_provenance(text)
     entities = _extract_entities(path or answer)
 
     return AgentResponse(
@@ -322,6 +373,7 @@ def query_agent_enron(question: str, tier: str = "") -> AgentResponse:
         sources=sources,
         grounding=grounding,
         full_text=text,
+        coverage=coverage,
         entities_mentioned=entities,
         tool_calls=tool_calls,
     )
@@ -558,7 +610,7 @@ def _get_mock_tool_calls(question: str) -> list[ToolCall]:
 def query_agent_enron_mock(question: str) -> AgentResponse:
     """Return a canned Enron response for demo/testing without a live endpoint."""
     text = _match_enron_mock(question)
-    answer, prov_raw, path, sources, grounding = _parse_provenance(text)
+    answer, prov_raw, path, sources, grounding, coverage = _parse_provenance(text)
     entities = _extract_entities(path or answer)
 
     return AgentResponse(
@@ -568,6 +620,7 @@ def query_agent_enron_mock(question: str) -> AgentResponse:
         sources=sources,
         grounding=grounding,
         full_text=text,
+        coverage=coverage,
         entities_mentioned=entities,
         tool_calls=_get_mock_tool_calls(question),
     )
@@ -578,7 +631,7 @@ def query_agent_mock(question: str) -> AgentResponse:
     from backend.graph_client import lookup_verses_mock
 
     text = _match_mock(question)
-    answer, prov_raw, path, sources, grounding = _parse_provenance(text)
+    answer, prov_raw, path, sources, grounding, coverage = _parse_provenance(text)
     entities = _extract_entities(path or answer)
     verse_refs = _extract_verse_refs(text)
     verse_texts = lookup_verses_mock(verse_refs)
@@ -590,6 +643,7 @@ def query_agent_mock(question: str) -> AgentResponse:
         sources=sources,
         grounding=grounding,
         full_text=text,
+        coverage=coverage,
         entities_mentioned=entities,
         verse_texts=verse_texts,
     )

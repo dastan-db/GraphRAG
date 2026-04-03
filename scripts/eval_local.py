@@ -16,6 +16,8 @@ import os
 import re
 import sys
 import time
+from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -30,6 +32,7 @@ from mlflow.genai.scorers import scorer
 from mlflow.types.responses import ResponsesAgentRequest
 
 from src.agent.agent_serving import GraphRAGAgent
+from src.evaluation.enron_evaluation import DATA_CONTEXT
 from src.evaluation.question_bank import ENRON_CORE_EVAL_DATA
 
 # ---------------------------------------------------------------------------
@@ -717,99 +720,130 @@ ALL_SCORERS = [
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
-def main():
-    parser = argparse.ArgumentParser(description="Local Enron GraphRAG evaluation")
-    parser.add_argument("--cases", type=int, default=None, help="Limit to N questions")
-    parser.add_argument("--category", type=str, default=None, help="Filter by category")
-    parser.add_argument("--split", type=str, default=None, choices=["train", "test", "holdout"], help="Filter by eval split")
-    parser.add_argument("--judge", type=str, default=None, help="Judge endpoint name")
-    parser.add_argument("--run-name", type=str, default="local_eval", help="MLflow run name")
-    args = parser.parse_args()
+def _filter_eval_data(
+    *,
+    cases: int | None = None,
+    category: str | None = None,
+    split: str | None = None,
+) -> list[dict]:
+    data = list(EVAL_DATA)
+    if category:
+        data = [row for row in data if row["category"] == category]
+    if split:
+        data = [row for row in data if row.get("eval_split") == split]
+    if cases:
+        data = data[:cases]
+    return data
 
-    if args.judge:
-        global JUDGE_ENDPOINT
-        JUDGE_ENDPOINT = args.judge
 
-    data = EVAL_DATA
-    if args.category:
-        data = [d for d in data if d["category"] == args.category]
-        if not data:
-            print(f"No questions found for category '{args.category}'")
-            print(f"Available: {sorted(set(d['category'] for d in EVAL_DATA))}")
-            return
-    if args.split:
-        data = [d for d in data if d.get("eval_split") == args.split]
-        if not data:
-            print(f"No questions found for split {args.split!r}")
-            return
-    if args.cases:
-        data = data[: args.cases]
-
-    eval_records = []
+def _build_eval_records(data: list[dict]) -> list[dict]:
+    records = []
     for row in data:
-        eval_records.append({
-            "inputs": {"question": row["question"]},
-            "expectations": {
-                "expected_entities": row["expected_entities"],
-                "graph_ground_truth": row["graph_ground_truth"],
-                "historical_ground_truth": row["historical_ground_truth"],
-                "evidence_required": row["evidence_required"],
-                "category": row["category"],
-            },
-        })
+        records.append(
+            {
+                "inputs": {"question": row["question"]},
+                "expectations": {
+                    "expected_entities": row["expected_entities"],
+                    "graph_ground_truth": row["graph_ground_truth"],
+                    "historical_ground_truth": row["historical_ground_truth"],
+                    "evidence_required": row["evidence_required"],
+                    "category": row["category"],
+                },
+            }
+        )
+    return records
 
-    eval_df = pd.DataFrame(eval_records)
+
+def run_local_evaluation(
+    *,
+    cases: int | None = None,
+    category: str | None = None,
+    split: str | None = None,
+    judge: str | None = None,
+    run_name: str = "local_eval",
+    output_json: str | None = None,
+) -> dict[str, Any]:
+    global JUDGE_ENDPOINT
+    if judge:
+        JUDGE_ENDPOINT = judge
+
+    data = _filter_eval_data(cases=cases, category=category, split=split)
+    if not data:
+        raise ValueError("No evaluation questions matched the requested filters.")
+
+    eval_df = pd.DataFrame(_build_eval_records(data))
     print(f"Evaluation: {len(eval_df)} questions | judge={JUDGE_ENDPOINT}")
     print(f"Backend: {os.environ.get('GRAPHRAG_BACKEND', 'databricks')}")
     print(f"Corpus: {os.environ.get('GRAPHRAG_CORPUS', 'enron')}")
     print()
 
-    t0 = time.time()
-    with mlflow.start_run(run_name=args.run_name):
+    started = time.time()
+    with mlflow.start_run(run_name=run_name):
         results = mlflow.genai.evaluate(
             data=eval_df,
             predict_fn=predict_fn,
             scorers=ALL_SCORERS,
         )
 
-    elapsed = time.time() - t0
-    results_df = results.tables["eval_results"]
-
-    categories = eval_df["expectations"].apply(lambda x: x.get("category", "unknown"))
-    results_df = results_df.copy()
+    elapsed = time.time() - started
+    results_df = results.tables["eval_results"].copy()
+    categories = eval_df["expectations"].apply(lambda value: value.get("category", "unknown"))
     results_df["category"] = categories.values
 
     score_cols = [
-        c for c in results_df.columns
-        if c.endswith("/value")
-        and c != "evidence_required/value"
-        and pd.api.types.is_numeric_dtype(results_df[c])
+        col
+        for col in results_df.columns
+        if col.endswith("/value")
+        and col != "evidence_required/value"
+        and pd.api.types.is_numeric_dtype(results_df[col])
     ]
+
+    overall_metrics: dict[str, float] = {}
+    overall_score = None
+    score_matrix: dict[str, dict[str, float]] = {}
+    worst_questions: list[dict[str, Any]] = []
 
     if score_cols:
         overall = results_df[score_cols].mean()
         print("=== Enron GraphRAG Governance Scores (v2) ===")
         for col in score_cols:
             name = col.replace("/value", "")
+            overall_metrics[name] = round(float(overall[col]), 4)
             print(f"  {name:35s}: {overall[col]:.2f}")
-        overall_score = overall.mean()
+        overall_score = round(float(overall.mean()), 4)
         print(f"  {'OVERALL':35s}: {overall_score:.2f}")
         print(f"\n  Time: {elapsed:.0f}s ({elapsed / len(eval_df):.1f}s/question)")
 
         print("\n=== Score Matrix (category x scorer) ===")
         score_agg = {col: "mean" for col in score_cols}
         summary = results_df.groupby("category").agg(score_agg).round(2)
-        summary.columns = [c.replace("/value", "") for c in summary.columns]
+        summary.columns = [col.replace("/value", "") for col in summary.columns]
         print(summary.to_string())
+        score_matrix = {
+            str(index): {str(col): round(float(value), 4) for col, value in row.items()}
+            for index, row in summary.to_dict(orient="index").items()
+        }
 
-        results_df["avg_score"] = results_df[score_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
+        results_df["avg_score"] = (
+            results_df[score_cols]
+            .apply(pd.to_numeric, errors="coerce")
+            .mean(axis=1)
+        )
         worst = results_df.nsmallest(min(5, len(results_df)), "avg_score")
         print("\n=== 5 Lowest Scoring Questions ===")
         for _, row in worst.iterrows():
-            q = row.get("inputs/question", row.get("inputs", ""))
-            if isinstance(q, dict):
-                q = q.get("question", str(q))
-            print(f"  [{row['category']}] {q[:80]} -> {row['avg_score']:.2f}")
+            question = row.get("inputs/question", row.get("inputs", ""))
+            if isinstance(question, dict):
+                question = question.get("question", str(question))
+            avg_score = round(float(row["avg_score"]), 4)
+            print(f"  [{row['category']}] {question[:80]} -> {avg_score:.2f}")
+            worst_questions.append(
+                {
+                    "category": row["category"],
+                    "question": question,
+                    "avg_score": avg_score,
+                }
+            )
 
         if overall_score >= 0.58:
             print(f"\n  TARGET MET ({overall_score:.2f} >= 0.58) — ready to deploy!")
@@ -817,6 +851,47 @@ def main():
             print(f"\n  Below target ({overall_score:.2f} < 0.58) — keep iterating.")
     else:
         print("No score columns found in results.")
+
+    payload = {
+        "version": "1.0",
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "judge_endpoint": JUDGE_ENDPOINT,
+        "slice_question_count": len(eval_df),
+        "error_question_count": 0,
+        "elapsed_s": round(elapsed, 1),
+        "overall_metrics": overall_metrics,
+        "overall_score": overall_score,
+        "score_matrix_by_category": score_matrix,
+        "worst_questions": worst_questions,
+        "category": category,
+        "split": split,
+        "backend": os.environ.get("GRAPHRAG_BACKEND", "databricks"),
+        "corpus": os.environ.get("GRAPHRAG_CORPUS", "enron"),
+    }
+    if output_json:
+        Path(output_json).resolve().write_text(json.dumps(payload, indent=2))
+    return payload
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Local Enron GraphRAG evaluation")
+    parser.add_argument("--cases", type=int, default=None, help="Limit to N questions")
+    parser.add_argument("--category", type=str, default=None, help="Filter by category")
+    parser.add_argument("--split", type=str, default=None, choices=["train", "test", "holdout"], help="Filter by eval split")
+    parser.add_argument("--judge", type=str, default=None, help="Judge endpoint name")
+    parser.add_argument("--run-name", type=str, default="local_eval", help="MLflow run name")
+    parser.add_argument("--output-json", type=str, default=None, help="Optional JSON summary path")
+    args = parser.parse_args()
+
+    payload = run_local_evaluation(
+        cases=args.cases,
+        category=args.category,
+        split=args.split,
+        judge=args.judge,
+        run_name=args.run_name,
+        output_json=args.output_json,
+    )
+    print(json.dumps(payload, indent=2))
 
 
 if __name__ == "__main__":

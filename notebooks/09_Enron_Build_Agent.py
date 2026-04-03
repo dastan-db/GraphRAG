@@ -53,24 +53,21 @@ for t in enron_tables:
 # COMMAND ----------
 
 # DBTITLE 1,Log Model
+import os
+import sys
 import mlflow
-from mlflow.models.resources import (
-    DatabricksServingEndpoint, DatabricksTable,
-    DatabricksSQLWarehouse, DatabricksGenieSpace,
+sys.path.insert(0, os.path.join(os.getcwd(), ".."))
+
+from src.agent.enron_promotion import (
+    assert_enron_lakebase_ready,
+    build_enron_log_model_kwargs,
+    build_enron_serving_environment,
+    enron_model_logging_env,
 )
 
 mlflow.set_registry_uri("databricks-uc")
 
-ENRON_TABLE_NAMES = [
-    "entities", "relationships", "emails",
-    "entity_analytics", "entity_paths", "entity_mentions",
-    "communication_dyads", "participants", "entity_aliases",
-    "person_activity", "investigation_timeline",
-    "extraction_provenance", "pipeline_lineage", "topic_taxonomy",
-    "corpus_coverage",
-    "person_role_timeline", "person_identity", "email_classification",
-    "data_quality_report", "threads", "org_hierarchy",
-]
+REPO_ROOT = os.path.abspath(os.path.join(os.getcwd(), ".."))
 
 _wh_id = "399215661843ad19"
 try:
@@ -78,38 +75,44 @@ try:
 except Exception:
     pass
 
-resources = [
-    DatabricksServingEndpoint(endpoint_name=config['llm_endpoint']),
-    DatabricksServingEndpoint(endpoint_name=config['small_llm_endpoint']),
-    *[
-        DatabricksTable(table_name=f"{config['catalog']}.{config['enron_schema']}.{t}")
-        for t in ENRON_TABLE_NAMES
-    ],
-    DatabricksSQLWarehouse(warehouse_id=_wh_id),
-    DatabricksGenieSpace(genie_space_id="01f12b3ef5121d88be4f23d2dfe2d770"),
-    DatabricksGenieSpace(genie_space_id="01f12b3ef5521f078ba8438cc94e108b"),
-    DatabricksGenieSpace(genie_space_id="01f12b3ef56e198e828cd8b59f646430"),
-]
+serving_env = build_enron_serving_environment(
+    schema=config["enron_schema"],
+    llm_endpoint=config["llm_endpoint"],
+    small_llm_endpoint=config["small_llm_endpoint"],
+    synthesis_endpoint=config["llm_endpoint"],
+    react_endpoint=config["llm_endpoint"],
+)
+lakebase_readiness = assert_enron_lakebase_ready(
+    endpoint_name=serving_env.get("LAKEBASE_ENDPOINT"),
+)
+print(
+    "Lakebase ready:",
+    lakebase_readiness["endpoint_name"],
+    lakebase_readiness["host"],
+)
 
-with mlflow.start_run(run_name="graphrag_enron_agent"):
-    model_info = mlflow.pyfunc.log_model(
-        name="agent",
-        python_model="../src/agent/agent_serving.py",
-        code_paths=["../src/agent/pattern_registry.py"],
-        resources=resources,
-        pip_requirements=[
-            "mlflow>=3.0",
-            "databricks-langchain",
-            "langgraph>=0.3.4",
-            "databricks-agents",
-            "databricks-mcp",
-            "databricks-sdk",
-        ],
-        input_example={
-            "input": [{"role": "user", "content": "Who communicated most frequently with Kenneth Lay?"}]
-        },
-        registered_model_name=f"{config['catalog']}.{config['enron_schema']}.graphrag_enron_agent",
-    )
+log_model_kwargs = build_enron_log_model_kwargs(
+    REPO_ROOT,
+    catalog=config["catalog"],
+    schema=config["enron_schema"],
+    llm_endpoint=config["llm_endpoint"],
+    small_llm_endpoint=config["small_llm_endpoint"],
+    warehouse_id=_wh_id,
+)
+
+with enron_model_logging_env(
+    schema=config["enron_schema"],
+    llm_endpoint=config["llm_endpoint"],
+    small_llm_endpoint=config["small_llm_endpoint"],
+    synthesis_endpoint=config["llm_endpoint"],
+    react_endpoint=config["llm_endpoint"],
+    lakebase_endpoint=serving_env.get("LAKEBASE_ENDPOINT"),
+):
+    with mlflow.start_run(run_name="graphrag_enron_agent"):
+        model_info = mlflow.pyfunc.log_model(
+            **log_model_kwargs,
+        )
+    
 
 print(f"Model logged: {model_info.model_uri}")
 
@@ -130,17 +133,19 @@ import time
 ENDPOINT_NAME = "graphrag-enron-agent"
 
 try:
+    lakebase_readiness = assert_enron_lakebase_ready(
+        endpoint_name=serving_env.get("LAKEBASE_ENDPOINT"),
+    )
+    print(
+        "Lakebase ready:",
+        lakebase_readiness["endpoint_name"],
+        lakebase_readiness["host"],
+    )
     deployment = agents.deploy(
         f"{config['catalog']}.{config['enron_schema']}.graphrag_enron_agent",
         model_info.registered_model_version,
         endpoint_name=ENDPOINT_NAME,
-        environment_vars={
-            "GRAPHRAG_CORPUS": "enron",
-            "GRAPHRAG_SCHEMA": "graphrag_enron",
-            "GENIE_COMM_SPACE_ID": "01f12b3ef5121d88be4f23d2dfe2d770",
-            "GENIE_ORG_SPACE_ID": "01f12b3ef5521f078ba8438cc94e108b",
-            "GENIE_INVEST_SPACE_ID": "01f12b3ef56e198e828cd8b59f646430",
-        },
+        environment_vars=serving_env,
         tags={"source": "graphrag_solacc", "corpus": "enron"},
     )
     print(f"Deployment initiated: {deployment.endpoint_name}")
@@ -160,7 +165,7 @@ while elapsed < MAX_WAIT_SECONDS:
     ready = ep.state.ready if ep.state else None
     config_update = ep.state.config_update if ep.state else None
     print(f"  [{elapsed}s] ready={ready}, config_update={config_update}")
-    if str(ready) == "READY" and config_update is None:
+    if "READY" in str(ready) and str(config_update) in {"None", "NOT_UPDATING", "EndpointStateConfigUpdate.NOT_UPDATING"}:
         print(f"\nEndpoint '{ENDPOINT_NAME}' is READY!")
         break
     time.sleep(POLL_INTERVAL)

@@ -57,6 +57,7 @@ import pandas as pd
 from mlflow.entities import Feedback
 from mlflow.genai.scorers import scorer
 
+from src.agent.enron_promotion import build_promotion_manifest
 from src.evaluation.enron_evaluation import (
     DATA_CONTEXT,
     answer_completeness,
@@ -70,6 +71,7 @@ from src.evaluation.question_bank import export_governed_flat_questions
 DEFAULT_ARTIFACT_DIR = Path("data")
 DEFAULT_BENCHMARK_PATH = DEFAULT_ARTIFACT_DIR / "factual_benchmark_definition.json"
 DEFAULT_LOOP_STATE_PATH = DEFAULT_ARTIFACT_DIR / "loop_state.json"
+DEFAULT_PROMOTION_MANIFEST_PATH = DEFAULT_ARTIFACT_DIR / "enron_promotion_manifest.json"
 DEFAULT_MAX_CONCURRENT_QUESTIONS = 8
 DEFAULT_MAX_CONCURRENT_JUDGE_CALLS = 4
 DEFAULT_REPRO_RUNS = 3
@@ -528,6 +530,7 @@ KNOWN_ARTIFACTS = [
     "assessment.json",
     "final_report.json",
     "loop_state.json",
+    "enron_promotion_manifest.json",
 ]
 
 _PROVENANCE_SECTIONS = {
@@ -2949,12 +2952,35 @@ def orchestrate_assess(
         "primary_metric_delta": payload.get("primary_metric_delta"),
     }
     _write_json(loop_state_path, loop_state)
+    promotion_manifest = emit_promotion_manifest(
+        artifact_dir=artifact_root,
+        candidate_label=postchange_label,
+        output_path=artifact_root / DEFAULT_PROMOTION_MANIFEST_PATH.name,
+    )
+    loop_state["history"][-1]["artifacts"]["promotion_manifest"] = promotion_manifest[
+        "manifest_path"
+    ]
+    _write_json(loop_state_path, loop_state)
     return {
         "assessment": str(assessment_path),
         "loop_state": str(loop_state_path),
         "verdict": payload.get("verdict"),
         "primary_metric_delta": payload.get("primary_metric_delta"),
+        "promotion_manifest": promotion_manifest["manifest_path"],
     }
+
+
+def emit_promotion_manifest(
+    *,
+    artifact_dir: str | Path = DEFAULT_ARTIFACT_DIR,
+    candidate_label: str = "postchange",
+    output_path: str | Path = DEFAULT_PROMOTION_MANIFEST_PATH,
+) -> dict[str, Any]:
+    return build_promotion_manifest(
+        artifact_dir=artifact_dir,
+        candidate_label=candidate_label,
+        output_path=output_path,
+    )
 
 
 def orchestrate_iteration(
@@ -3435,6 +3461,27 @@ def main() -> None:
         help="Skip measure if the current iteration artifacts already exist.",
     )
 
+    manifest_parser = subparsers.add_parser(
+        "emit-promotion-manifest",
+        help="Emit the Enron promotion manifest from the latest local artifacts.",
+    )
+    manifest_parser.add_argument(
+        "--artifact-dir",
+        default=str(DEFAULT_ARTIFACT_DIR),
+        help="Artifact directory root.",
+    )
+    manifest_parser.add_argument(
+        "--candidate-label",
+        choices=["baseline", "postchange"],
+        default="postchange",
+        help="Artifact label to package for promotion.",
+    )
+    manifest_parser.add_argument(
+        "--output",
+        default=str(DEFAULT_PROMOTION_MANIFEST_PATH),
+        help="Output path for the promotion manifest.",
+    )
+
     archive_parser = subparsers.add_parser(
         "archive-iteration",
         help="Archive current artifacts into data/iterations/iter_N/.",
@@ -3545,6 +3592,12 @@ def main() -> None:
             latency_mode=args.latency_mode,
             latency_sla_ms=args.latency_sla_ms,
             skip_measure=args.skip_measure,
+        )
+    elif args.command == "emit-promotion-manifest":
+        payload = emit_promotion_manifest(
+            artifact_dir=args.artifact_dir,
+            candidate_label=args.candidate_label,
+            output_path=args.output,
         )
     elif args.command == "archive-iteration":
         payload = archive_iteration_artifacts(

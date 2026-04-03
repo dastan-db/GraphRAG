@@ -590,20 +590,42 @@ def _render_provenance(resp_data):
                 path_badges.append(html.Span(" \u2192 ", className="text-muted"))
         elements.append(html.Div(path_badges, className="mb-3"))
 
+    grounding = resp_data.get("grounding", "")
+    if grounding:
+        elements.append(html.H6([
+            html.I(className="fas fa-check-circle me-2"),
+            "Grounding",
+        ], className="text-info mb-2"))
+        alert_color = "success"
+        grounding_lower = grounding.lower()
+        if "partially" in grounding_lower:
+            alert_color = "warning"
+        elif "not found" in grounding_lower:
+            alert_color = "secondary"
+        elements.append(dbc.Alert(grounding, color=alert_color, className="py-2 small mb-3"))
+
+    coverage = resp_data.get("coverage", "")
+    if coverage:
+        elements.append(html.H6([
+            html.I(className="fas fa-layer-group me-2"),
+            "Coverage",
+        ], className="text-info mb-2"))
+        elements.append(html.P(coverage, className="small text-muted mb-3"))
+
     sources = resp_data.get("sources", [])
     if sources:
         elements.append(html.H6([
-            html.I(className="fas fa-envelope me-2"),
-            "Email Sources",
+            html.I(className="fas fa-file-alt me-2"),
+            "Source Summary",
         ], className="text-info mb-2"))
         for src in sources:
             elements.append(html.Div([
-                html.I(className="fas fa-envelope-open me-2 text-muted"),
+                html.I(className="fas fa-angle-right me-2 text-muted"),
                 html.Span(src, className="small"),
             ], className="mb-1"))
         elements.append(html.Div(className="mb-3"))
 
-    if not tool_calls and not entities and not path and not sources:
+    if not tool_calls and not entities and not path and not grounding and not coverage and not sources:
         elements.append(html.P(
             "No structured provenance available for this response.",
             className="text-muted small",
@@ -673,6 +695,7 @@ def register_corporate_demo_callbacks(app):
             "path": resp.path,
             "sources": resp.sources,
             "grounding": resp.grounding,
+            "coverage": resp.coverage,
             "entities": resp.entities_mentioned,
             "tier": tier or "",
             "tool_calls": [

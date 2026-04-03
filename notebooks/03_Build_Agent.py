@@ -120,10 +120,19 @@ display(spark.table(AGENT_PROMPTS_TABLE))
 # COMMAND ----------
 
 # DBTITLE 1,Log Model
+import os
 import mlflow
 from mlflow.models.resources import DatabricksServingEndpoint, DatabricksTable, DatabricksSQLWarehouse
 
 mlflow.set_registry_uri("databricks-uc")
+
+os.environ["GRAPHRAG_CORPUS"] = "bible"
+os.environ["GRAPHRAG_LLM_ENDPOINT"] = config["llm_endpoint"]
+os.environ["GRAPHRAG_SYNTHESIS_ENDPOINT"] = config["llm_endpoint"]
+os.environ["GRAPHRAG_REACT_ENDPOINT"] = config["llm_endpoint"]
+os.environ["GRAPHRAG_SMALL_LLM_ENDPOINT"] = config["small_llm_endpoint"]
+# MLflow ResponsesAgent registration runs predict() on the input example.
+os.environ["GRAPHRAG_MODEL_LOGGING_TOOL_LIMIT"] = "32"
 
 TABLE_NAMES = ["entities", "relationships", "verses", "agent_prompts",
                "entity_analytics", "entity_paths"]
@@ -139,6 +148,10 @@ with mlflow.start_run(run_name="graphrag_bible_agent"):
     model_info = mlflow.pyfunc.log_model(
         name="agent",
         python_model="../src/agent/agent_serving.py",
+        code_paths=[
+            "../src/agent/pattern_registry.py",
+            "../src/evaluation/question_bank.py",
+        ],
         resources=resources,
         pip_requirements=[
             "mlflow>=3.0",
@@ -154,6 +167,8 @@ with mlflow.start_run(run_name="graphrag_bible_agent"):
         },
         registered_model_name=f"{config['catalog']}.{config['schema']}.graphrag_agent",
     )
+
+os.environ.pop("GRAPHRAG_MODEL_LOGGING_TOOL_LIMIT", None)
 
 print(f"Model logged: {model_info.model_uri}")
 
@@ -178,6 +193,14 @@ try:
         f"{config['catalog']}.{config['schema']}.graphrag_agent",
         model_info.registered_model_version,
         endpoint_name=ENDPOINT_NAME,
+        environment_vars={
+            "GRAPHRAG_CORPUS": "bible",
+            "GRAPHRAG_LLM_ENDPOINT": config["llm_endpoint"],
+            "GRAPHRAG_SYNTHESIS_ENDPOINT": config["llm_endpoint"],
+            "GRAPHRAG_REACT_ENDPOINT": config["llm_endpoint"],
+            "GRAPHRAG_SMALL_LLM_ENDPOINT": config["small_llm_endpoint"],
+            "GRAPHRAG_MODEL_LOGGING_TOOL_LIMIT": "32",
+        },
         tags={"source": "graphrag_solacc"},
     )
     print(f"Deployment initiated: {deployment.endpoint_name}")

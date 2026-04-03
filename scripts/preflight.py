@@ -78,6 +78,7 @@ def layer1_environment() -> LayerResult:
     """Verify environment setup: .env.local, Python version, key packages."""
     r = LayerResult(1, "Environment check")
     issues = []
+    lakebase_detail = None
 
     env_path = os.path.join(_ROOT_DIR, ".env.local")
     if not os.path.isfile(env_path):
@@ -105,11 +106,30 @@ def layer1_environment() -> LayerResult:
     if llm == "openai" and not os.environ.get("OPENAI_API_KEY"):
         issues.append("OPENAI_API_KEY not set (required for LLM_PROVIDER=openai)")
 
+    if backend == "lakebase":
+        try:
+            if _ROOT_DIR not in sys.path:
+                sys.path.insert(0, _ROOT_DIR)
+            from src.agent.enron_promotion import assert_enron_lakebase_ready
+
+            readiness = assert_enron_lakebase_ready(
+                endpoint_name=os.environ.get("LAKEBASE_ENDPOINT"),
+            )
+            lakebase_detail = (
+                f"Lakebase ready at {readiness['endpoint_name']} "
+                f"({readiness['host']})"
+            )
+        except Exception as exc:
+            issues.append(f"Lakebase not ready: {exc}")
+
     if issues:
         r.detail = "; ".join(issues)
     else:
         r.passed = True
-        r.detail = f"Python {vi.major}.{vi.minor}, backend={backend}, llm={llm}"
+        parts = [f"Python {vi.major}.{vi.minor}", f"backend={backend}", f"llm={llm}"]
+        if lakebase_detail:
+            parts.append(lakebase_detail)
+        r.detail = ", ".join(parts)
     return r
 
 

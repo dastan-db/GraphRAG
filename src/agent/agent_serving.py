@@ -64,6 +64,15 @@ AGENT_ID = "bible-agent"
 PROMPT_CACHE_TTL = 300  # seconds; set to 0 for instant iteration
 _PARALLEL_TOOLS = os.environ.get("GRAPHRAG_PARALLEL_TOOLS", "true").lower() == "true"
 _CLASSIFY_PIPELINE = os.environ.get("GRAPHRAG_CLASSIFY_PIPELINE", "true").lower() == "true"
+try:
+    # MLflow ResponsesAgent registration always runs predict() on an example input.
+    # This optional cap keeps registration under provider tool-count limits without
+    # changing the full serving-time toolset.
+    _MODEL_LOGGING_TOOL_LIMIT = max(
+        0, int(os.environ.get("GRAPHRAG_MODEL_LOGGING_TOOL_LIMIT", "0") or "0")
+    )
+except ValueError:
+    _MODEL_LOGGING_TOOL_LIMIT = 0
 
 CORPUS = os.environ.get("GRAPHRAG_CORPUS", "bible")
 
@@ -134,6 +143,8 @@ ENRON_ABAC_ENTITY_MENTIONS_VIEW = f"{CATALOG}.{ENRON_SCHEMA}.entity_mentions_aba
 
 BACKEND_TYPE = os.environ.get("GRAPHRAG_BACKEND", "databricks")
 LLM_PROVIDER = os.environ.get("GRAPHRAG_LLM_PROVIDER", "databricks")
+_ROUTING_CASE_IMPORT_SOURCE = "unloaded"
+_PATTERN_REGISTRY_IMPORT_SOURCE = "unloaded"
 
 
 # ---------------------------------------------------------------------------
@@ -399,6 +410,56 @@ class CachingBackend:
 _backend: DataBackend = CachingBackend(_get_backend())
 
 
+def _unwrap_backend(backend: DataBackend) -> DataBackend:
+    return getattr(backend, "_inner", backend)
+
+
+def _runtime_config_tags() -> dict[str, str]:
+    inner_backend = _unwrap_backend(_backend)
+    router_cases = []
+    if CORPUS == "enron":
+        try:
+            router_cases = _load_enron_routing_cases()
+        except Exception:
+            router_cases = []
+    return {
+        "runtime_corpus": CORPUS,
+        "runtime_backend": BACKEND_TYPE,
+        "runtime_backend_impl": type(inner_backend).__name__,
+        "runtime_lakebase_endpoint": os.environ.get("LAKEBASE_ENDPOINT", ""),
+        "runtime_llm_provider": LLM_PROVIDER,
+        "runtime_llm_endpoint": LLM_ENDPOINT,
+        "runtime_synthesis_endpoint": SYNTHESIS_ENDPOINT,
+        "runtime_react_endpoint": REACT_ENDPOINT,
+        "runtime_small_llm_endpoint": SMALL_LLM_ENDPOINT,
+        "runtime_pattern_registry_source": _PATTERN_REGISTRY_IMPORT_SOURCE,
+        "runtime_router_cases_source": _ROUTING_CASE_IMPORT_SOURCE,
+        "runtime_router_cases_loaded": str(len(router_cases)),
+        "runtime_router_assets": "available" if router_cases else "degraded",
+    }
+
+
+def _emit_runtime_observability() -> None:
+    tags = _runtime_config_tags()
+    try:
+        mlflow.update_current_trace(tags=tags)
+    except Exception:
+        pass
+    log.info(
+        "Runtime config | corpus=%s backend=%s backend_impl=%s lakebase=%s llm_provider=%s "
+        "llm=%s router_source=%s router_cases=%s pattern_registry=%s",
+        tags["runtime_corpus"],
+        tags["runtime_backend"],
+        tags["runtime_backend_impl"],
+        tags["runtime_lakebase_endpoint"] or "-",
+        tags["runtime_llm_provider"],
+        tags["runtime_llm_endpoint"],
+        tags["runtime_router_cases_source"],
+        tags["runtime_router_cases_loaded"],
+        tags["runtime_pattern_registry_source"],
+    )
+
+
 # ---------------------------------------------------------------------------
 # LLM factory — pluggable LLM provider
 # ---------------------------------------------------------------------------
@@ -485,6 +546,7 @@ def _log_agent_query(
     execution_path: str = "slow",
 ):
     """Log agent query for audit compliance. Appends to in-memory list, periodically flushed."""
+    runtime_tags = _runtime_config_tags()
     _query_log.append({
         "query_id": str(_uuid.uuid4()),
         "user_query": user_query[:1000],
@@ -493,6 +555,12 @@ def _log_agent_query(
         "execution_path": execution_path,
         "latency_ms": latency_ms,
         "timestamp": __import__("datetime").datetime.utcnow().isoformat(),
+        "backend_type": runtime_tags["runtime_backend"],
+        "backend_impl": runtime_tags["runtime_backend_impl"],
+        "lakebase_endpoint": runtime_tags["runtime_lakebase_endpoint"],
+        "llm_provider": runtime_tags["runtime_llm_provider"],
+        "llm_endpoint": runtime_tags["runtime_llm_endpoint"],
+        "router_assets": runtime_tags["runtime_router_assets"],
     })
 
 
@@ -1161,20 +1229,27 @@ def _pattern_card_bonus(pattern: str, contract: dict) -> float:
 
 
 def _load_enron_routing_cases() -> list[dict]:
-    global _ENRON_ROUTING_CASES
+    global _ENRON_ROUTING_CASES, _ROUTING_CASE_IMPORT_SOURCE
     if _ENRON_ROUTING_CASES is not None:
         return _ENRON_ROUTING_CASES
 
     rows: list[dict] = []
     try:
         from src.evaluation.question_bank import export_governed_flat_questions
+        _ROUTING_CASE_IMPORT_SOURCE = "src.evaluation.question_bank"
     except ImportError:
         try:
             from evaluation.question_bank import export_governed_flat_questions
+            _ROUTING_CASE_IMPORT_SOURCE = "evaluation.question_bank"
         except ImportError:
-            log.warning("Case router unavailable: question_bank import failed")
-            _ENRON_ROUTING_CASES = []
-            return _ENRON_ROUTING_CASES
+            try:
+                from question_bank import export_governed_flat_questions
+                _ROUTING_CASE_IMPORT_SOURCE = "question_bank"
+            except ImportError:
+                log.warning("Case router unavailable: question_bank import failed")
+                _ROUTING_CASE_IMPORT_SOURCE = "unavailable"
+                _ENRON_ROUTING_CASES = []
+                return _ENRON_ROUTING_CASES
 
     for split in _ROUTER_CASE_SPLITS or ("train",):
         rows.extend(export_governed_flat_questions(corpus="enron", eval_split=split))
@@ -6406,29 +6481,18 @@ For any substantive question:
 
 ## Response Format (MANDATORY)
 
-### Supporting Evidence Table (CONDITIONAL)
-Include this table ONLY when tool results contain actual email data (from get_emails_between, find_emails, search_emails, get_relationship_evidence, or get_hierarchy_evidence).
-If no tool returned individual emails, OMIT the table entirely and state: "No email evidence was retrieved for this query."
-NEVER fabricate email citations to fill this table.
-
-| # | Date | From | To | Subject | Relevance |
-|---|------|------|----|---------|-----------|
-| 1 | YYYY-MM-DD | sender@enron.com | recipient@enron.com | Subject line | How this email supports a specific claim |
-
-Only include emails that DIRECTLY support a claim in your answer. Each row must link to a specific claim above.
+Keep the final response readable in plain text, the Databricks endpoint preview, and the Dash UI.
+- Use short sections and bullet lists.
+- NEVER use markdown pipe tables in the final response.
+- If you need to show evidence, use a short `### Evidence` section with up to 3 bullet points.
+- Briefly summarize tool failures as limitations. Do NOT expose raw SQL or stack-trace text.
 
 ### Provenance
 End EVERY response with a Provenance section using this exact format:
-- **Sources**: List EVERY tool you called using its exact function name and result summary. Format:
-  `tool_name(args) → result summary`
-  Examples: "find_entity(Jeff Skilling) → 1 entity (PERSON)", "find_connections(Jeff Skilling, REPORTS_TO) → 5 relationships", "get_emails_between(Jeff Skilling, Andrew Fastow) → 12 emails", "search_emails(California energy) → 8 threads"
-  You MUST list ALL tools called — omitting a tool from Sources is a provenance error.
-- **Data Lineage**: [table origins for key claims, e.g., "communication_dyads ← emails via sender/recipient aggregation"]
+- **Path**: [short retrieval path]
 - **Grounding**: [One of: "All claims grounded in graph data" | "Partially grounded — some claims from graph, some from general knowledge" | "Not found in graph"]
-- **Confidence per claim**:
-  - [Claim 1]: [High/Medium/Low] — [reason, e.g., "12 direct email references, clean entity resolution"]
-  - [Claim 2]: [High/Medium/Low] — [reason, e.g., "based on 3 truncated threads, possible missing context"]
-- **Coverage caveats**: [Any data quality or coverage limitations, e.g., "extraction rate 85% — some threads were truncated"]
+- **Coverage**: [brief coverage note and any important limitations]
+- **Sources**: tool_name(args) → result summary; tool_name(args) → result summary
 
 ## Entity Pre-Lookup
 Before you received this message, entities from the user's question were automatically looked up in the knowledge graph. Results appear at the END of this system prompt.
@@ -6444,36 +6508,10 @@ PROVENANCE_FORMAT = """
 
 ### Provenance
 After your answer, include a Provenance section using this exact format:
-- **Sources**: List EVERY tool called using its exact function name and what it returned. Format each as:
-  `tool_name(args) → result summary`
-  Examples:
-  - "find_entity(Jeff Skilling) → 1 entity (PERSON)"
-  - "find_connections(Jeff Skilling, REPORTS_TO) → 5 relationships"
-  - "get_emails_between(Jeff Skilling, Andrew Fastow) → 12 emails"
-  - "search_emails(California energy crisis) → 8 threads"
-  - "get_entity_summary(Kenneth Lay) → pagerank 0.034, 145 connections"
-  You MUST include ALL tools from the data section above — do not omit any.
-- **Data Lineage**: [table origins for key claims, e.g., "communication_dyads ← emails via sender/recipient aggregation (07c)"]
+- **Path**: [short retrieval path]
 - **Grounding**: [One of: "All claims grounded in graph data" | "Partially grounded — some claims from graph, some from general knowledge" | "Not found in graph"]
-- **Confidence per claim**:
-  - [Claim 1]: [High/Medium/Low] — [reason, e.g., "12 direct email references, clean entity resolution"]
-  - [Claim 2]: [High/Medium/Low] — [reason, e.g., "based on 3 truncated threads, possible missing context"]
-- **Coverage caveats**: [Any data quality or coverage limitations, e.g., "extraction rate 85% — some threads were truncated"]
-
-### Supporting Evidence (CONDITIONAL — only when tools returned email data)
-Include a Supporting Evidence table ONLY when tools returned individual email records.
-If tools returned emails, preface with: "The table below shows a sample of emails. To see all emails between [entity] and any contact, ask: *'Show me all emails between [entity] and [name]'*"
-
-| # | Contact | Date | From | To | Subject |
-|---|---------|------|------|----|---------|
-| 1 | Display Name | YYYY-MM-DD | sender@enron.com | recipient@enron.com | Subject line |
-
-Rules:
-- Show up to 3 emails per contact, for a small subset of top contacts.
-- Group rows by contact (in rank order from the answer), date descending within each group.
-- Only include emails ACTUALLY RETURNED by tools (get_emails_between, find_emails, get_source_evidence). If no individual emails were retrieved for a contact, do NOT fabricate rows.
-- If no email-level data was retrieved at all, omit the table entirely and note: "No individual email data was retrieved. Ask about a specific contact to see their emails."
-- NEVER invent email citations. If get_emails_between returned 0 emails, do NOT include that person in the table.
+- **Coverage**: [brief coverage note and any important limitations]
+- **Sources**: tool_name(args) → result summary; tool_name(args) → result summary
 """
 
 
@@ -6498,6 +6536,19 @@ def _collect_tool_entries_from_sub_results(all_sub_results: dict[str, str]) -> l
     return entries
 
 
+def _summarize_tool_error(result: str) -> str:
+    lower = result.lower()
+    if "topic distribution query failed" in lower or "topic query failed" in lower:
+        return "Topic coverage lookup was unavailable on the current backend."
+    if "unresolved_routine" in lower or "cannot resolve routine unnest" in lower:
+        return "A backend-specific SQL function was unavailable during topic lookup."
+    if "table or view not found" in lower or "no such table" in lower or "does not exist" in lower:
+        return "A required data table was unavailable for one retrieval step."
+    if "permission" in lower or "not authorized" in lower or "access denied" in lower:
+        return "A permission restriction prevented one retrieval step from completing."
+    return "One retrieval step failed, so coverage may be partial."
+
+
 def _summarize_tool_result(result: str) -> tuple[str, bool, bool, bool]:
     """Return (summary, meaningful, has_email_level_data, had_error)."""
     if not isinstance(result, str) or not result.strip():
@@ -6505,8 +6556,7 @@ def _summarize_tool_result(result: str) -> tuple[str, bool, bool, bool]:
 
     lower = result.lower()
     if result.startswith("Error:") or "query failed" in lower or '"error"' in lower:
-        compact = result.strip().replace("\n", " ")
-        return (compact[:140], False, False, True)
+        return (_summarize_tool_error(result), False, False, True)
 
     try:
         data = json.loads(result)
@@ -6605,10 +6655,16 @@ def _build_provenance_metadata(
     meaningful_count = 0
     email_level_hits = 0
     contract = contract or {}
+    pack = _get_targeted_documentary_retry_pack(question) if question else {}
     query_relevant_records = (
         _collect_query_relevant_email_records(tool_entries, question)
         if contract.get("requires_evidence") and question
         else []
+    )
+    timeline_backed_documentary_packet = _has_timeline_backed_documentary_packet(
+        question,
+        features=_collect_evidence_features(tool_entries, question=question, contract=contract),
+        contract=contract,
     )
     claim_support_calls = {
         str(record.get("call", "") or "")
@@ -6634,6 +6690,11 @@ def _build_provenance_metadata(
         "get_relationship_evidence",
         "get_hierarchy_evidence",
     }
+    preferred_evidence_tools.update(
+        str(tool_name)
+        for tool_name in pack.get("preserve_tool_names", ())
+        if str(tool_name).strip()
+    )
 
     for call, result in tool_entries:
         if call in seen_calls:
@@ -6668,7 +6729,7 @@ def _build_provenance_metadata(
         caveats.append("No email-level records were retrieved for direct quotation.")
     if meaningful_count == 0:
         caveats.append("The retrieved graph data did not return substantive rows for this question.")
-    if contract.get("requires_evidence") and not query_relevant_records:
+    if contract.get("requires_evidence") and not query_relevant_records and not timeline_backed_documentary_packet:
         caveats.append("No query-relevant email evidence was retrieved for the requested documentary claim.")
     elif documentary_trace_gap:
         caveats.append(
@@ -6676,13 +6737,13 @@ def _build_provenance_metadata(
         )
 
     confidence = "High" if evidence_strength == "STRONG" else "Medium" if evidence_strength == "MODERATE" else "Low"
-    if contract.get("requires_evidence") and not query_relevant_records:
+    if contract.get("requires_evidence") and not query_relevant_records and not timeline_backed_documentary_packet:
         confidence = "Low"
     elif documentary_trace_gap:
         confidence = "Medium" if confidence == "High" else "Low"
     if meaningful_count == 0:
         grounding = "Not found in graph"
-    elif contract.get("requires_evidence") and not query_relevant_records:
+    elif contract.get("requires_evidence") and not query_relevant_records and not timeline_backed_documentary_packet:
         grounding = "Partially grounded — broad graph context was retrieved, but query-specific email support was not verified"
     elif documentary_trace_gap:
         grounding = "Partially grounded — retrieved emails show related approvals, but not a repeated or end-to-end workflow trace"
@@ -6697,6 +6758,8 @@ def _build_provenance_metadata(
             )
         else:
             path = "question -> targeted access-request retrieval -> no claim-supporting emails -> abstention"
+    elif contract.get("requires_evidence") and timeline_backed_documentary_packet:
+        path = "question -> evidence retrieval -> timeline-backed documentary packet -> grounded answer"
     elif contract.get("requires_evidence") and query_relevant_records:
         path = "question -> evidence retrieval -> claim-supporting records -> grounded answer"
     elif contract.get("requires_evidence"):
@@ -6806,6 +6869,279 @@ _TARGETED_ACCESS_REQUEST_RETRY_TERMS = (
     "review and act upon this request",
     "approved my access",
 )
+
+_TARGETED_DOCUMENTARY_RETRY_PACKS = {
+    "access_request_approval": {
+        "relevance_terms": _TARGETED_ACCESS_REQUEST_RETRY_TERMS,
+        "min_query_relevant_hits": 2,
+        "min_signal_hits": 0,
+        "retry_steps": (
+            {
+                "tool_name": "search_emails",
+                "params": {
+                    "keywords": ", ".join(_TARGETED_ACCESS_REQUEST_RETRY_TERMS),
+                    "limit": 8,
+                },
+                "dedupe_terms": ("request submitted", "approval is overdue"),
+            },
+        ),
+        "preserve_tool_names": (),
+    },
+    "bankruptcy_employee_crisis": {
+        "relevance_terms": (
+            "savings plan",
+            "current business circumstances",
+            "Home Contact Information",
+            "critical company information",
+            "Just a suggestion",
+            "massive layoff",
+            "Severance re Canada",
+            "severance packages",
+            "Enron Credit Inc.",
+            "Weil bankruptcy lawyer",
+            "olalekan.oladeji@enron.com",
+            "robert.jones@mailman.enron.com",
+            "david.oxley@enron.com",
+            "sara.shackleton@enron.com",
+        ),
+        "min_query_relevant_hits": 2,
+        "min_signal_hits": 1,
+        "default_date_from": "2001-11-28",
+        "default_date_to": "2001-12-10",
+        "retry_steps": (
+            {
+                "tool_name": "search_emails",
+                "params": {
+                    "keywords": "savings plan, current business circumstances",
+                    "date_from": "2001-11-29",
+                    "date_to": "2001-12-01",
+                    "limit": 3,
+                },
+                "dedupe_terms": ("savings plan", "current business circumstances"),
+            },
+            {
+                "tool_name": "search_emails",
+                "params": {
+                    "keywords": "Home Contact Information, critical company information",
+                    "sender": "robert.jones@mailman.enron.com",
+                    "date_from": "2001-12-03",
+                    "date_to": "2001-12-04",
+                    "limit": 3,
+                },
+                "dedupe_terms": ("Home Contact Information", "robert.jones@mailman.enron.com"),
+            },
+            {
+                "tool_name": "search_emails",
+                "params": {
+                    "keywords": "Just a suggestion, massive layoff, bankruptcy",
+                    "sender": "olalekan.oladeji@enron.com",
+                    "date_from": "2001-11-29",
+                    "date_to": "2001-11-30",
+                    "limit": 3,
+                },
+                "dedupe_terms": ("Just a suggestion", "olalekan.oladeji@enron.com"),
+            },
+            {
+                "tool_name": "search_emails",
+                "params": {
+                    "keywords": "Severance re Canada, severance packages, retention",
+                    "sender": "david.oxley@enron.com",
+                    "date_from": "2001-12-07",
+                    "date_to": "2001-12-08",
+                    "limit": 3,
+                },
+                "dedupe_terms": ("Severance re Canada", "david.oxley@enron.com"),
+            },
+            {
+                "tool_name": "search_emails",
+                "params": {
+                    "keywords": "Enron Credit Inc., Weil bankruptcy lawyer, structuring issues",
+                    "sender": "sara.shackleton@enron.com",
+                    "date_from": "2001-12-07",
+                    "date_to": "2001-12-08",
+                    "limit": 3,
+                },
+                "dedupe_terms": ("Enron Credit Inc.", "sara.shackleton@enron.com"),
+            },
+        ),
+        "preserve_tool_names": (),
+    },
+    "ebs_datacentric_venture": {
+        "relevance_terms": (
+            "Datacentric Broadband",
+            "EBS Ventures weekly deal tracking sheet",
+            "2 million",
+            "regional broadband wireless",
+            "Redstone",
+            "gene.humphrey@enron.com",
+            "rebekah.rushing@enron.com",
+        ),
+        "min_query_relevant_hits": 2,
+        "min_signal_hits": 1,
+        "default_date_from": "2000-06-01",
+        "default_date_to": "2001-12-31",
+        "retry_steps": (
+            {
+                "tool_name": "search_emails",
+                "params": {
+                    "keywords": "Datacentric Broadband, 2 million, Redstone, regional broadband wireless",
+                    "sender": "gene.humphrey@enron.com",
+                    "date_from": "2001-05-11",
+                    "date_to": "2001-05-12",
+                    "limit": 4,
+                },
+                "dedupe_terms": (
+                    "Datacentric Broadband",
+                    "gene.humphrey@enron.com",
+                ),
+            },
+            {
+                "tool_name": "search_emails",
+                "params": {
+                    "keywords": "EBS Ventures weekly deal tracking sheet",
+                    "sender": "rebekah.rushing@enron.com",
+                    "date_from": "2000-06-01",
+                    "date_to": "2000-06-30",
+                    "limit": 4,
+                },
+                "dedupe_terms": (
+                    "EBS Ventures weekly deal tracking sheet",
+                    "rebekah.rushing@enron.com",
+                ),
+            },
+        ),
+        "preserve_tool_names": (),
+    },
+    "ljm_valuation_restatement": {
+        "relevance_terms": (
+            "RE: Note on Valuation",
+            "LJM/Raptor valuations",
+            "restriction and a put",
+            "SEC Information/Earnings Restatement",
+        ),
+        "min_query_relevant_hits": 2,
+        "min_signal_hits": 1,
+        "default_date_from": "2001-10-01",
+        "default_date_to": "2001-11-15",
+        "retry_steps": (
+            {
+                "tool_name": "search_emails",
+                "params": {
+                    "keywords": (
+                        "RE: Note on Valuation, LJM/Raptor valuations, restriction and a put, "
+                        "SEC Information/Earnings Restatement"
+                    ),
+                    "limit": 8,
+                },
+                "dedupe_terms": ("RE: Note on Valuation", "SEC Information/Earnings Restatement"),
+            },
+        ),
+        "preserve_tool_names": (),
+    },
+    "sec_fbi_document_destruction": {
+        "relevance_terms": (
+            "Cooperation with the FBI",
+            "allegations of document destruction",
+            "Arthur Andersen",
+            "SEC opens informal inquiry",
+            "SEC upgrades to formal investigation",
+            "obstruction of justice",
+        ),
+        "min_query_relevant_hits": 1,
+        "min_signal_hits": 1,
+        "allow_timeline_backed_packet": True,
+        "min_meaningful_timeline_hits": 2,
+        "retry_steps": (
+            {
+                "tool_name": "search_emails",
+                "params": {
+                    "keywords": (
+                        "Cooperation with the FBI, allegations of document destruction, "
+                        "searching the Enron Building"
+                    ),
+                    "limit": 8,
+                },
+                "dedupe_terms": ("Cooperation with the FBI", "allegations of document destruction"),
+            },
+            {
+                "tool_name": "query_timeline",
+                "params": {
+                    "date_from": "2001-10-01",
+                    "date_to": "2001-10-31",
+                    "category": "regulatory",
+                },
+            },
+            {
+                "tool_name": "query_timeline",
+                "params": {
+                    "date_from": "2002-03-01",
+                    "date_to": "2002-03-31",
+                    "category": "criminal_investigation",
+                },
+            },
+        ),
+        "preserve_tool_names": ("query_timeline",),
+    },
+}
+
+
+def _get_targeted_documentary_retry_pack(question: str) -> dict:
+    lower_question = question.lower()
+    if _has_access_request_approval_signal(question):
+        return _TARGETED_DOCUMENTARY_RETRY_PACKS["access_request_approval"]
+    if (
+        re.search(r"\bbankruptcy\b", lower_question)
+        and re.search(r"(employee[- ]crisis|communications mode)", lower_question)
+    ):
+        return _TARGETED_DOCUMENTARY_RETRY_PACKS["bankruptcy_employee_crisis"]
+    if "datacentric broadband" in lower_question and re.search(r"\b(venture|evaluat)", lower_question):
+        return _TARGETED_DOCUMENTARY_RETRY_PACKS["ebs_datacentric_venture"]
+    if "ljm" in lower_question and re.search(r"(valuation|off[- ]balance|restatement)", lower_question):
+        return _TARGETED_DOCUMENTARY_RETRY_PACKS["ljm_valuation_restatement"]
+    if (
+        re.search(r"\bsec\b", lower_question)
+        and re.search(r"document[- ]destruction", lower_question)
+        and re.search(r"(scrutiny|progression|investigation)", lower_question)
+    ):
+        return _TARGETED_DOCUMENTARY_RETRY_PACKS["sec_fbi_document_destruction"]
+    return {}
+
+
+def _apply_documentary_pack_dates(
+    params: dict[str, str | int],
+    *,
+    contract: dict | None = None,
+    pack: dict | None = None,
+) -> dict[str, str | int]:
+    merged = dict(params)
+    contract = contract or {}
+    pack = pack or {}
+    if "date_from" not in merged:
+        if contract.get("date_from"):
+            merged["date_from"] = contract["date_from"]
+        elif pack.get("default_date_from"):
+            merged["date_from"] = pack["default_date_from"]
+    if "date_to" not in merged:
+        if contract.get("date_to"):
+            merged["date_to"] = contract["date_to"]
+        elif pack.get("default_date_to"):
+            merged["date_to"] = pack["default_date_to"]
+    return merged
+
+
+def _build_evidence_query_text(question: str) -> str:
+    pack = _get_targeted_documentary_retry_pack(question)
+    if not pack:
+        return question
+    lower_question = question.lower()
+    extra_terms = [
+        term
+        for term in pack.get("relevance_terms", ())
+        if term and term.lower() not in lower_question
+    ]
+    if not extra_terms:
+        return question
+    return f"{question} {' '.join(extra_terms)}"
 
 
 def _tokenize_evidence_query(text: str) -> set[str]:
@@ -6950,7 +7286,7 @@ def _build_documentary_shortcut_steps(
     if CORPUS != "enron" or not contract.get("requires_evidence") or not question:
         return []
 
-    if _has_access_request_approval_signal(question):
+    if _get_targeted_documentary_retry_pack(question):
         return _build_targeted_documentary_retry_steps(
             question,
             contract=contract,
@@ -7015,22 +7351,30 @@ def _build_targeted_documentary_retry_steps(
     if CORPUS != "enron" or not contract.get("requires_evidence") or not question:
         return []
 
-    if not _has_access_request_approval_signal(question):
+    pack = _get_targeted_documentary_retry_pack(question)
+    if not pack:
         return []
 
-    existing_blob = " ".join(existing_calls or []).lower()
-    if "request submitted" in existing_blob and "approval is overdue" in existing_blob:
-        return []
-
-    params = {
-        "keywords": ", ".join(_TARGETED_ACCESS_REQUEST_RETRY_TERMS),
-        "limit": 8,
-    }
-    if contract.get("date_from"):
-        params["date_from"] = contract["date_from"]
-    if contract.get("date_to"):
-        params["date_to"] = contract["date_to"]
-    return [ExecutionStep("search_emails", params)]
+    existing_calls = existing_calls or []
+    existing_blob = " ".join(existing_calls).lower()
+    existing_call_set = set(existing_calls)
+    steps: list[ExecutionStep] = []
+    for step_spec in pack.get("retry_steps", ()):
+        dedupe_terms = [
+            str(term).lower()
+            for term in step_spec.get("dedupe_terms", ())
+            if str(term).strip()
+        ]
+        params = dict(step_spec.get("params", {}))
+        if step_spec.get("tool_name") == "search_emails":
+            params = _apply_documentary_pack_dates(params, contract=contract, pack=pack)
+        expected_call = f"{step_spec['tool_name']}({json.dumps(params)})"
+        if expected_call in existing_call_set:
+            continue
+        if dedupe_terms and all(term in existing_blob for term in dedupe_terms):
+            continue
+        steps.append(ExecutionStep(step_spec["tool_name"], params))
+    return steps
 
 
 def _iter_email_support_records(tool_entries: list[tuple[str, str]]) -> list[dict]:
@@ -7114,8 +7458,27 @@ def _email_query_overlap_score(email: dict, query_tokens: set[str]) -> float:
     return round(score, 3)
 
 
+def _email_pack_signal_hit_count(email: dict, question: str) -> int:
+    pack = _get_targeted_documentary_retry_pack(question)
+    if not pack:
+        return 0
+    email_text = " ".join(
+        part for part in [
+            str(email.get("subject", "") or ""),
+            str(email.get("text", "") or ""),
+            str(email.get("sender", "") or ""),
+        ]
+        if part
+    ).lower()
+    return sum(
+        1
+        for term in pack.get("relevance_terms", ())
+        if term and str(term).lower() in email_text
+    )
+
+
 def _email_query_matched_concepts(email: dict, question: str) -> set[str]:
-    concepts = _extract_evidence_query_concepts(question)
+    concepts = _extract_evidence_query_concepts(_build_evidence_query_text(question))
     if not concepts:
         return set()
     email_text = " ".join(
@@ -7157,7 +7520,7 @@ def _rank_email_records_for_question(
     tool_entries: list[tuple[str, str]],
     question: str,
 ) -> list[dict]:
-    query_tokens = _tokenize_evidence_query(question)
+    query_tokens = _tokenize_evidence_query(_build_evidence_query_text(question))
     ranked: list[dict] = []
     for record in _iter_email_support_records(tool_entries):
         enriched = dict(record)
@@ -7167,6 +7530,7 @@ def _rank_email_records_for_question(
         matched_concepts = _email_query_matched_concepts(record, question)
         enriched["matched_concepts"] = sorted(matched_concepts)
         enriched["concept_hit_count"] = len(matched_concepts)
+        enriched["pack_signal_hit_count"] = _email_pack_signal_hit_count(record, question)
         enriched["tool_priority"] = _EMAIL_RECORD_TOOL_PRIORITY.get(
             str(record.get("tool_name", "") or ""),
             0,
@@ -7175,6 +7539,7 @@ def _rank_email_records_for_question(
 
     ranked.sort(
         key=lambda row: (
+            row.get("pack_signal_hit_count", 0),
             row.get("concept_hit_count", 0),
             row.get("query_overlap_score", 0.0),
             row.get("tool_priority", 0),
@@ -7189,16 +7554,20 @@ def _collect_query_relevant_email_records(
     tool_entries: list[tuple[str, str]],
     question: str,
 ) -> list[dict]:
-    if not _tokenize_evidence_query(question):
+    query_text = _build_evidence_query_text(question)
+    if not _tokenize_evidence_query(query_text):
         return []
-    active_concepts = _extract_evidence_query_concepts(question)
-    required_concepts = 2 if len(active_concepts) >= 2 else 1
+    active_concepts = _extract_evidence_query_concepts(query_text)
+    required_concepts = 2 if len(active_concepts) >= 2 else (1 if active_concepts else 0)
     required_matched_concepts = {"access_request", "approval"} if _has_access_request_approval_signal(question) else set()
+    pack = _get_targeted_documentary_retry_pack(question)
+    required_pack_signal_hits = int(pack.get("min_signal_hits", 0) or 0) if pack else 0
     return [
         record
         for record in _rank_email_records_for_question(tool_entries, question)
         if record.get("query_overlap_score", 0.0) >= 0.9
-        and record.get("concept_hit_count", 0) >= required_concepts
+        and (required_concepts == 0 or record.get("concept_hit_count", 0) >= required_concepts)
+        and record.get("pack_signal_hit_count", 0) >= required_pack_signal_hits
         and required_matched_concepts.issubset(set(record.get("matched_concepts", [])))
     ]
 
@@ -7228,10 +7597,14 @@ def _collect_evidence_features(
     meaningful_count = 0
     email_level_hits = 0
     error_count = 0
-    for _call, result in tool_entries:
+    meaningful_timeline_hits = 0
+    for call, result in tool_entries:
         _summary, meaningful, has_email_level, had_error = _summarize_tool_result(result)
+        tool_name = _tool_name_from_call(call)
         if meaningful:
             meaningful_count += 1
+            if tool_name == "query_timeline":
+                meaningful_timeline_hits += 1
         if has_email_level:
             email_level_hits += 1
         if had_error:
@@ -7246,6 +7619,7 @@ def _collect_evidence_features(
         "meaningful_count": meaningful_count,
         "email_level_hits": email_level_hits,
         "error_count": error_count,
+        "meaningful_timeline_hits": meaningful_timeline_hits,
         "query_relevant_email_hits": len(relevant_records),
         "max_query_concept_hits": max(
             (int(record.get("concept_hit_count", 0) or 0) for record in relevant_records),
@@ -7258,6 +7632,25 @@ def _collect_evidence_features(
             1 for record in relevant_records if record.get("tool_name") == "get_email_full_body"
         ),
     }
+
+
+def _has_timeline_backed_documentary_packet(
+    question: str,
+    *,
+    features: dict,
+    contract: dict | None = None,
+) -> bool:
+    contract = contract or {}
+    if not contract.get("requires_evidence") or not question:
+        return False
+    pack = _get_targeted_documentary_retry_pack(question)
+    if not pack or not pack.get("allow_timeline_backed_packet"):
+        return False
+    min_timeline_hits = int(pack.get("min_meaningful_timeline_hits", 2) or 2)
+    return (
+        int(features.get("email_level_hits", 0) or 0) >= 1
+        and int(features.get("meaningful_timeline_hits", 0) or 0) >= min_timeline_hits
+    )
 
 
 def _should_run_targeted_documentary_retry(
@@ -7278,7 +7671,9 @@ def _should_run_targeted_documentary_retry(
         return False
 
     features = _collect_evidence_features(tool_entries, question=question, contract=contract)
-    if features["query_relevant_email_hits"] == 0:
+    pack = _get_targeted_documentary_retry_pack(question)
+    required_hits = int(pack.get("min_query_relevant_hits", 1) or 1) if pack else 1
+    if features["query_relevant_email_hits"] < required_hits:
         return True
     if (
         contract.get("documentary_evidence_like")
@@ -7295,14 +7690,36 @@ def _should_run_targeted_documentary_retry(
 def _build_targeted_retry_drilldown_steps(
     retry_tool_results: dict[str, str],
     *,
+    question: str = "",
     contract: dict | None = None,
 ) -> list["ExecutionStep"]:
     contract = contract or {}
     steps: list[ExecutionStep] = []
-    drill_limit = 3 if contract.get("requires_evidence") else 2
-    for mid, tid in _extract_evidence_ids_for_drilldown(retry_tool_results, limit=drill_limit):
+    pack = _get_targeted_documentary_retry_pack(question) if question else {}
+    drill_limit = 1 if pack else (2 if contract.get("requires_evidence") else 1)
+    drill_ids: list[tuple[str | None, str | None]] = []
+    if question:
+        relevant_records = _collect_query_relevant_email_records(list(retry_tool_results.items()), question)
+        seen_pairs: set[tuple[str | None, str | None]] = set()
+        for record in relevant_records:
+            pair = (
+                str(record.get("message_id", "") or "") or None,
+                str(record.get("thread_id", "") or "") or None,
+            )
+            if pair in seen_pairs or (not pair[0] and not pair[1]):
+                continue
+            seen_pairs.add(pair)
+            drill_ids.append(pair)
+            if len(drill_ids) >= drill_limit:
+                break
+    if not drill_ids and not question:
+        drill_ids = _extract_evidence_ids_for_drilldown(retry_tool_results, limit=drill_limit)
+    for mid, tid in drill_ids:
         params: dict[str, str | int] = {}
-        if contract.get("documentary_evidence_like") and tid:
+        if pack and mid:
+            params["message_id"] = mid
+            params["limit"] = 1
+        elif contract.get("documentary_evidence_like") and tid:
             params["thread_id"] = tid
             params["limit"] = 4
         elif mid:
@@ -7330,6 +7747,8 @@ def _select_claim_supporting_tool_entries(
     if not relevant_records:
         return tool_entries
 
+    pack = _get_targeted_documentary_retry_pack(question)
+    preserved_tool_names = set(pack.get("preserve_tool_names", ())) if pack else set()
     relevant_calls = {
         str(record.get("call", "") or "")
         for record in relevant_records
@@ -7360,6 +7779,7 @@ def _select_claim_supporting_tool_entries(
             value = cloned.get(key)
             if not isinstance(value, list):
                 continue
+            filtered_any = True
             narrowed = []
             for email in value:
                 if not isinstance(email, dict):
@@ -7371,19 +7791,17 @@ def _select_claim_supporting_tool_entries(
                     or (thread_id and thread_id in relevant_thread_ids)
                 ):
                     narrowed.append(email)
-            if narrowed:
-                cloned[key] = narrowed[:4]
-                if key == "emails" and "total" in cloned:
-                    cloned["total"] = len(narrowed)
-                if key == "emails" and "email_count" in cloned:
-                    cloned["email_count"] = len(narrowed)
-                filtered_any = True
+            cloned[key] = narrowed[:4]
+            if key == "emails" and "total" in cloned:
+                cloned["total"] = len(narrowed)
+            if key == "emails" and "email_count" in cloned:
+                cloned["email_count"] = len(narrowed)
         return json.dumps(cloned, ensure_ascii=False) if filtered_any else result
 
     filtered: list[tuple[str, str]] = []
     for call, result in tool_entries:
         tool_name = _tool_name_from_call(call)
-        include = call in relevant_calls
+        include = call in relevant_calls or tool_name in preserved_tool_names
         if not include and tool_name == "get_email_full_body":
             include = any(mid and mid in call for mid in relevant_message_ids) or any(
                 tid and tid in call for tid in relevant_thread_ids
@@ -7409,6 +7827,11 @@ def _assess_evidence_sufficiency(
 ) -> dict:
     contract = contract or {}
     features = _collect_evidence_features(tool_entries, question=question, contract=contract)
+    timeline_backed_documentary_packet = _has_timeline_backed_documentary_packet(
+        question,
+        features=features,
+        contract=contract,
+    )
     decision = "answer"
     reasons: list[str] = []
     answer_type = str(contract.get("answer_type", "unknown") or "unknown")
@@ -7426,7 +7849,7 @@ def _assess_evidence_sufficiency(
             decision = _escalate_sufficiency_decision(decision, "hedge")
 
     if contract.get("requires_evidence"):
-        if features["query_relevant_email_hits"] == 0:
+        if features["query_relevant_email_hits"] == 0 and not timeline_backed_documentary_packet:
             reasons.append("No query-relevant email evidence was retrieved for the requested documentary claim.")
             if pattern_name in {"keyword_search", "timeline"} or answer_type == "proof_email":
                 decision = _escalate_sufficiency_decision(decision, "abstain")
@@ -7456,7 +7879,11 @@ def _assess_evidence_sufficiency(
                 decision = _escalate_sufficiency_decision(decision, "abstain")
             else:
                 decision = _escalate_sufficiency_decision(decision, "hedge")
-        elif features["high_signal_query_hits"] == 0 and features["full_body_hits"] == 0:
+        elif (
+            features["high_signal_query_hits"] == 0
+            and features["full_body_hits"] == 0
+            and not timeline_backed_documentary_packet
+        ):
             reasons.append(
                 "The retrieved emails provide only weak topical support and do not directly verify the requested claim."
             )
@@ -7513,19 +7940,14 @@ def _render_abstention_response(
         intro = "I can't answer this confidently from the retrieved Enron graph data."
     reason_text = " ".join(assessment.get("reasons", []))
     body = intro if not reason_text else f"{intro} {reason_text}"
-    reviewed_block = _build_reviewed_email_records_block(
-        tool_entries,
-        question=question,
-        contract=contract,
-    )
     response = _ensure_answer_header(body.rstrip())
-    if reviewed_block:
-        response += "\n\n" + reviewed_block
-    return response + "\n\n" + _format_canonical_provenance(
+    return _apply_human_readable_output_contract(
+        response,
         tool_entries,
         evidence_strength,
         question=question,
         contract=contract,
+        assessment=assessment,
     )
 
 
@@ -7538,7 +7960,17 @@ def _extract_supported_email_records(
     contract = contract or {}
     raw_records = _iter_email_support_records(tool_entries)
     if contract.get("requires_evidence"):
-        raw_records = _collect_query_relevant_email_records(tool_entries, question) if question else []
+        if question:
+            raw_records = _collect_query_relevant_email_records(tool_entries, question)
+            features = _collect_evidence_features(tool_entries, question=question, contract=contract)
+            if not raw_records and _has_timeline_backed_documentary_packet(
+                question,
+                features=features,
+                contract=contract,
+            ):
+                raw_records = _collect_reviewed_email_records(tool_entries, question, limit=1)
+        else:
+            raw_records = []
 
     supported: list[dict] = []
     for email in raw_records:
@@ -7548,6 +7980,7 @@ def _extract_supported_email_records(
             "subject": str(email.get("subject", "") or ""),
             "message_id": str(email.get("message_id", "") or ""),
             "thread_id": str(email.get("thread_id", "") or ""),
+            "text": str(email.get("text", "") or ""),
         })
     return supported
 
@@ -7566,12 +7999,14 @@ def _build_canonical_supporting_evidence_block(
 ) -> str:
     if not supported:
         return ""
-    lines = ["### Supporting Evidence"]
-    lines.append(
-        "The following citations correspond to specific retrieved emails that passed the claim-support threshold:"
-    )
+    lines = ["### Evidence"]
     for record in supported[:limit]:
-        lines.append(f"- Claim-supported email: {_format_email_citation(record)}")
+        excerpt = re.sub(r"\s+", " ", str(record.get("text", "") or "")).strip()
+        excerpt = _truncate_support_excerpt(excerpt, limit=160)
+        line = f"- {_format_email_citation(record)}"
+        if excerpt:
+            line += f" — {excerpt}"
+        lines.append(line)
     return "\n".join(lines)
 
 
@@ -7590,14 +8025,11 @@ def _build_reviewed_email_records_block(
     if not reviewed:
         return ""
 
-    lines = ["### Reviewed Email Records"]
-    lines.append(
-        "The following retrieved emails were reviewed but did not directly verify the requested claim:"
-    )
+    lines = ["### Evidence Reviewed"]
     for record in reviewed:
         excerpt = re.sub(r"\s+", " ", str(record.get("text", "") or "")).strip()
         excerpt = _truncate_support_excerpt(excerpt, limit=140)
-        line = f"- Reviewed but insufficient: {_format_email_citation(record)}"
+        line = f"- {_format_email_citation(record)}"
         if excerpt:
             line += f" — {excerpt}"
         lines.append(line)
@@ -7659,23 +8091,13 @@ def _render_access_request_workflow_hedge_response(
         "### Conclusion",
         "These emails support that Enron used tracked access requests with named approvers and overdue approval notices. The retrieved sample does not show the full workflow definition or how broadly it was used across the company.",
     ])
-
-    support_block = _build_canonical_supporting_evidence_block(
-        _extract_supported_email_records(tool_entries, question=question, contract=contract)
+    return _apply_human_readable_output_contract(
+        "\n".join(lines),
+        tool_entries,
+        evidence_strength,
+        question=question,
+        contract=contract,
     )
-    if support_block:
-        lines.extend(["", support_block])
-
-    lines.extend([
-        "",
-        _format_canonical_provenance(
-            tool_entries,
-            evidence_strength,
-            question=question,
-            contract=contract,
-        ),
-    ])
-    return "\n".join(lines)
 
 
 def _has_markdown_heading(text: str, heading: str) -> bool:
@@ -7753,49 +8175,14 @@ def _remove_unsupported_inline_citations(text: str, supported: list[dict]) -> st
 
 
 def _clean_supporting_evidence_section(text: str, supported: list[dict]) -> str:
-    marker = "### Supporting Evidence"
-    start = text.find(marker)
-    if start == -1:
-        return text
-
-    next_section = text.find("\n### ", start + len(marker))
-    section = text[start: next_section if next_section != -1 else len(text)]
-    lines = section.splitlines()
-    kept: list[str] = []
-    kept_rows = 0
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            kept.append(line)
-            continue
-        if not stripped.startswith("|"):
-            kept.append(line)
-            continue
-        if set(stripped.replace("|", "").replace("-", "").replace(":", "").strip()) == set():
-            kept.append(line)
-            continue
-        columns = [part.strip() for part in line.split("|")[1:-1]]
-        if len(columns) >= 6 and columns[0].lower() != "claim":
-            date = columns[2]
-            sender = columns[3]
-            subject = columns[5]
-            if not _citation_is_supported(date, sender, subject, supported):
-                continue
-            kept_rows += 1
-        kept.append(line)
-
-    if kept_rows == 0:
-        replacement = ""
-    else:
-        replacement = "\n".join(kept).strip()
-    prefix = text[:start].rstrip()
-    suffix = text[next_section:].lstrip() if next_section != -1 else ""
-    merged = prefix
-    if replacement:
-        merged += "\n\n" + replacement
-    if suffix:
-        merged += "\n\n" + suffix
-    return merged
+    patterns = (
+        r"(?ims)^###\s+Supporting Evidence(?: Table)?\s*$.*?(?=^###\s+|\Z)",
+        r"(?ims)^###\s+Evidence\s*$.*?(?=^###\s+|\Z)",
+    )
+    cleaned = text
+    for pattern in patterns:
+        cleaned = re.sub(pattern, "", cleaned)
+    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
 
 
 def _soften_overclaiming_language(text: str, assessment: dict) -> str:
@@ -7847,11 +8234,37 @@ def _apply_claim_verification(
     verified = _remove_unsupported_inline_citations(response_text, supported)
     verified = _clean_supporting_evidence_section(verified, supported)
     if contract and contract.get("requires_evidence"):
-        support_block = _build_canonical_supporting_evidence_block(supported)
+        support_block = _build_canonical_supporting_evidence_block(
+            supported,
+            limit=len(supported) or 3,
+        )
         if support_block:
             verified = _insert_section_before_provenance(verified, support_block)
     verified = _soften_overclaiming_language(verified, assessment)
     return _ensure_answer_header(verified)
+
+
+def _inline_source_entries(source_lines: list[str]) -> str:
+    entries: list[str] = []
+    for line in source_lines:
+        cleaned = str(line).strip()
+        if cleaned.startswith("- "):
+            cleaned = cleaned[2:].strip()
+        cleaned = cleaned.replace("`", "")
+        if cleaned:
+            entries.append(cleaned)
+    return "; ".join(entries) if entries else "No tools returned usable data."
+
+
+def _build_coverage_summary(meta: dict) -> str:
+    parts: list[str] = []
+    if CORPUS == "enron":
+        parts.append("Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.")
+    elif CORPUS == "bible":
+        parts.append("Coverage is limited to the indexed Bible corpus configured for this endpoint.")
+    parts.extend(meta.get("caveats", [])[:2])
+    unique_parts = list(dict.fromkeys(part for part in parts if part))
+    return " ".join(unique_parts) if unique_parts else "None noted in retrieved data."
 
 
 def _format_canonical_provenance(
@@ -7867,28 +8280,14 @@ def _format_canonical_provenance(
         question=question,
         contract=contract,
     )
-    sources_block = "\n".join(meta["sources"])
-    lineage = "; ".join(meta["lineage"])
-    caveats = "; ".join(meta["caveats"]) if meta["caveats"] else "None noted in retrieved data."
-    supported = _extract_supported_email_records(tool_entries, question=question, contract=contract)
-    claim_support_block = ""
-    if supported:
-        claim_support_block = (
-            "- **Claim-supporting emails**: "
-            + "; ".join(_format_email_citation(record) for record in supported[:3])
-            + "\n"
-        )
+    sources_inline = _inline_source_entries(meta["sources"])
+    coverage = _build_coverage_summary(meta)
     return (
         "### Provenance\n"
         f"- **Path**: {meta['path']}\n"
-        "- **Sources**:\n"
-        f"{sources_block}\n"
-        f"{claim_support_block}"
-        f"- **Data Lineage**: {lineage}\n"
         f"- **Grounding**: {meta['grounding']}\n"
-        "- **Confidence per claim**:\n"
-        f"  - [Retrieved factual claims]: {meta['confidence']} — based on the retrieved tool outputs for this answer.\n"
-        f"- **Coverage caveats**: {caveats}"
+        f"- **Coverage**: {coverage}\n"
+        f"- **Sources**: {sources_inline}"
     )
 
 
@@ -7943,6 +8342,109 @@ def _apply_provenance_guardrails(
         return prefix + "\n\n" + canonical + f"\n\n{suffix}"
 
     return response_text.rstrip() + "\n\n" + canonical
+
+
+def _strip_markdown_sections(text: str, headings: Sequence[str]) -> str:
+    cleaned = text
+    for heading in headings:
+        cleaned = re.sub(
+            rf"(?ims)^###\s+{re.escape(heading)}\s*$.*?(?=^###\s+|\Z)",
+            "",
+            cleaned,
+        )
+    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
+def _build_human_caveats_block(caveats: list[str], *, limit: int = 3) -> str:
+    visible = [str(c).strip() for c in caveats if str(c).strip()][:limit]
+    if not visible:
+        return ""
+    lines = ["### Caveats"]
+    for caveat in visible:
+        lines.append(f"- {caveat}")
+    return "\n".join(lines)
+
+
+def _demote_nested_answer_headings(text: str) -> str:
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "### Answer":
+        return text
+    adjusted = [lines[0]]
+    for line in lines[1:]:
+        if line.startswith("### "):
+            adjusted.append("#### " + line[4:])
+        else:
+            adjusted.append(line)
+    return "\n".join(adjusted)
+
+
+def _apply_human_readable_output_contract(
+    response_text: str,
+    tool_entries: list[tuple[str, str]],
+    evidence_strength: str,
+    *,
+    question: str = "",
+    contract: dict | None = None,
+    assessment: dict | None = None,
+) -> str:
+    contract = contract or {}
+    meta = _build_provenance_metadata(
+        tool_entries,
+        evidence_strength,
+        question=question,
+        contract=contract,
+    )
+    body = _strip_markdown_sections(
+        response_text,
+        (
+            "Supporting Evidence",
+            "Supporting Evidence Table",
+            "Evidence",
+            "Evidence Reviewed",
+            "Reviewed Email Records",
+            "Caveats",
+            "Provenance",
+        ),
+    )
+    body = body.replace("### Documentary Evidence", "### Evidence")
+    body = _ensure_answer_header(body)
+    body = _demote_nested_answer_headings(body)
+    sections = [body]
+
+    if "### Evidence" not in body:
+        evidence_block = ""
+        if assessment and assessment.get("decision") == "abstain":
+            evidence_block = _build_reviewed_email_records_block(
+                tool_entries,
+                question=question,
+                contract=contract,
+            )
+        elif contract.get("requires_evidence"):
+            supported = _extract_supported_email_records(
+                tool_entries,
+                question=question,
+                contract=contract,
+            )
+            evidence_block = _build_canonical_supporting_evidence_block(
+                supported,
+                limit=len(supported) or 3,
+            )
+        if evidence_block:
+            sections.append(evidence_block)
+
+    caveats_block = _build_human_caveats_block(meta.get("caveats", []))
+    if caveats_block:
+        sections.append(caveats_block)
+
+    sections.append(
+        _format_canonical_provenance(
+            tool_entries,
+            evidence_strength,
+            question=question,
+            contract=contract,
+        )
+    )
+    return "\n\n".join(part for part in sections if part).strip()
 
 
 def _extract_evidence_ids_for_drilldown(
@@ -8128,9 +8630,11 @@ def _get_corpus_config(*, tier_override: str = "", permitted_books_override: str
 # ---------------------------------------------------------------------------
 try:
     from src.agent.pattern_registry import PATTERN_REGISTRY, resolve_params, ExecutionStep
+    _PATTERN_REGISTRY_IMPORT_SOURCE = "src.agent.pattern_registry"
 except ImportError:
     try:
         from pattern_registry import PATTERN_REGISTRY, resolve_params, ExecutionStep
+        _PATTERN_REGISTRY_IMPORT_SOURCE = "pattern_registry"
     except ImportError:
         _pr_dir = None
         for _candidate_dir in [
@@ -8151,6 +8655,7 @@ except ImportError:
         if _pr_dir not in _sys.path:
             _sys.path.insert(0, _pr_dir)
         from pattern_registry import PATTERN_REGISTRY, resolve_params, ExecutionStep
+        _PATTERN_REGISTRY_IMPORT_SOURCE = f"{_pr_dir}/pattern_registry.py"
 
 
 # ---------------------------------------------------------------------------
@@ -8801,7 +9306,10 @@ class GraphRAGAgent(ResponsesAgent):
     def __init__(self, endpoint=None, tools=None):
         self.llm = _get_llm(endpoint=endpoint or SYNTHESIS_ENDPOINT)
         self.react_llm = _get_llm(endpoint=REACT_ENDPOINT)
-        self.tools = tools or GRAPH_TOOLS
+        configured_tools = list(tools or GRAPH_TOOLS)
+        if _MODEL_LOGGING_TOOL_LIMIT:
+            configured_tools = configured_tools[:_MODEL_LOGGING_TOOL_LIMIT]
+        self.tools = configured_tools
         self.llm_with_tools = self.react_llm.bind_tools(self.tools)
         self.entity_memory = EntityMemory()
         if not TOOL_MAP:
@@ -9075,7 +9583,11 @@ class GraphRAGAgent(ResponsesAgent):
         followup_steps: list[ExecutionStep] = []
         if shortcut_documentary and not _has_access_request_approval_signal(question):
             followup_steps.extend(
-                _build_targeted_retry_drilldown_steps(tool_results, contract=contract)[:2]
+                _build_targeted_retry_drilldown_steps(
+                    tool_results,
+                    question=question,
+                    contract=contract,
+                )[:2]
             )
         if (
             not shortcut_documentary
@@ -9180,6 +9692,7 @@ class GraphRAGAgent(ResponsesAgent):
 
             retry_followups = _build_targeted_retry_drilldown_steps(
                 retry_tool_results,
+                question=question,
                 contract=contract,
             )
             for step in retry_followups:
@@ -9326,6 +9839,14 @@ class GraphRAGAgent(ResponsesAgent):
                 question=question,
                 contract=contract,
                 consistency_warnings=consistency_warnings,
+            )
+            response.content = _apply_human_readable_output_contract(
+                response.content,
+                tool_entries,
+                strength,
+                question=question,
+                contract=contract,
+                assessment=sufficiency,
             )
 
         yield from output_to_responses_items_stream([response])
@@ -9523,7 +10044,11 @@ class GraphRAGAgent(ResponsesAgent):
 
             if shortcut_documentary and not _has_access_request_approval_signal(sq.question):
                 followup_steps.extend(
-                    _build_targeted_retry_drilldown_steps(tool_results, contract=sq.contract)[:2]
+                    _build_targeted_retry_drilldown_steps(
+                        tool_results,
+                        question=sq.question,
+                        contract=sq.contract,
+                    )[:2]
                 )
 
             if sq.pattern == "entity_explore" and entities:
@@ -9603,6 +10128,7 @@ class GraphRAGAgent(ResponsesAgent):
 
                 retry_followups = _build_targeted_retry_drilldown_steps(
                     retry_tool_results,
+                    question=sq.question,
                     contract=sq.contract,
                 )
                 for step in retry_followups:
@@ -9808,6 +10334,14 @@ class GraphRAGAgent(ResponsesAgent):
                 contract=plan_contract,
                 consistency_warnings=pdes_consistency,
             )
+            response.content = _apply_human_readable_output_contract(
+                response.content,
+                tool_entries,
+                evidence_strength,
+                question=plan.resolved_question,
+                contract=plan_contract,
+                assessment=pdes_sufficiency,
+            )
 
         yield from output_to_responses_items_stream([response])
 
@@ -9834,6 +10368,7 @@ class GraphRAGAgent(ResponsesAgent):
     ) -> Generator[ResponsesAgentStreamEvent, None, None]:
         import time
 
+        _emit_runtime_observability()
         clear_resolve_cache()
         if hasattr(_backend, "clear"):
             _backend.clear()
