@@ -14,7 +14,7 @@
 # COMMAND ----------
 
 # DBTITLE 1,Install Dependencies
-# MAGIC %pip install -U mlflow>=3.0 databricks-langchain langgraph>=0.3.4 databricks-agents pydantic databricks-mcp --quiet
+# MAGIC %pip install -U mlflow>=3.0 databricks-langchain langgraph>=0.3.4 databricks-agents pydantic databricks-mcp "psycopg[binary,pool]>=3.0" --quiet
 # MAGIC dbutils.library.restartPython()
 
 # COMMAND ----------

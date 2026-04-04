@@ -56,7 +56,18 @@ def _mock_imports(monkeypatch):
     lc_messages.AIMessage = type("AIMessage", (), {})
 
     lc_tools = sys.modules["langchain_core.tools"]
-    lc_tools.tool = lambda f: f
+
+    def _mock_tool(f=None, **kwargs):
+        def _decorate(inner):
+            inner.name = kwargs.get("name", inner.__name__)
+            inner.invoke = lambda params=None, _inner=inner: _inner(**(params or {}))
+            return inner
+
+        if f is None:
+            return _decorate
+        return _decorate(f)
+
+    lc_tools.tool = _mock_tool
 
     typing_mod = sys.modules["langgraph.graph.message"]
     typing_mod.add_messages = None

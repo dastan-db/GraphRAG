@@ -9,6 +9,7 @@ Prerequisites:
 Usage:
     pytest tests/test_mcp_server.py -v
 """
+import asyncio
 import os
 import sys
 from unittest.mock import MagicMock, patch
@@ -27,6 +28,10 @@ def _fastmcp_available():
         return True
     except ImportError:
         return False
+
+
+def _tool_names(mcp_module) -> list[str]:
+    return [tool.name for tool in asyncio.run(mcp_module.mcp.list_tools())]
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -57,12 +62,12 @@ class TestMcpServerImport:
         assert mcp_module.mcp is not None
 
     def test_all_expected_tools_registered(self, mcp_module):
-        tool_names = list(mcp_module.mcp._tool_manager._tools.keys())
+        tool_names = _tool_names(mcp_module)
         for expected in EXPECTED_TOOLS:
             assert expected in tool_names, f"Tool '{expected}' not registered. Found: {tool_names}"
 
     def test_tool_count(self, mcp_module):
-        tool_names = list(mcp_module.mcp._tool_manager._tools.keys())
+        tool_names = _tool_names(mcp_module)
         assert len(tool_names) >= len(EXPECTED_TOOLS), (
             f"Expected at least {len(EXPECTED_TOOLS)} tools, got {len(tool_names)}"
         )

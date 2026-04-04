@@ -30,6 +30,19 @@ DEFAULT_RUNTIME_BASELINES = {
             "score_delta_tolerance": 0.10,
             "notes": "Deployment parity gate relative to the in-process local runtime.",
         },
+        "genie_quantitative_iteration0": {
+            "slice": "governed_genie_iteration0",
+            "question_count": 6,
+            "artifact_path": "src/evaluation/baselines/genie_iteration0_baseline.json",
+            "sql_correctness_current": 0.50,
+            "benchmark_pass_rate_current": 0.50,
+            "failure_rate_current": 0.50,
+            "target_sql_correctness": 0.95,
+            "target_benchmark_pass_rate": 0.90,
+            "target_failure_rate_max": 0.02,
+            "target_latency_p95_multiplier_max": 1.10,
+            "notes": "Iteration 0 frozen benchmark and scorecard for the governed Enron quantitative/Genie slice.",
+        },
     },
     "bible": {
         "local_quality_gate": {

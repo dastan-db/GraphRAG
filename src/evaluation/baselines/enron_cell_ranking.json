@@ -1,0 +1,183 @@
+{
+  "source_scorecard": "src/evaluation/baselines/enron_scored_scorecard.json",
+  "ranking": [
+    {
+      "rank": 1,
+      "attorney_category": "timeline_reconstruction",
+      "architecture_primary": "timeline_retrieval",
+      "quality_score": 0.479,
+      "overall_score": 0.614,
+      "coverage_score": 1.0,
+      "score_std": 0.11,
+      "scored_questions": 12,
+      "thin_splits": [
+        "holdout"
+      ],
+      "weakest_questions": [
+        "What sequence of EnronOnline executive summaries did Leonardo Pacheco send Kenneth Lay in mid-December 2000?",
+        "What sequence of communications shows Enron moving from late-October crisis monitoring to bankruptcy-week employee crisis notices?",
+        "What sequence of EnronOnline executive summaries did Leonardo Pacheco send Kenneth Lay from late November into early December 2000?"
+      ]
+    },
+    {
+      "rank": 2,
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "quality_score": 0.538,
+      "overall_score": 0.587,
+      "coverage_score": 1.0,
+      "score_std": 0.128,
+      "scored_questions": 16,
+      "thin_splits": [],
+      "weakest_questions": [
+        "What evidence in the Enron email corpus shows that access governance was formal, role-based, and increasingly restrictive as the company collapsed?",
+        "What was the reporting chain from Andrew Fastow to Kenneth Lay in 2001?",
+        "How did SEC scrutiny, document destruction, and FBI involvement combine into Enron's legal crisis in the local evidence?"
+      ]
+    },
+    {
+      "rank": 3,
+      "attorney_category": "topic_investigation",
+      "architecture_primary": "topic_keyword_retrieval",
+      "quality_score": 0.626,
+      "overall_score": 0.677,
+      "coverage_score": 1.0,
+      "score_std": 0.077,
+      "scored_questions": 14,
+      "thin_splits": [],
+      "weakest_questions": [
+        "What themes dominated Enron employee communications in the days surrounding the bankruptcy filing in late November and early December 2001?",
+        "What topics recur in the EnronOnline executive summaries that Leonardo Pacheco sent to Kenneth Lay?",
+        "What trading-performance metrics dominate Leonardo Pacheco's EnronOnline executive summaries to Kenneth Lay in December 2000?"
+      ]
+    },
+    {
+      "rank": 4,
+      "attorney_category": "relationship_analysis",
+      "architecture_primary": "relationship_path_retrieval",
+      "quality_score": 0.693,
+      "overall_score": 0.697,
+      "coverage_score": 1.0,
+      "score_std": 0.096,
+      "scored_questions": 15,
+      "thin_splits": [],
+      "weakest_questions": [
+        "What path connected Sherron Watkins to Greg Whalley in Enron's 2001 crisis leadership communications?",
+        "What path connected Sherron Watkins to James Derrick after her August 2001 warning reached Kenneth Lay?",
+        "What path connected Enron Broadband Services to Jeff Skilling in the local hierarchy?"
+      ]
+    },
+    {
+      "rank": 5,
+      "attorney_category": "documentary_evidence",
+      "architecture_primary": "evidence_drilldown",
+      "quality_score": 0.769,
+      "overall_score": 0.768,
+      "coverage_score": 1.0,
+      "score_std": 0.057,
+      "scored_questions": 15,
+      "thin_splits": [],
+      "weakest_questions": [
+        "What documentary evidence shows Enron was routing sensitive audit materials to Arthur Andersen through a controlled folder rather than ordinary email?",
+        "What documentary evidence in the local Enron corpus shows concern over LJM-related valuations and off-balance-sheet transactions?",
+        "What documentary evidence shows that Kenneth Rice held a top leadership role in Enron Broadband Services?"
+      ]
+    },
+    {
+      "rank": 6,
+      "attorney_category": "person_profile",
+      "architecture_primary": "entity_summary_retrieval",
+      "quality_score": 0.851,
+      "overall_score": 0.731,
+      "coverage_score": 1.0,
+      "score_std": 0.136,
+      "scored_questions": 6,
+      "thin_splits": [
+        "train",
+        "holdout"
+      ],
+      "weakest_questions": [
+        "Who was Joe Hirko in Enron Broadband Services, and what role did he play?",
+        "Who was Kevin Hannon in Enron Broadband Services, and what role did he play?",
+        "Who was Richard Causey in Enron's finance structure, and how did he fit into the company's senior leadership?"
+      ]
+    },
+    {
+      "rank": 7,
+      "attorney_category": "quantitative_analysis",
+      "architecture_primary": "analytics_sql_genie",
+      "quality_score": 0.854,
+      "overall_score": 0.767,
+      "coverage_score": 1.0,
+      "score_std": 0.115,
+      "scored_questions": 6,
+      "thin_splits": [
+        "test",
+        "holdout"
+      ],
+      "weakest_questions": [
+        "How did the direct Pacheco-to-Lay message count change from the week beginning December 4, 2000 to the week beginning December 11, 2000?",
+        "How many direct Pacheco-to-Lay messages are recorded for the week beginning June 19, 2000 in the local communication dyad?",
+        "How many direct Pacheco-to-Lay messages are recorded for the week beginning June 26, 2000 in the local communication dyad?"
+      ]
+    },
+    {
+      "rank": 8,
+      "attorney_category": "org_structure",
+      "architecture_primary": "org_hierarchy_retrieval",
+      "quality_score": null,
+      "overall_score": 0.613,
+      "coverage_score": 0.667,
+      "score_std": 0.173,
+      "scored_questions": 4,
+      "thin_splits": [
+        "train",
+        "test",
+        "holdout"
+      ],
+      "weakest_questions": [
+        "Which executives reported directly to Jeff Skilling while he was CEO in 2001?",
+        "Which executives are explicitly shown as reporting directly to Kenneth Lay before Jeff Skilling became CEO in February 2001?",
+        "Which executives are explicitly shown as reporting directly to Kenneth Lay after Jeff McMahon became CFO in late October 2001?"
+      ]
+    },
+    {
+      "rank": 9,
+      "attorney_category": "corroboration_challenge",
+      "architecture_primary": "entity_resolution",
+      "quality_score": null,
+      "overall_score": 0.707,
+      "coverage_score": 0.556,
+      "score_std": 0.077,
+      "scored_questions": 3,
+      "thin_splits": [
+        "train",
+        "test",
+        "holdout"
+      ],
+      "weakest_questions": [
+        "How do the March 2001 leadership emails and the hierarchy rows corroborate that 'Rick Causey' is the same executive as Richard Causey in Enron's finance hierarchy?",
+        "How do the October 22 valuation warning and the November 8 restatement message corroborate that the LJM transactions under review were the same off-balance-sheet problem?",
+        "How do the March and October 2001 records corroborate that Jeff McMahon the treasurer and Jeff McMahon the crisis-era CFO are the same executive?"
+      ]
+    },
+    {
+      "rank": 10,
+      "attorney_category": "access_control_probe",
+      "architecture_primary": "access_control_isolation",
+      "quality_score": null,
+      "overall_score": 0.929,
+      "coverage_score": 0.333,
+      "score_std": 0.0,
+      "scored_questions": 1,
+      "thin_splits": [
+        "train",
+        "test",
+        "holdout"
+      ],
+      "weakest_questions": [
+        "According to the ISDA Master Agreement Data Base email, who had edit access, who was limited to view-only access, and what information was restricted?"
+      ]
+    }
+  ]
+}

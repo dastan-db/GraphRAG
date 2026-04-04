@@ -12,12 +12,21 @@ from dataclasses import dataclass, field
 _USE_LAKEBASE = os.getenv("GRAPHRAG_DATA_BACKEND", "warehouse").lower() == "lakebase"
 from typing import Any
 
-from databricks import sql as dbsql
 from databricks.sdk.core import Config
 
 _conn: Any | None = None
 _conn_created: float = 0
 _CONN_TTL = 1800  # refresh SQL connection every 30 min
+
+
+def _get_dbsql_module():
+    try:
+        import databricks.sql as dbsql
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "databricks-sql-connector is required for warehouse-backed graph queries."
+        ) from exc
+    return dbsql
 
 
 def _get_connection():
@@ -33,6 +42,7 @@ def _get_connection():
             pass
     cfg = Config()
     warehouse_id = os.getenv("DATABRICKS_WAREHOUSE_ID", "")
+    dbsql = _get_dbsql_module()
     _conn = dbsql.connect(
         server_hostname=cfg.host,
         http_path=f"/sql/1.0/warehouses/{warehouse_id}",

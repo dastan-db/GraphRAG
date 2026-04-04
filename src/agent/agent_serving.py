@@ -3,13 +3,17 @@ Self-contained GraphRAG agent for Model Serving.
 Consolidates config, tools, and agent into a single importable module
 so MLflow can load it without notebook %run dependencies.
 """
+from calendar import monthrange
 import json
 import logging
 import os
 import re
+import time
 import uuid as _uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
 
 import mlflow
 from mlflow.pyfunc import ResponsesAgent
@@ -28,8 +32,9 @@ from langchain_core.runnables import RunnableLambda
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt.tool_node import ToolNode
-from typing import Annotated, Generator, Protocol, Sequence, TypedDict
+from typing import Annotated, Any, Generator, Protocol, Sequence, TypedDict
 
+from src.agent.enron_promotion import resolve_lakebase_username
 from src.runtime.analytics_sql import get_enron_analytics_objects
 from src.runtime.router_assets import load_router_case_asset
 
@@ -71,6 +76,9 @@ LLM_ENDPOINT = os.environ.get("GRAPHRAG_LLM_ENDPOINT", "databricks-llama-4-maver
 SMALL_LLM_ENDPOINT = os.environ.get("GRAPHRAG_SMALL_LLM_ENDPOINT", "databricks-meta-llama-3-1-8b-instruct")
 SYNTHESIS_ENDPOINT = os.environ.get("GRAPHRAG_SYNTHESIS_ENDPOINT", "databricks-llama-4-maverick")
 REACT_ENDPOINT = os.environ.get("GRAPHRAG_REACT_ENDPOINT", "databricks-llama-4-maverick")
+LLM_RETRY_ATTEMPTS = int(os.environ.get("GRAPHRAG_LLM_RETRY_ATTEMPTS", "4"))
+LLM_RETRY_INITIAL_BACKOFF_S = float(os.environ.get("GRAPHRAG_LLM_RETRY_INITIAL_BACKOFF_S", "2.0"))
+LLM_RETRY_BACKOFF_MULTIPLIER = float(os.environ.get("GRAPHRAG_LLM_RETRY_BACKOFF_MULTIPLIER", "2.0"))
 
 ENTITIES_TABLE = f"{CATALOG}.{SCHEMA}.entities"
 RELATIONSHIPS_TABLE = f"{CATALOG}.{SCHEMA}.relationships"
@@ -110,6 +118,43 @@ ENRON_ORG_HIERARCHY_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.org_hierarchy"
 ENRON_ORG_HIERARCHY_EVIDENCE_TABLE = f"{CATALOG}.{ENRON_SCHEMA}.org_hierarchy_evidence"
 
 ACCESS_TIER = os.environ.get("GRAPHRAG_ACCESS_TIER", "")
+_MODULE_PATH = Path(__file__).resolve()
+_MODULE_PARENTS = _MODULE_PATH.parents
+_PROJECT_ROOT = (
+    _MODULE_PARENTS[2]
+    if len(_MODULE_PARENTS) > 2
+    else _MODULE_PATH.parent
+)
+
+
+def _discover_default_wave1_gate_bundle_path() -> Path:
+    bundle_rel = Path("evaluation") / "baselines" / "genie_iteration0_baseline.json"
+    module_dir = _MODULE_PATH.parent
+    candidate_bases = [
+        module_dir.parent,
+        module_dir,
+        module_dir / "code" / "src",
+        module_dir.parent / "code" / "src",
+    ]
+    seen: set[str] = set()
+    fallback = (candidate_bases[0] / bundle_rel).resolve()
+    for base in candidate_bases:
+        candidate = (base / bundle_rel).resolve()
+        candidate_key = str(candidate)
+        if candidate_key in seen:
+            continue
+        seen.add(candidate_key)
+        if candidate.exists():
+            return candidate
+    return fallback
+
+
+_DEFAULT_WAVE1_GATE_BUNDLE_PATH = _discover_default_wave1_gate_bundle_path()
+_WAVE1_GATE_CACHE: dict[str, Any] = {
+    "path": "",
+    "mtime_ns": None,
+    "payload": {},
+}
 
 
 def _default_local_db_path(corpus: str) -> str:
@@ -199,6 +244,17 @@ def _resolve_backend_type() -> str:
         or os.environ.get("GRAPHRAG_DATA_BACKEND")
         or "lakebase"
     ).strip().lower()
+
+
+def _resolve_lakebase_application_name() -> str:
+    """Return a Postgres-safe application_name for Lakebase connections."""
+    raw_value = (
+        os.environ.get("GRAPHRAG_LAKEBASE_APPLICATION_NAME")
+        or os.environ.get("LAKEBASE_APPLICATION_NAME")
+        or f"graphrag-{CORPUS}-agent-serving"
+    )
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(raw_value)).strip("-.")
+    return (cleaned or "graphrag-agent-serving")[:63]
 
 
 BACKEND_TYPE = _resolve_backend_type()
@@ -500,11 +556,18 @@ class LakebaseBackend:
             self._host = host
 
         cred = w.postgres.generate_database_credential(endpoint=self._endpoint)
-        username = w.current_user.me().user_name
+        username = resolve_lakebase_username(
+            cred.token,
+            workspace_user_name=w.current_user.me().user_name,
+        )
+        if not username:
+            raise RuntimeError("Lakebase credential did not yield a usable username.")
+        application_name = _resolve_lakebase_application_name()
 
         return (
             f"host={host} dbname={self._dbname} "
-            f"user={username} password={cred.token} sslmode=require"
+            f"user={username} password={cred.token} sslmode=require "
+            f"application_name={application_name}"
         )
 
     def _get_pool(self):
@@ -615,6 +678,7 @@ def _runtime_config_tags() -> dict[str, str]:
         "runtime_backend": BACKEND_TYPE,
         "runtime_backend_impl": type(inner_backend).__name__,
         "runtime_lakebase_endpoint": os.environ.get("LAKEBASE_ENDPOINT", ""),
+        "runtime_lakebase_application_name": _resolve_lakebase_application_name(),
         "runtime_llm_provider": LLM_PROVIDER,
         "runtime_llm_endpoint": LLM_ENDPOINT,
         "runtime_synthesis_endpoint": SYNTHESIS_ENDPOINT,
@@ -634,12 +698,13 @@ def _emit_runtime_observability() -> None:
     except Exception:
         pass
     log.info(
-        "Runtime config | corpus=%s backend=%s backend_impl=%s lakebase=%s llm_provider=%s "
+        "Runtime config | corpus=%s backend=%s backend_impl=%s lakebase=%s lakebase_app=%s llm_provider=%s "
         "llm=%s router_source=%s router_cases=%s pattern_registry=%s",
         tags["runtime_corpus"],
         tags["runtime_backend"],
         tags["runtime_backend_impl"],
         tags["runtime_lakebase_endpoint"] or "-",
+        tags["runtime_lakebase_application_name"] or "-",
         tags["runtime_llm_provider"],
         tags["runtime_llm_endpoint"],
         tags["runtime_router_cases_source"],
@@ -874,10 +939,61 @@ def _slugify(name: str) -> str:
     return re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')
 
 
+def _is_transient_llm_error(exc: Exception) -> bool:
+    text = str(exc)
+    markers = (
+        "ratelimiterror",
+        "request_limit_exceeded",
+        "429",
+        "temporarily unavailable",
+        "timed out",
+        "timeout",
+        "connection reset",
+        "connection aborted",
+    )
+    lowered = text.lower()
+    return any(marker in lowered for marker in markers)
+
+
+def _invoke_llm_with_retry(invoke_fn, *, purpose: str):
+    attempts = max(1, LLM_RETRY_ATTEMPTS)
+    backoff_s = max(0.0, LLM_RETRY_INITIAL_BACKOFF_S)
+    for attempt in range(1, attempts + 1):
+        try:
+            return invoke_fn()
+        except Exception as exc:
+            if not _is_transient_llm_error(exc) or attempt >= attempts:
+                raise
+            log.warning(
+                "%s hit a transient LLM error on attempt %d/%d: %s",
+                purpose,
+                attempt,
+                attempts,
+                exc,
+            )
+            if backoff_s > 0:
+                time.sleep(backoff_s)
+                backoff_s *= max(1.0, LLM_RETRY_BACKOFF_MULTIPLIER)
+
+
+def _build_runtime_limit_assessment(assessment: dict, exc: Exception) -> dict:
+    updated = dict(assessment or {})
+    reasons = list(updated.get("reasons", []))
+    reasons.append(
+        "The synthesis model was temporarily rate limited while composing the final answer, so the system is abstaining rather than fabricating or partially synthesizing unsupported claims."
+    )
+    updated["decision"] = "abstain"
+    updated["reasons"] = list(dict.fromkeys(reasons))
+    return updated
+
+
 def extract_query_entities(question: str) -> list[dict]:
     """Call the small LLM to extract entity mentions from a user question."""
     llm = _get_llm(endpoint=SMALL_LLM_ENDPOINT, temperature=0.0, max_tokens=512)
-    response = llm.invoke(QUERY_ENTITY_PROMPT + question)
+    response = _invoke_llm_with_retry(
+        lambda: llm.invoke(QUERY_ENTITY_PROMPT + question),
+        purpose="entity extraction",
+    )
     text = response.content.strip()
 
     if text.startswith("```"):
@@ -920,7 +1036,10 @@ def classify_and_extract(
         }
 
     llm = _get_llm(endpoint=SMALL_LLM_ENDPOINT, temperature=0.0, max_tokens=512)
-    response = llm.invoke(CLASSIFY_AND_EXTRACT_PROMPT + question)
+    response = _invoke_llm_with_retry(
+        lambda: llm.invoke(CLASSIFY_AND_EXTRACT_PROMPT + question),
+        purpose="question classification",
+    )
     text = response.content.strip()
 
     if text.startswith("```"):
@@ -933,6 +1052,8 @@ def classify_and_extract(
             entities = result.get("entities", [])
             if isinstance(entities, list):
                 entities = [e for e in entities if isinstance(e, dict) and "name" in e]
+            contract = _extract_answer_contract(routing_question, entities)
+            routing_hint = _get_case_based_pattern_hint(routing_question, contract)
             base = {
                 "pattern": result.get("pattern", "general"),
                 "confidence": float(result.get("confidence", 0.0)),
@@ -945,6 +1066,8 @@ def classify_and_extract(
         log.warning("Failed to parse classify_and_extract response: %s", text)
 
     entities = extract_query_entities(question)
+    contract = _extract_answer_contract(routing_question, entities)
+    routing_hint = _get_case_based_pattern_hint(routing_question, contract)
     return _apply_case_router_hint(
         routing_question,
         {
@@ -969,6 +1092,13 @@ _TEMPORAL_DATE_RE = re.compile(
     r"(?:(?:early|mid|late)\s+)?"
     r"(?:(?P<month>January|February|March|April|May|June|July|August|"
     r"September|October|November|December)\s+)?(?P<year>(?:19|20)\d{2})",
+    re.IGNORECASE,
+)
+_EXACT_TEMPORAL_DATE_RE = re.compile(
+    r"(?P<month>January|February|March|April|May|June|July|August|"
+    r"September|October|November|December)\s+"
+    r"(?P<day>\d{1,2}),\s*"
+    r"(?P<year>(?:19|20)\d{2})",
     re.IGNORECASE,
 )
 
@@ -1023,6 +1153,28 @@ def _prioritize_email_results(tool_results: dict, metadata_cap: int = 2000) -> d
     return dict(email_items + core_items + metadata_items)
 
 
+def _prioritize_entity_pair_results(tool_results: dict) -> dict:
+    """Surface path and hierarchy evidence before bulky email payloads."""
+    priority = {
+        "trace_path": 0,
+        "query_org_hierarchy": 1,
+        "get_hierarchy_evidence": 2,
+        "find_connections": 3,
+        "get_relationship_evidence": 4,
+        "get_emails_between": 5,
+        "get_dyad_topics": 6,
+        "find_top_contacts": 7,
+    }
+    ordered = sorted(
+        tool_results.items(),
+        key=lambda item: (
+            priority.get(item[0].split("__")[0].split("(")[0].strip(), 99),
+            item[0],
+        ),
+    )
+    return dict(ordered)
+
+
 def _extract_temporal_metadata(question: str) -> dict:
     """Parse date references from a question to build date_from/date_to filters.
 
@@ -1031,6 +1183,81 @@ def _extract_temporal_metadata(question: str) -> dict:
     2. Event references: "after Skilling resigned", "between SEC inquiry and bankruptcy"
        Uses ENRON_EVENT_DATES for event-to-date resolution.
     """
+    exact_dates = []
+    for match in _EXACT_TEMPORAL_DATE_RE.finditer(question or ""):
+        month = match.group("month")
+        day = match.group("day")
+        year = match.group("year")
+        try:
+            exact_dates.append(
+                datetime.strptime(f"{month} {day} {year}", "%B %d %Y").date().isoformat()
+            )
+        except ValueError:
+            continue
+    exact_dates = sorted(dict.fromkeys(exact_dates))
+    if exact_dates:
+        if len(exact_dates) == 1:
+            return {"date_from": exact_dates[0], "date_to": exact_dates[0]}
+        return {"date_from": exact_dates[0], "date_to": exact_dates[-1]}
+
+    event_window = _resolve_event_dates(question)
+
+    qualified_matches = list(
+        re.finditer(
+            r"\b(?P<qualifier>early|mid|late)[-\s]+(?P<month>"
+            r"January|February|March|April|May|June|July|August|September|October|November|December)"
+            r"(?:\s+(?P<year>\d{4}))?",
+            question or "",
+            flags=re.IGNORECASE,
+        )
+    )
+    if qualified_matches:
+        fallback_years = sorted(
+            {
+                match.group("year")
+                for match in _TEMPORAL_DATE_RE.finditer(question or "")
+                if match.group("year")
+            }
+        )
+        if len(fallback_years) == 1:
+            default_year = fallback_years[0]
+        elif event_window.get("date_from"):
+            default_year = event_window["date_from"][:4]
+        else:
+            default_year = None
+        qualified_ranges: list[tuple[str, str]] = []
+        for match in qualified_matches:
+            qualifier = (match.group("qualifier") or "").lower()
+            month_name = (match.group("month") or "").lower()
+            year = match.group("year") or default_year
+            if not year or month_name not in _MONTH_MAP:
+                continue
+            month_num = int(_MONTH_MAP[month_name])
+            if qualifier == "early":
+                day_from, day_to = 1, 10
+            elif qualifier == "mid":
+                day_from, day_to = 11, 20
+            else:
+                day_from = 21
+                day_to = monthrange(int(year), month_num)[1]
+            qualified_ranges.append(
+                (
+                    f"{year}-{month_num:02d}-{day_from:02d}",
+                    f"{year}-{month_num:02d}-{day_to:02d}",
+                )
+            )
+        if qualified_ranges:
+            date_from = qualified_ranges[0][0]
+            date_to = qualified_ranges[-1][1]
+            if event_window.get("date_from"):
+                date_from = min(date_from, event_window["date_from"])
+            if event_window.get("date_to"):
+                date_to = max(date_to, event_window["date_to"])
+            return {
+                "date_from": date_from,
+                "date_to": date_to,
+            }
+
     matches = list(_TEMPORAL_DATE_RE.finditer(question))
     if matches:
         dates = []
@@ -1068,12 +1295,13 @@ def _extract_temporal_metadata(question: str) -> dict:
             date_to = f"{last_y}-12-31"
         return {"date_from": date_from, "date_to": date_to}
 
-    return _resolve_event_dates(question)
+    return event_window
 
 
 def _resolve_event_dates(question: str) -> dict:
     """Resolve event references in a question to date_from/date_to using ENRON_EVENT_DATES."""
-    q_lower = question.lower()
+    q_lower = (question or "").lower()
+    normalized_q_lower = q_lower.replace("-", " ")
 
     between_match = re.search(r"between\s+(?:the\s+)?(.+?)\s+and\s+(?:the\s+)?(.+?)(?:\?|$|,)", q_lower)
     if between_match:
@@ -1105,9 +1333,14 @@ def _resolve_event_dates(question: str) -> dict:
         if dates:
             return {"date_from": dates[0], "date_to": "2002-06-30"}
 
-    for event_key, (d_from, d_to) in ENRON_EVENT_DATES.items():
-        if event_key in q_lower:
-            return {"date_from": d_from, "date_to": d_to}
+    event_matches = [
+        (len(event_key), d_from, d_to)
+        for event_key, (d_from, d_to) in ENRON_EVENT_DATES.items()
+        if event_key in normalized_q_lower
+    ]
+    if event_matches:
+        _, d_from, d_to = max(event_matches, key=lambda item: item[0])
+        return {"date_from": d_from, "date_to": d_to}
 
     return {}
 
@@ -1115,10 +1348,13 @@ def _resolve_event_dates(question: str) -> dict:
 def _find_event_date(event_text: str) -> tuple[str, str] | None:
     """Look up an event phrase in ENRON_EVENT_DATES, using substring matching."""
     event_lower = event_text.lower().replace("-", " ").strip()
+    exactish_matches: list[tuple[int, tuple[str, str]]] = []
     for event_key, dates in ENRON_EVENT_DATES.items():
         normalized_key = event_key.lower().replace("-", " ")
         if normalized_key in event_lower or event_lower in normalized_key:
-            return dates
+            exactish_matches.append((len(normalized_key), dates))
+    if exactish_matches:
+        return max(exactish_matches, key=lambda item: item[0])[1]
     for event_key, dates in ENRON_EVENT_DATES.items():
         key_words = set(event_key.lower().replace("-", " ").split())
         text_words = set(event_lower.split())
@@ -1129,8 +1365,12 @@ def _find_event_date(event_text: str) -> tuple[str, str] | None:
 
 def _heuristic_entity_names(question: str) -> list[str]:
     """Fast regex extraction of probable entity names from question text."""
-    capitalized = re.findall(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b", question)
-    return list(dict.fromkeys(capitalized))[:5]
+    names: list[str] = []
+    for match in re.finditer(r"\b([A-Z][a-z]+)\s*-\s*to\s*-\s*([A-Z][a-z]+)\b", question or ""):
+        names.extend([match.group(1), match.group(2)])
+    capitalized = re.findall(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b", question or "")
+    names.extend(capitalized)
+    return list(dict.fromkeys(name for name in names if name))[:5]
 
 
 _ANALYTICS_ROUTE_HINTS = (
@@ -1139,6 +1379,10 @@ _ANALYTICS_ROUTE_HINTS = (
     "volume", "busiest", "average", "total", "who communicated most",
     "who emailed most", "email count", "emails between", "show me all",
     "show all", "list all", "most common topics", "top contacts",
+)
+_TOPIC_ROUTE_HINTS = (
+    "theme", "themes", "topic", "topics", "subject", "subjects", "digest",
+    "mentions", "mentioned", "sub-topic", "subtopics", "dominated", "recur",
 )
 _ORG_ROUTE_HINTS = (
     "report to", "reports to", "reported to", "manager", "managed", "manages",
@@ -1173,7 +1417,8 @@ def _has_strong_timeline_intent(question_lower: str) -> bool:
         return True
     return bool(
         re.search(
-            r"\bevents?\s+(?:before|after|during|between)\b",
+            r"\bevents?\s+(?:before|after|during|between)\b|"
+            r"\bsequence of\s+(?:communications?|emails?|messages?|summaries?)\b",
             question_lower,
         )
     )
@@ -1216,7 +1461,7 @@ def _apply_factual_routing_overrides(question: str, classification: dict) -> dic
         override = "entity_structure"
     elif force_pattern == "entity_pair" or answer_type == "path":
         override = "entity_pair"
-    elif force_pattern == "keyword_search" or answer_type in {"proof_email", "documentary_evidence"}:
+    elif force_pattern == "keyword_search" or answer_type in {"proof_email", "documentary_evidence", "topic"}:
         override = "keyword_search"
     elif (force_pattern == "timeline" or answer_type == "timeline") and not requires_direct_email:
         override = "timeline"
@@ -1229,6 +1474,12 @@ def _apply_factual_routing_overrides(question: str, classification: dict) -> dic
     ):
         override = "entity_structure"
     elif (
+        _has_any_phrase(q_lower, _TOPIC_ROUTE_HINTS)
+        and pattern in {"general", "timeline", "entity_explore"}
+        and not _has_any_phrase(q_lower, _ANALYTICS_ROUTE_HINTS)
+    ):
+        override = "keyword_search"
+    elif (
         entity_count >= 2
         and _has_any_phrase(q_lower, _PAIR_ROUTE_HINTS)
         and pattern in {"general", "keyword_search", "entity_explore"}
@@ -1237,6 +1488,7 @@ def _apply_factual_routing_overrides(question: str, classification: dict) -> dic
     elif (
         not requires_direct_email
         and not documentary_evidence_like
+        and not contract.get("topic_like")
         and not (requires_evidence and not explicit_timeline_intent)
         and (has_temporal_filter or _has_any_phrase(q_lower, _TIMELINE_ROUTE_HINTS))
         and pattern in {"general", "keyword_search", "entity_explore"}
@@ -1353,6 +1605,12 @@ def _extract_answer_contract(question: str, entities: list[dict] | None = None) 
     q_lower = question.lower()
     temporal_meta = _extract_temporal_metadata(question)
     entity_count = _count_question_entities(question, entities or [])
+    communications_sequence_like = bool(
+        re.search(
+            r"\bsequence of\s+(?:communications?|emails?|messages?|summaries?)\b",
+            q_lower,
+        )
+    )
 
     count_like = (
         _has_any_phrase(q_lower, _ANALYTICS_ROUTE_HINTS)
@@ -1367,15 +1625,25 @@ def _extract_answer_contract(question: str, entities: list[dict] | None = None) 
         bool(temporal_meta)
         or _has_any_phrase(q_lower, _TIMELINE_ROUTE_HINTS)
     )
-    requires_evidence = bool(re.search(
-        r"\b(evidence|prove\w*|proof|show.*email|which email|quote|quoted|cite|citation|documentary)\b",
-        q_lower,
-    ))
+    requires_evidence = bool(
+        communications_sequence_like
+        or re.search(
+            r"\b(evidence|prove\w*|proof|show.*email|which email|quote|quoted|cite|citation|documentary)\b",
+            q_lower,
+        )
+    )
     requires_direct_email = bool(re.search(
         r"\b(show.*email|which email|quote|quoted|direct email|prove\w*|proof)\b",
         q_lower,
     ))
     explicit_timeline_intent = _has_strong_timeline_intent(q_lower)
+    topic_like = (
+        _has_any_phrase(q_lower, _TOPIC_ROUTE_HINTS)
+        and not count_like
+        and not org_like
+        and not path_like
+        and not requires_direct_email
+    )
     documentary_evidence_like = (
         requires_evidence
         and not requires_direct_email
@@ -1409,6 +1677,9 @@ def _extract_answer_contract(question: str, entities: list[dict] | None = None) 
     elif org_like:
         answer_type = "org_structure"
         force_pattern = "entity_structure"
+    elif topic_like:
+        answer_type = "topic"
+        force_pattern = "keyword_search"
     elif documentary_evidence_like:
         answer_type = "documentary_evidence"
         force_pattern = "keyword_search"
@@ -1425,6 +1696,7 @@ def _extract_answer_contract(question: str, entities: list[dict] | None = None) 
         "directional": directional,
         "documentary_evidence_like": documentary_evidence_like,
         "explicit_timeline_intent": explicit_timeline_intent,
+        "topic_like": topic_like,
         "entity_count": entity_count,
         "date_from": temporal_meta.get("date_from", ""),
         "date_to": temporal_meta.get("date_to", ""),
@@ -1447,6 +1719,8 @@ def _pattern_card_bonus(pattern: str, contract: dict) -> float:
         bonus += 0.14
     if answer_type == "documentary_evidence" and pattern == "keyword_search":
         bonus += 0.18
+    if answer_type == "topic" and pattern == "keyword_search":
+        bonus += 0.16
     if contract.get("requires_evidence") and pattern in {"entity_structure", "entity_pair", "keyword_search"}:
         bonus += 0.06
     if contract.get("directional") and pattern in {"entity_pair", "genie_analytics"}:
@@ -2476,6 +2750,939 @@ def _parse_search_terms(entity_name: str) -> list[str]:
     return [entity_name]
 
 
+def _resolve_wave1_gate_bundle_path() -> Path:
+    raw = os.environ.get("GRAPHRAG_WAVE1_GATE_BUNDLE", "").strip()
+    if raw:
+        candidate = Path(raw)
+        if not candidate.is_absolute():
+            candidate = (_PROJECT_ROOT / candidate).resolve()
+        return candidate
+    return _DEFAULT_WAVE1_GATE_BUNDLE_PATH
+
+
+def _load_wave1_gate_bundle() -> dict[str, Any]:
+    path = _resolve_wave1_gate_bundle_path()
+    try:
+        stat = path.stat()
+    except OSError:
+        return {}
+
+    cache_path = _WAVE1_GATE_CACHE.get("path", "")
+    cache_mtime_ns = _WAVE1_GATE_CACHE.get("mtime_ns")
+    if cache_path == str(path) and cache_mtime_ns == stat.st_mtime_ns:
+        return _WAVE1_GATE_CACHE.get("payload", {}) or {}
+
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+    _WAVE1_GATE_CACHE.update(
+        {
+            "path": str(path),
+            "mtime_ns": stat.st_mtime_ns,
+            "payload": payload,
+        }
+    )
+    return payload
+
+
+def _wave1_gate_allows_tool(tool_name: str) -> bool:
+    bundle = _load_wave1_gate_bundle()
+    tool_list = (
+        bundle.get("wave1_migration", {})
+        .get("scope", {})
+        .get("tools", [])
+    )
+    return tool_name in tool_list
+
+
+def _wave1_gate_metadata(tool_name: str) -> dict[str, Any]:
+    bundle = _load_wave1_gate_bundle()
+    return {
+        "wave1_gate_enabled": _wave1_gate_allows_tool(tool_name),
+        "wave1_gate_bundle_path": str(_resolve_wave1_gate_bundle_path()),
+        "wave1_gate_bundle_created_at": bundle.get("created_at"),
+        "wave1_gate_tool_scope": (
+            bundle.get("wave1_migration", {})
+            .get("scope", {})
+            .get("tools", [])
+        ),
+    }
+
+
+def _should_enable_wave1_semantic_layer(tool_name: str) -> bool:
+    mode = os.environ.get("GRAPHRAG_WAVE1_GENIE_MODE", "gate").strip().lower()
+    if mode in {"off", "disabled", "false", "0"}:
+        return False
+    if mode in {"on", "enabled", "true", "1", "shadow", "gate"}:
+        return _wave1_gate_allows_tool(tool_name)
+    return False
+
+
+def _wave1_limit(limit: int, *, default: int = 20, maximum: int = 100) -> int:
+    try:
+        parsed = int(limit)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(1, min(parsed, maximum))
+
+
+def _extract_rank_limit_from_question(question: str, default: int = 20) -> int:
+    match = re.search(r"\b(?:top|first|limit)\s+(\d+)\b", question or "", flags=re.IGNORECASE)
+    if not match:
+        return _wave1_limit(default, default=default)
+    return _wave1_limit(int(match.group(1)), default=default)
+
+
+def _wave1_display_name(addr: str, display_map: dict[str, str]) -> str:
+    raw = display_map.get(addr, "")
+    if raw and "@" not in raw and "<" not in raw:
+        return raw
+    local = addr.split("@")[0] if "@" in addr else addr
+    return local.replace(".", " ").replace("_", " ").title()
+
+
+def _wave1_lookup_display_names(emails: set[str], participants_table: str) -> dict[str, str]:
+    display_map: dict[str, str] = {}
+    if not emails:
+        return display_map
+
+    email_list = list(emails)
+    chunks = [email_list[i:i + 20] for i in range(0, len(email_list), 20)]
+    for chunk in chunks:
+        conditions = " OR ".join(f"email_address = :e{i}" for i in range(len(chunk)))
+        params = {f"e{i}": email for i, email in enumerate(chunk)}
+        name_rows = _backend.execute_sql(
+            f"SELECT email_address,"
+            f" COALESCE(name_normalized, display_name, email_address) AS display"
+            f" FROM {participants_table}"
+            f" WHERE {conditions}",
+            params=params,
+        )
+        for row in name_rows or []:
+            email_address = row.get("email_address")
+            display = row.get("display")
+            if email_address:
+                display_map[email_address] = display or email_address
+    return display_map
+
+
+def _wave1_result_payload(
+    tool_name: str,
+    *,
+    source: str,
+    query: str,
+    sql: str,
+    rows: list[dict[str, Any]],
+    description: str,
+    result_key: str,
+    result_value: Any,
+    extra: dict[str, Any] | None = None,
+) -> str:
+    payload: dict[str, Any] = {
+        "source": source,
+        "analytics_backend": "databricks_sql",
+        "semantic_layer": ENRON_COMMUNICATION_METRIC_VIEW,
+        "tool": tool_name,
+        "description": description,
+        "query": query,
+        "sql_generated": sql,
+        "row_count": len(rows),
+        result_key: result_value,
+    }
+    payload.update(_wave1_gate_metadata(tool_name))
+    if extra:
+        payload.update(extra)
+    return json.dumps(payload, ensure_ascii=False, default=str)
+
+
+def _hybrid_gate_allows_tool(tool_name: str) -> bool:
+    bundle = _load_wave1_gate_bundle()
+    tool_list = (
+        bundle.get("hybrid_wrapper_contract", {})
+        .get("scope", {})
+        .get("tools", [])
+    )
+    return tool_name in tool_list
+
+
+def _hybrid_contract_metadata(
+    tool_name: str,
+    *,
+    analytics_intent: str,
+    resolved_entities: list[dict[str, Any]] | None = None,
+    fallback_used: bool = False,
+    fallback_reason: str | None = None,
+    evidence_ready: bool = False,
+) -> dict[str, Any]:
+    bundle = _load_wave1_gate_bundle()
+    contract = bundle.get("hybrid_wrapper_contract", {})
+    return {
+        "hybrid_contract_enabled": _hybrid_gate_allows_tool(tool_name),
+        "hybrid_contract_bundle_path": str(_resolve_wave1_gate_bundle_path()),
+        "hybrid_contract_bundle_created_at": bundle.get("created_at"),
+        "hybrid_contract_required_sequence": contract.get("required_sequence", []),
+        "analytics_intent": analytics_intent,
+        "resolved_entities": resolved_entities or [],
+        "fallback_used": fallback_used,
+        "fallback_reason": fallback_reason,
+        "evidence_ready": evidence_ready,
+    }
+
+
+def _resolved_entity_contract_payload(resolved: "ResolvedEntity") -> dict[str, Any]:
+    return {
+        "canonical_name": resolved.canonical_name,
+        "confidence": getattr(resolved, "confidence", ""),
+        "email_patterns": list(getattr(resolved, "email_patterns", []) or []),
+        "email_addresses": list(getattr(resolved, "email_addresses", []) or []),
+    }
+
+
+def _resolve_hybrid_entities_from_question(question: str) -> tuple[list[dict[str, Any]], list[str]]:
+    resolved_entities: list[dict[str, Any]] = []
+    resolved_names: list[str] = []
+    seen_names: set[str] = set()
+
+    for name in _heuristic_entity_names(question):
+        normalized = (name or "").strip().lower()
+        if not normalized or normalized in seen_names:
+            continue
+        seen_names.add(normalized)
+        try:
+            resolved = resolve_entity_cached(name)
+            payload = _resolved_entity_contract_payload(resolved)
+            canonical_name = payload.get("canonical_name") or name
+            if canonical_name.lower() not in seen_names:
+                seen_names.add(canonical_name.lower())
+            resolved_entities.append(payload)
+            resolved_names.append(canonical_name)
+        except Exception:
+            resolved_names.append(name)
+        if len(resolved_entities) >= 3:
+            break
+
+    return resolved_entities, resolved_names
+
+
+def _infer_query_and_enrich_intent(question: str) -> str:
+    q_lower = (question or "").lower()
+    if any(
+        token in q_lower
+        for token in (
+            "show me all",
+            "show all",
+            "list all",
+            "list emails",
+            "all emails",
+            "email evidence",
+            "find emails",
+        )
+    ):
+        return "listing"
+    if any(
+        token in q_lower
+        for token in (
+            "over time",
+            "timeline",
+            "trend",
+            "change over time",
+            "month by month",
+            "weekly",
+            "spike",
+        )
+    ):
+        return "timeline"
+    if any(
+        token in q_lower
+        for token in (
+            "topic distribution",
+            "top topics",
+            "most common topics",
+            "popular topics",
+            "topics for",
+            "topics between",
+            "common topics",
+        )
+    ):
+        return "distribution"
+    if any(
+        token in q_lower
+        for token in (
+            "top ",
+            "most ",
+            "least ",
+            "busiest",
+            "who communicated most",
+            "who emailed most",
+            "top contacts",
+            "top email pairs",
+            "rank",
+        )
+    ):
+        return "ranking"
+    if any(
+        token in q_lower
+        for token in (
+            "how many",
+            "count",
+            "percentage",
+            "percent",
+            "ratio",
+            "average",
+            "total",
+        )
+    ):
+        return "count"
+    return "count"
+
+
+def _build_query_and_enrich_payload(
+    question: str,
+    *,
+    space_name: str,
+    analytics_transport: str,
+    genie_result: dict[str, Any],
+    enrichment: dict[str, Any],
+    resolved_entities: list[dict[str, Any]],
+    time_window: dict[str, Any],
+    fallback_used: bool,
+    fallback_reason: str | None,
+) -> str:
+    payload: dict[str, Any] = {
+        "genie_result": genie_result,
+        "enrichment": enrichment,
+    }
+    if not _should_enable_wave2_hybrid_tool("query_and_enrich"):
+        return json.dumps(payload, ensure_ascii=False, default=str)
+
+    analytics_intent = _infer_query_and_enrich_intent(question)
+    analytics_backend = genie_result.get("analytics_backend") or (
+        "genie" if genie_result.get("source") == "genie" else "databricks_sql"
+    )
+    semantic_layer = genie_result.get("semantic_layer")
+    if not semantic_layer and analytics_backend == "databricks_sql":
+        semantic_layer = ENRON_COMMUNICATION_METRIC_VIEW
+
+    evidence_ready = (
+        analytics_intent == "listing"
+        and not genie_result.get("error")
+        and bool(genie_result.get("results") or genie_result.get("response_text"))
+    )
+
+    payload.update(
+        _hybrid_contract_metadata(
+            "query_and_enrich",
+            analytics_intent=analytics_intent,
+            resolved_entities=resolved_entities,
+            fallback_used=fallback_used,
+            fallback_reason=fallback_reason,
+            evidence_ready=evidence_ready,
+        )
+    )
+    payload.update(
+        {
+            "analytics_backend": analytics_backend,
+            "semantic_layer": semantic_layer,
+            "time_window": time_window,
+            "analytics_result": {
+                "question": question,
+                "space": genie_result.get("space", space_name),
+                "transport": analytics_transport,
+                "source": genie_result.get("source", ""),
+                "status": genie_result.get("status", ""),
+                "sql_generated": genie_result.get("sql_generated", ""),
+                "row_count": genie_result.get(
+                    "row_count",
+                    len(genie_result.get("results") or []),
+                ),
+                "description": genie_result.get("description", ""),
+                "response_text": genie_result.get("response_text", ""),
+                "results": genie_result.get("results", []),
+                "time_window": time_window,
+            },
+        }
+    )
+    return json.dumps(payload, ensure_ascii=False, default=str)
+
+
+def _topic_semantic_layer_name() -> str:
+    return f"{CATALOG}.{ENRON_SCHEMA}.topic_taxonomy"
+
+
+def _should_enable_wave2_hybrid_tool(tool_name: str) -> bool:
+    mode = os.environ.get("GRAPHRAG_WAVE2_HYBRID_MODE", "gate").strip().lower()
+    if mode in {"off", "disabled", "false", "0"}:
+        return False
+    if mode in {"on", "enabled", "true", "1", "shadow", "gate"}:
+        return _hybrid_gate_allows_tool(tool_name)
+    return False
+
+
+def _preferred_contact_direction(question: str) -> str:
+    q_lower = (question or "").lower()
+    if any(token in q_lower for token in ("received from", "inbound", "from ")) and "sent to" not in q_lower:
+        return "inbound"
+    if any(token in q_lower for token in ("sent to", "outbound")):
+        return "outbound"
+    return "both"
+
+
+def _extract_topic_category_from_question(question: str) -> str:
+    text = (question or "").strip()
+    quoted_match = re.search(r"[\"']([^\"']+)[\"']", text)
+    if quoted_match:
+        return quoted_match.group(1).strip()
+
+    patterns = [
+        r"(?:sub[- ]?topics?|browse topics|topic categories|topic taxonomy)\s+(?:for|under|within|in)\s+([A-Za-z][A-Za-z/& -]*?)(?:\?|$)",
+        r"category\s+([A-Za-z][A-Za-z/& -]*?)(?:\?|$)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if not match:
+            continue
+        candidate = match.group(1).strip(" .?")
+        candidate = re.sub(
+            r"\b(?:category|categories|topics?|sub[- ]?topics?)\b$",
+            "",
+            candidate,
+            flags=re.IGNORECASE,
+        ).strip(" .?")
+        if candidate:
+            return candidate
+    return ""
+
+
+def _select_gated_analytics_route(
+    question: str,
+    *,
+    entities: list[dict] | None = None,
+    metadata: dict | None = None,
+) -> dict[str, Any] | None:
+    q_lower = (question or "").lower()
+    entity_names = []
+    for entity in entities or []:
+        if isinstance(entity, dict):
+            name = (entity.get("name", "") or "").strip()
+            if name:
+                entity_names.append(name)
+    entity_names.extend(_heuristic_entity_names(question))
+    entity_names = list(dict.fromkeys(name for name in entity_names if name))
+    primary_entity = entity_names[0] if entity_names else ""
+    secondary_entity = entity_names[1] if len(entity_names) > 1 else ""
+    topic_category = _extract_topic_category_from_question(question)
+    requested_limit = _extract_rank_limit_from_question(question, default=20)
+    date_window = _extract_temporal_metadata(question)
+    if isinstance(metadata, dict):
+        if metadata.get("date_from"):
+            date_window["date_from"] = metadata["date_from"]
+        if metadata.get("date_to"):
+            date_window["date_to"] = metadata["date_to"]
+
+    if _should_enable_wave1_semantic_layer("detect_self_emails") and any(
+        token in q_lower
+        for token in (
+            "self-email",
+            "self email",
+            "personal account",
+            "forwarded to personal",
+            "corporate-to-personal",
+        )
+    ):
+        return {
+            "tool_name": "detect_self_emails",
+            "params": {"limit": requested_limit},
+            "migration_wave": "wave1",
+        }
+
+    if not primary_entity and _should_enable_wave1_semantic_layer("get_top_email_pairs") and any(
+        token in q_lower
+        for token in (
+            "top email pairs",
+            "communication pairs",
+            "emailed each other the most",
+            "pair ranking",
+        )
+    ):
+        return {
+            "tool_name": "get_top_email_pairs",
+            "params": {"limit": requested_limit},
+            "migration_wave": "wave1",
+        }
+
+    if not primary_entity and _should_enable_wave1_semantic_layer("get_top_individuals") and any(
+        token in q_lower
+        for token in (
+            "top individuals",
+            "top senders",
+            "top recipients",
+            "most active people",
+            "who sent the most",
+            "who received the most",
+            "busiest communicators",
+        )
+    ):
+        sort_by = "total"
+        if any(token in q_lower for token in ("top senders", "who sent the most", "sent the most")):
+            sort_by = "sent"
+        elif any(token in q_lower for token in ("top recipients", "who received the most", "received the most")):
+            sort_by = "received"
+        return {
+            "tool_name": "get_top_individuals",
+            "params": {"limit": requested_limit, "sort_by": sort_by},
+            "migration_wave": "wave1",
+        }
+
+    if primary_entity and _should_enable_wave2_hybrid_tool("find_top_contacts") and any(
+        token in q_lower
+        for token in (
+            "top contacts",
+            "who communicated most with",
+            "communicated most frequently with",
+            "who emailed",
+            "email most with",
+            "communicated with",
+        )
+    ) and not any(
+        token in q_lower
+        for token in (
+            "how many emails between",
+            "did they communicate",
+            "what did",
+        )
+    ):
+        return {
+            "tool_name": "find_top_contacts",
+            "params": {
+                "entity_name": primary_entity,
+                "direction": _preferred_contact_direction(question),
+                "limit": _wave1_limit(requested_limit, default=10),
+            },
+            "migration_wave": "wave2",
+        }
+
+    if primary_entity and secondary_entity and _should_enable_wave2_hybrid_tool("get_communication_timeline") and (
+        "week beginning" in q_lower
+        or "week of" in q_lower
+        or "communication dyad" in q_lower
+        or ("change" in q_lower and date_window.get("date_from"))
+    ) and any(
+        token in q_lower
+        for token in (
+            "direct",
+            "message count",
+            "messages",
+            "recorded",
+            "change",
+        )
+    ):
+        return {
+            "tool_name": "get_communication_timeline",
+            "params": {
+                "entity_name": primary_entity,
+                "entity_b": secondary_entity,
+                "date_from": date_window.get("date_from", ""),
+                "date_to": date_window.get("date_to", ""),
+            },
+            "migration_wave": "wave2",
+        }
+
+    if primary_entity and secondary_entity and _should_enable_wave2_hybrid_tool("get_communication_timeline") and any(
+        token in q_lower
+        for token in (
+            "how many emails were exchanged",
+            "emails were exchanged",
+            "email count",
+            "what was their direction",
+            "what was the direction",
+            "current local export",
+        )
+    ) and not any(
+        token in q_lower
+        for token in (
+            "show me all",
+            "show all",
+            "list all",
+            "email evidence",
+            "what did",
+            "discuss",
+            "discussed",
+            "talk about",
+            "topics between",
+            "common topics",
+            "subjects between",
+        )
+    ):
+        return {
+            "tool_name": "get_communication_timeline",
+            "params": {
+                "entity_name": primary_entity,
+                "entity_b": secondary_entity,
+                "date_from": "",
+                "date_to": "",
+            },
+            "migration_wave": "wave2",
+        }
+
+    if primary_entity and secondary_entity and _should_enable_wave2_hybrid_tool("get_emails_between") and (
+        "email evidence" in q_lower
+        or (
+            "emails between" in q_lower
+            and any(token in q_lower for token in ("show", "list", "find", "retrieve", "all"))
+        )
+    ) and not any(
+        token in q_lower
+        for token in (
+            "how many",
+            "count",
+            "exchanged",
+            "what did",
+            "discuss",
+            "discussed",
+            "talk about",
+            "topics between",
+            "common topics",
+            "subjects between",
+        )
+    ):
+        return {
+            "tool_name": "get_emails_between",
+            "params": {
+                "entity_a": primary_entity,
+                "entity_b": secondary_entity,
+                "limit": _wave1_limit(requested_limit, default=15),
+            },
+            "migration_wave": "wave2",
+        }
+
+    if primary_entity and secondary_entity and _should_enable_wave2_hybrid_tool("get_dyad_topics") and any(
+        token in q_lower
+        for token in (
+            "what did",
+            "discuss",
+            "discussed",
+            "talk about",
+            "topics between",
+            "common topics",
+            "subjects between",
+            "top topics between",
+        )
+    ):
+        return {
+            "tool_name": "get_dyad_topics",
+            "params": {
+                "entity_a": primary_entity,
+                "entity_b": secondary_entity,
+                "limit": requested_limit,
+            },
+            "migration_wave": "wave2",
+        }
+
+    if _should_enable_wave2_hybrid_tool("browse_topics") and any(
+        token in q_lower
+        for token in (
+            "browse topics",
+            "topic taxonomy",
+            "topic categories",
+            "sub-topics",
+            "subtopics",
+        )
+    ):
+        return {
+            "tool_name": "browse_topics",
+            "params": {
+                "category": topic_category,
+                "entity_name": primary_entity if not topic_category else "",
+            },
+            "migration_wave": "wave2",
+        }
+
+    if _should_enable_wave2_hybrid_tool("get_topic_distribution") and any(
+        token in q_lower
+        for token in (
+            "topic distribution",
+            "most common topics",
+            "top topics",
+            "popular topics",
+            "topics for",
+        )
+    ):
+        return {
+            "tool_name": "get_topic_distribution",
+            "params": {
+                "entity_name": primary_entity,
+                "limit": requested_limit,
+            },
+            "migration_wave": "wave2",
+        }
+
+    if _should_enable_wave2_hybrid_tool("get_external_contacts") and any(
+        token in q_lower
+        for token in (
+            "external contacts",
+            "outside enron",
+            "outside the company",
+            "outside the firm",
+            "non-enron",
+            "emailed outside",
+            "outside email",
+        )
+    ):
+        params: dict[str, Any] = {
+            "entity_name": primary_entity,
+            "direction": _preferred_contact_direction(question),
+            "limit": requested_limit,
+        }
+        return {
+            "tool_name": "get_external_contacts",
+            "params": params,
+            "migration_wave": "wave2",
+        }
+
+    if primary_entity and _should_enable_wave2_hybrid_tool("get_communication_timeline") and any(
+        token in q_lower
+        for token in (
+            "over time",
+            "timeline",
+            "trend",
+            "change over time",
+            "weekly",
+            "month by month",
+            "spike",
+            "volume over time",
+        )
+    ):
+        return {
+            "tool_name": "get_communication_timeline",
+            "params": {
+                "entity_name": primary_entity,
+                "entity_b": secondary_entity,
+                "date_from": date_window.get("date_from", ""),
+                "date_to": date_window.get("date_to", ""),
+            },
+            "migration_wave": "wave2",
+        }
+
+    return None
+
+
+def _apply_gated_analytics_route_steps(
+    pattern_name: str,
+    steps: list,
+    *,
+    question: str,
+    entities: list[dict] | None = None,
+    metadata: dict | None = None,
+) -> list:
+    if pattern_name != "genie_analytics":
+        return steps
+
+    routed_tool = _select_gated_analytics_route(
+        question,
+        entities=entities,
+        metadata=metadata,
+    )
+    if not routed_tool:
+        return steps
+
+    rewritten = []
+    for step in steps:
+        if getattr(step, "tool_name", "") == "query_and_enrich":
+            rewritten.append(
+                type(step)(
+                    routed_tool["tool_name"],
+                    routed_tool["params"],
+                )
+            )
+        else:
+            rewritten.append(step)
+    return rewritten
+
+
+def _wave1_get_top_email_pairs_semantic(limit: int) -> str | None:
+    tool_name = "get_top_email_pairs"
+    if not _should_enable_wave1_semantic_layer(tool_name):
+        return None
+
+    safe_limit = _wave1_limit(limit)
+    sql = (
+        f"SELECT"
+        f" CASE WHEN person_a < person_b THEN person_a ELSE person_b END AS email_a,"
+        f" CASE WHEN person_a < person_b THEN person_b ELSE person_a END AS email_b,"
+        f" SUM(total_count) AS total"
+        f" FROM {ENRON_COMMUNICATION_DYADS_TABLE}"
+        f" GROUP BY 1, 2"
+        f" ORDER BY total DESC"
+        f" LIMIT {safe_limit}"
+    )
+    rows = _backend.execute_sql(sql)
+    if not rows:
+        return "No communication pairs found in the corpus."
+
+    emails = {row["email_a"] for row in rows} | {row["email_b"] for row in rows}
+    display_map = _wave1_lookup_display_names(emails, ENRON_PARTICIPANTS_TABLE)
+
+    pairs = []
+    self_email_count = 0
+    for row in rows:
+        is_self = _is_likely_same_person(row["email_a"], row["email_b"])
+        if is_self:
+            self_email_count += 1
+        pairs.append(
+            {
+                "person_a": _wave1_display_name(row["email_a"], display_map),
+                "person_a_email": row["email_a"],
+                "person_b": _wave1_display_name(row["email_b"], display_map),
+                "person_b_email": row["email_b"],
+                "total_emails": int(row.get("total") or 0),
+                "is_self_email": is_self,
+            }
+        )
+
+    return _wave1_result_payload(
+        tool_name,
+        source="communication_dyads",
+        query=f"top_email_pairs(limit={safe_limit})",
+        sql=sql,
+        rows=rows,
+        description="Global communication-pair ranking",
+        result_key="top_pairs",
+        result_value=pairs,
+        extra={"self_email_pairs_found": self_email_count},
+    )
+
+
+def _wave1_get_top_individuals_semantic(limit: int, sort_by: str) -> str | None:
+    tool_name = "get_top_individuals"
+    if not _should_enable_wave1_semantic_layer(tool_name):
+        return None
+
+    safe_limit = _wave1_limit(limit)
+    order_col = {
+        "sent": "total_sent",
+        "received": "total_received",
+    }.get(sort_by, "total")
+    sql = (
+        f"SELECT person_id,"
+        f" SUM(emails_sent) AS total_sent,"
+        f" SUM(emails_received) AS total_received,"
+        f" SUM(emails_sent) + SUM(emails_received) AS total"
+        f" FROM {ENRON_PERSON_ACTIVITY_TABLE}"
+        f" GROUP BY person_id"
+        f" ORDER BY {order_col} DESC"
+        f" LIMIT {safe_limit}"
+    )
+    rows = _backend.execute_sql(sql)
+    if not rows:
+        return "No individual activity data found in the corpus."
+
+    emails = {row["person_id"] for row in rows}
+    display_map = _wave1_lookup_display_names(emails, ENRON_PARTICIPANTS_TABLE)
+    individuals = [
+        {
+            "name": _wave1_display_name(row["person_id"], display_map),
+            "email": row["person_id"],
+            "emails_sent": int(row.get("total_sent") or 0),
+            "emails_received": int(row.get("total_received") or 0),
+            "total": int(row.get("total") or 0),
+        }
+        for row in rows
+    ]
+
+    return _wave1_result_payload(
+        tool_name,
+        source="person_activity",
+        query=f"top_individuals(limit={safe_limit}, sort_by={sort_by})",
+        sql=sql,
+        rows=rows,
+        description="Corpus-wide individual activity ranking",
+        result_key="individuals",
+        result_value=individuals,
+        extra={"sort_by": sort_by},
+    )
+
+
+def _wave1_detect_self_emails_semantic(limit: int) -> str | None:
+    tool_name = "detect_self_emails"
+    if not _should_enable_wave1_semantic_layer(tool_name):
+        return None
+
+    safe_limit = _wave1_limit(limit)
+    sql = (
+        f"SELECT d.person_a, d.person_b,"
+        f" SUM(d.total_count) AS total,"
+        f" MAX(d.total_count) AS peak_week,"
+        f" MIN(d.period) AS first_seen,"
+        f" MAX(d.period) AS last_seen,"
+        f" COUNT(DISTINCT d.period) AS active_weeks"
+        f" FROM {ENRON_COMMUNICATION_DYADS_TABLE} d"
+        f" WHERE ("
+        f"   (d.person_a LIKE '%@enron.com' AND d.person_b NOT LIKE '%@enron.com')"
+        f"   OR (d.person_b LIKE '%@enron.com' AND d.person_a NOT LIKE '%@enron.com')"
+        f" )"
+        f" GROUP BY d.person_a, d.person_b"
+        f" HAVING SUM(d.total_count) >= 3"
+        f" ORDER BY total DESC"
+        f" LIMIT 200"
+    )
+    rows = _backend.execute_sql(sql)
+    if not rows:
+        return "No cross-domain email pairs found."
+
+    self_pairs = []
+    corporate_emails: set[str] = set()
+    for row in rows:
+        person_a = row["person_a"]
+        person_b = row["person_b"]
+        if not _is_likely_same_person(person_a, person_b):
+            continue
+
+        corporate_email = person_a if "@enron.com" in person_a else person_b
+        personal_email = person_b if corporate_email == person_a else person_a
+        if "@enron.com" in personal_email:
+            corporate_email, personal_email = personal_email, corporate_email
+        corporate_emails.add(corporate_email)
+        self_pairs.append(
+            {
+                "corporate_email": corporate_email,
+                "personal_email": personal_email,
+                "total_emails": int(row.get("total") or 0),
+                "peak_week_volume": int(row.get("peak_week") or 0),
+                "first_seen": str(row.get("first_seen", "")),
+                "last_seen": str(row.get("last_seen", "")),
+                "active_weeks": int(row.get("active_weeks") or 0),
+            }
+        )
+        if len(self_pairs) >= safe_limit:
+            break
+
+    if not self_pairs:
+        return "No cross-domain self-email pairs found."
+
+    display_map = _wave1_lookup_display_names(corporate_emails, ENRON_PARTICIPANTS_TABLE)
+    for pair in self_pairs:
+        corp = pair["corporate_email"]
+        display = display_map.get(corp)
+        if not display:
+            corp_local = _email_local_part(corp)
+            display = corp_local.replace(".", " ").title() if corp_local else corp
+        pair["person"] = display
+
+    return _wave1_result_payload(
+        tool_name,
+        source="communication_dyads",
+        query=f"detect_self_emails(limit={safe_limit})",
+        sql=sql,
+        rows=rows,
+        description="Corporate-to-personal self-email detection",
+        result_key="self_email_pairs",
+        result_value=self_pairs,
+        extra={"total_found": len(self_pairs)},
+    )
+
+
 def _dedup_contacts(contacts: list[dict]) -> list[dict]:
     """Merge contacts that resolve to the same canonical entity.
 
@@ -2563,6 +3770,1149 @@ def _dedup_contacts(contacts: list[dict]) -> list[dict]:
     return result
 
 
+def _query_top_contacts_rows(
+    resolved: "ResolvedEntity",
+    *,
+    direction: str,
+    limit: int,
+) -> tuple[list[dict] | None, str]:
+    safe_limit = _wave1_limit(limit, default=10)
+    last_sql = ""
+    for email_pat in resolved.email_patterns:
+        if direction == "outbound":
+            sql = (
+                f"SELECT d.person_b AS contact_email,"
+                f" SUM(d.total_count) AS sent,"
+                f" 0 AS received,"
+                f" SUM(d.total_count) AS total"
+                f" FROM {ENRON_COMMUNICATION_DYADS_TABLE} d"
+                f" WHERE LOWER(d.person_a) LIKE :email_pat"
+                f" GROUP BY d.person_b ORDER BY total DESC LIMIT {safe_limit}"
+            )
+        elif direction == "inbound":
+            sql = (
+                f"SELECT d.person_a AS contact_email,"
+                f" 0 AS sent,"
+                f" SUM(d.total_count) AS received,"
+                f" SUM(d.total_count) AS total"
+                f" FROM {ENRON_COMMUNICATION_DYADS_TABLE} d"
+                f" WHERE LOWER(d.person_b) LIKE :email_pat"
+                f" GROUP BY d.person_a ORDER BY total DESC LIMIT {safe_limit}"
+            )
+        else:
+            sql = (
+                f"SELECT contact_email,"
+                f" SUM(CASE WHEN dir = 'out' THEN cnt ELSE 0 END) AS sent,"
+                f" SUM(CASE WHEN dir = 'in' THEN cnt ELSE 0 END) AS received,"
+                f" SUM(cnt) AS total"
+                f" FROM ("
+                f"   SELECT d.person_b AS contact_email, 'out' AS dir,"
+                f"   SUM(d.total_count) AS cnt"
+                f"   FROM {ENRON_COMMUNICATION_DYADS_TABLE} d"
+                f"   WHERE LOWER(d.person_a) LIKE :email_pat"
+                f"   GROUP BY d.person_b"
+                f"   UNION ALL"
+                f"   SELECT d.person_a AS contact_email, 'in' AS dir,"
+                f"   SUM(d.total_count) AS cnt"
+                f"   FROM {ENRON_COMMUNICATION_DYADS_TABLE} d"
+                f"   WHERE LOWER(d.person_b) LIKE :email_pat"
+                f"   GROUP BY d.person_a"
+                f" ) combined"
+                f" GROUP BY contact_email ORDER BY total DESC LIMIT {safe_limit}"
+            )
+
+        last_sql = sql
+        results = _backend.execute_sql(sql, params={"email_pat": email_pat})
+        if results:
+            return results, sql
+    return None, last_sql
+
+
+def _build_top_contacts_payload(
+    resolved: "ResolvedEntity",
+    *,
+    direction: str,
+    results: list[dict],
+    extra: dict[str, Any] | None = None,
+) -> str:
+    contact_emails = {
+        row.get("contact_email", "")
+        for row in results
+        if row.get("contact_email")
+    }
+    display_map = _wave1_lookup_display_names(contact_emails, ENRON_PARTICIPANTS_TABLE)
+
+    contacts = []
+    for row in results:
+        addr = row.get("contact_email", "")
+        contacts.append(
+            {
+                "name": _wave1_display_name(addr, display_map),
+                "email": addr,
+                "sent": int(row.get("sent") or 0),
+                "received": int(row.get("received") or 0),
+                "total": int(row.get("total") or 0),
+            }
+        )
+    contacts = _dedup_contacts(contacts)
+
+    payload: dict[str, Any] = {
+        "entity": resolved.canonical_name,
+        "direction": direction,
+        "source": "communication_dyads",
+        "top_contacts": contacts,
+        "resolution": _resolution_metadata(resolved),
+    }
+    if extra:
+        payload.update(extra)
+    return json.dumps(payload, ensure_ascii=False, default=str)
+
+
+def _wave2_find_top_contacts_hybrid(
+    entity_name: str,
+    *,
+    direction: str,
+    limit: int,
+    resolved: "ResolvedEntity" = None,
+) -> str | None:
+    tool_name = "find_top_contacts"
+    if not _should_enable_wave2_hybrid_tool(tool_name):
+        return None
+
+    resolved = resolved or resolve_entity_cached(entity_name)
+    results, sql_generated = _query_top_contacts_rows(
+        resolved,
+        direction=direction,
+        limit=limit,
+    )
+    if not results:
+        return f"No email contacts found for '{resolved.canonical_name}'."
+
+    resolved_entities = [
+        {
+            "canonical_name": resolved.canonical_name,
+            "confidence": getattr(resolved, "confidence", ""),
+            "email_patterns": list(getattr(resolved, "email_patterns", []) or []),
+            "email_addresses": list(getattr(resolved, "email_addresses", []) or []),
+        }
+    ]
+    extra = _hybrid_contract_metadata(
+        tool_name,
+        analytics_intent="ranking",
+        resolved_entities=resolved_entities,
+        fallback_used=False,
+        fallback_reason=None,
+        evidence_ready=False,
+    )
+    extra.update(
+        {
+            "analytics_backend": "databricks_sql",
+            "semantic_layer": ENRON_COMMUNICATION_METRIC_VIEW,
+            "analytics_result": {
+                "query": (
+                    f"top_contacts(entity_name={resolved.canonical_name}, "
+                    f"direction={direction}, limit={_wave1_limit(limit, default=10)})"
+                ),
+                "sql_generated": sql_generated,
+                "row_count": len(results),
+            },
+            "enrichment": _collect_analytics_enrichment(
+                entity_name,
+                person_names=[resolved.canonical_name],
+            ),
+        }
+    )
+    return _build_top_contacts_payload(
+        resolved,
+        direction=direction,
+        results=results,
+        extra=extra,
+    )
+
+
+def _query_external_contacts_rows(
+    resolved: "ResolvedEntity",
+    *,
+    direction: str,
+    limit: int,
+) -> tuple[list[dict] | None, str]:
+    safe_limit = _wave1_limit(limit, default=20)
+    last_sql = ""
+    for email_pat in resolved.email_patterns:
+        if direction == "outbound":
+            sql = (
+                f"SELECT d.person_b AS external_email, SUM(d.total_count) AS total"
+                f" FROM {ENRON_COMMUNICATION_DYADS_TABLE} d"
+                f" WHERE LOWER(d.person_a) LIKE :email_pat"
+                f" AND d.person_b NOT LIKE '%@enron.com'"
+                f" GROUP BY d.person_b ORDER BY total DESC LIMIT {safe_limit}"
+            )
+        elif direction == "inbound":
+            sql = (
+                f"SELECT d.person_a AS external_email, SUM(d.total_count) AS total"
+                f" FROM {ENRON_COMMUNICATION_DYADS_TABLE} d"
+                f" WHERE LOWER(d.person_b) LIKE :email_pat"
+                f" AND d.person_a NOT LIKE '%@enron.com'"
+                f" GROUP BY d.person_a ORDER BY total DESC LIMIT {safe_limit}"
+            )
+        else:
+            sql = (
+                f"SELECT external_email, SUM(cnt) AS total FROM ("
+                f"  SELECT d.person_b AS external_email, SUM(d.total_count) AS cnt"
+                f"  FROM {ENRON_COMMUNICATION_DYADS_TABLE} d"
+                f"  WHERE LOWER(d.person_a) LIKE :email_pat"
+                f"  AND d.person_b NOT LIKE '%@enron.com'"
+                f"  GROUP BY d.person_b"
+                f"  UNION ALL"
+                f"  SELECT d.person_a AS external_email, SUM(d.total_count) AS cnt"
+                f"  FROM {ENRON_COMMUNICATION_DYADS_TABLE} d"
+                f"  WHERE LOWER(d.person_b) LIKE :email_pat"
+                f"  AND d.person_a NOT LIKE '%@enron.com'"
+                f"  GROUP BY d.person_a"
+                f" ) combined GROUP BY external_email ORDER BY total DESC LIMIT {safe_limit}"
+            )
+        last_sql = sql
+        results = _backend.execute_sql(sql, params={"email_pat": email_pat})
+        if results:
+            return results, sql
+    return None, last_sql
+
+
+def _build_external_contacts_payload(
+    resolved: "ResolvedEntity",
+    *,
+    direction: str,
+    results: list[dict],
+    extra: dict[str, Any] | None = None,
+) -> str:
+    contacts = []
+    for row in results:
+        addr = row.get("external_email", "")
+        domain = addr.split("@")[1] if "@" in addr else "unknown"
+        local = addr.split("@")[0] if "@" in addr else addr
+        contacts.append(
+            {
+                "email": addr,
+                "name": local.replace(".", " ").replace("_", " ").title(),
+                "domain": domain,
+                "total_emails": int(row.get("total") or 0),
+            }
+        )
+
+    payload: dict[str, Any] = {
+        "entity": resolved.canonical_name,
+        "direction": direction,
+        "source": "communication_dyads",
+        "external_contacts": contacts,
+    }
+    if extra:
+        payload.update(extra)
+    return json.dumps(payload, ensure_ascii=False, default=str)
+
+
+def _wave2_get_external_contacts_hybrid(
+    entity_name: str,
+    *,
+    direction: str,
+    limit: int,
+    resolved: "ResolvedEntity" = None,
+) -> str | None:
+    tool_name = "get_external_contacts"
+    if not _should_enable_wave2_hybrid_tool(tool_name):
+        return None
+
+    resolved = resolved or resolve_entity_cached(entity_name)
+    results, sql_generated = _query_external_contacts_rows(
+        resolved,
+        direction=direction,
+        limit=limit,
+    )
+    if not results:
+        return f"No external contacts found for '{resolved.canonical_name}'."
+
+    resolved_entities = [
+        {
+            "canonical_name": resolved.canonical_name,
+            "confidence": getattr(resolved, "confidence", ""),
+            "email_patterns": list(getattr(resolved, "email_patterns", []) or []),
+            "email_addresses": list(getattr(resolved, "email_addresses", []) or []),
+        }
+    ]
+    extra = _hybrid_contract_metadata(
+        tool_name,
+        analytics_intent="ranking",
+        resolved_entities=resolved_entities,
+        fallback_used=False,
+        fallback_reason=None,
+        evidence_ready=False,
+    )
+    extra.update(
+        {
+            "analytics_backend": "databricks_sql",
+            "semantic_layer": ENRON_COMMUNICATION_METRIC_VIEW,
+            "analytics_result": {
+                "query": (
+                    f"external_contacts(entity_name={resolved.canonical_name}, "
+                    f"direction={direction}, limit={_wave1_limit(limit, default=20)})"
+                ),
+                "sql_generated": sql_generated,
+                "row_count": len(results),
+            },
+            "enrichment": _collect_analytics_enrichment(
+                entity_name,
+                person_names=[resolved.canonical_name],
+            ),
+        }
+    )
+    return _build_external_contacts_payload(
+        resolved,
+        direction=direction,
+        results=results,
+        extra=extra,
+    )
+
+
+def _query_communication_timeline_rows(
+    entity_name: str = "",
+    entity_b: str = "",
+    *,
+    date_from: str = "",
+    date_to: str = "",
+) -> tuple[list[dict] | None, str, str, list[dict[str, Any]], dict[str, str]]:
+    date_conditions = ""
+    date_params: dict[str, str] = {}
+    if date_from:
+        date_conditions += " AND period >= :date_from"
+        date_params["date_from"] = date_from
+    if date_to:
+        date_conditions += " AND period <= :date_to"
+        date_params["date_to"] = date_to
+
+    if entity_name and entity_b:
+        resolved_a = resolve_entity_cached(entity_name)
+        resolved_b = resolve_entity_cached(entity_b)
+        for email_pat_a in resolved_a.email_patterns:
+            for email_pat_b in resolved_b.email_patterns:
+                sql = (
+                    f"SELECT d.period,"
+                    f" SUM(CASE"
+                    f"   WHEN LOWER(d.person_a) LIKE :pat_a AND LOWER(d.person_b) LIKE :pat_b"
+                    f"   THEN d.total_count ELSE 0 END) AS sent_a_to_b,"
+                    f" SUM(CASE"
+                    f"   WHEN LOWER(d.person_a) LIKE :pat_b AND LOWER(d.person_b) LIKE :pat_a"
+                    f"   THEN d.total_count ELSE 0 END) AS sent_b_to_a,"
+                    f" SUM(CASE"
+                    f"   WHEN LOWER(d.person_a) LIKE :pat_a AND LOWER(d.person_b) LIKE :pat_b"
+                    f"   THEN COALESCE(d.to_count, 0) ELSE 0 END) AS to_a_to_b,"
+                    f" SUM(CASE"
+                    f"   WHEN LOWER(d.person_a) LIKE :pat_b AND LOWER(d.person_b) LIKE :pat_a"
+                    f"   THEN COALESCE(d.to_count, 0) ELSE 0 END) AS to_b_to_a,"
+                    f" SUM(CASE"
+                    f"   WHEN LOWER(d.person_a) LIKE :pat_a AND LOWER(d.person_b) LIKE :pat_b"
+                    f"   THEN COALESCE(d.cc_count, 0) ELSE 0 END) AS cc_a_to_b,"
+                    f" SUM(CASE"
+                    f"   WHEN LOWER(d.person_a) LIKE :pat_b AND LOWER(d.person_b) LIKE :pat_a"
+                    f"   THEN COALESCE(d.cc_count, 0) ELSE 0 END) AS cc_b_to_a,"
+                    f" SUM(CASE"
+                    f"   WHEN LOWER(d.person_a) LIKE :pat_a AND LOWER(d.person_b) LIKE :pat_b"
+                    f"   THEN COALESCE(d.bcc_count, 0) ELSE 0 END) AS bcc_a_to_b,"
+                    f" SUM(CASE"
+                    f"   WHEN LOWER(d.person_a) LIKE :pat_b AND LOWER(d.person_b) LIKE :pat_a"
+                    f"   THEN COALESCE(d.bcc_count, 0) ELSE 0 END) AS bcc_b_to_a,"
+                    f" SUM(d.total_count) AS total"
+                    f" FROM {ENRON_COMMUNICATION_DYADS_TABLE} d"
+                    f" WHERE ("
+                    f"   (LOWER(d.person_a) LIKE :pat_a AND LOWER(d.person_b) LIKE :pat_b)"
+                    f"   OR (LOWER(d.person_a) LIKE :pat_b AND LOWER(d.person_b) LIKE :pat_a)"
+                    f" ){date_conditions}"
+                    f" GROUP BY d.period ORDER BY d.period"
+                )
+                params = {"pat_a": email_pat_a, "pat_b": email_pat_b, **date_params}
+                results = _backend.execute_sql(sql, params=params)
+                if results:
+                    return (
+                        results,
+                        sql,
+                        "communication_dyads",
+                        [
+                            {
+                                "canonical_name": resolved_a.canonical_name,
+                                "confidence": getattr(resolved_a, "confidence", ""),
+                                "email_patterns": list(getattr(resolved_a, "email_patterns", []) or []),
+                                "email_addresses": list(getattr(resolved_a, "email_addresses", []) or []),
+                            },
+                            {
+                                "canonical_name": resolved_b.canonical_name,
+                                "confidence": getattr(resolved_b, "confidence", ""),
+                                "email_patterns": list(getattr(resolved_b, "email_patterns", []) or []),
+                                "email_addresses": list(getattr(resolved_b, "email_addresses", []) or []),
+                            },
+                        ],
+                        {"entity_name": resolved_a.canonical_name, "entity_b": resolved_b.canonical_name},
+                    )
+        return None, "", "communication_dyads", [], {"entity_name": entity_name, "entity_b": entity_b}
+
+    if entity_name:
+        resolved_ent = resolve_entity_cached(entity_name)
+        for email_pat in resolved_ent.email_patterns:
+            sql = (
+                f"SELECT period,"
+                f" COALESCE(emails_sent, 0) AS sent,"
+                f" COALESCE(emails_received, 0) AS received,"
+                f" COALESCE(emails_sent, 0) + COALESCE(emails_received, 0) AS total"
+                f" FROM {ENRON_PERSON_ACTIVITY_TABLE}"
+                f" WHERE LOWER(person_id) LIKE :email_pat{date_conditions}"
+                f" ORDER BY period"
+            )
+            results = _backend.execute_sql(sql, params={"email_pat": email_pat, **date_params})
+            if results:
+                return (
+                    results,
+                    sql,
+                    "person_activity",
+                    [
+                        {
+                            "canonical_name": resolved_ent.canonical_name,
+                            "confidence": getattr(resolved_ent, "confidence", ""),
+                            "email_patterns": list(getattr(resolved_ent, "email_patterns", []) or []),
+                            "email_addresses": list(getattr(resolved_ent, "email_addresses", []) or []),
+                        }
+                    ],
+                    {"entity_name": resolved_ent.canonical_name},
+                )
+        return None, "", "person_activity", [], {"entity_name": entity_name}
+
+    return None, "", "emails", [], {}
+
+
+def _build_communication_timeline_payload(
+    *,
+    source: str,
+    results: list[dict],
+    entity_name: str = "",
+    entity_b: str = "",
+    extra: dict[str, Any] | None = None,
+) -> str:
+    def _pair_summary(series: list[dict[str, Any]]) -> dict[str, Any]:
+        total_emails = sum(row["total"] for row in series)
+        sent_a_to_b_total = sum(row["sent_a_to_b"] for row in series)
+        sent_b_to_a_total = sum(row["sent_b_to_a"] for row in series)
+        direct_total = sum(row["direct_total"] for row in series)
+        cc_total = sum(row["cc_total"] for row in series)
+        bcc_total = sum(row["bcc_total"] for row in series)
+        direction_summary = (
+            "bidirectional"
+            if sent_a_to_b_total > 0 and sent_b_to_a_total > 0
+            else f"{entity_name} → {entity_b}"
+            if sent_a_to_b_total > 0
+            else f"{entity_b} → {entity_name}"
+            if sent_b_to_a_total > 0
+            else "none"
+        )
+        return {
+            "total_emails": total_emails,
+            "sent_a_to_b": sent_a_to_b_total,
+            "sent_b_to_a": sent_b_to_a_total,
+            "direction_summary": direction_summary,
+            "direct_total": direct_total,
+            "cc_total": cc_total,
+            "bcc_total": bcc_total,
+            "weeks_with_traffic": len(series),
+            "first_period": series[0]["period"] if series else None,
+            "last_period": series[-1]["period"] if series else None,
+        }
+
+    if entity_name and entity_b:
+        series = []
+        for row in results:
+            sent_a_to_b = int(row.get("sent_a_to_b") or 0)
+            sent_b_to_a = int(row.get("sent_b_to_a") or 0)
+            to_a_to_b = int(row.get("to_a_to_b") or 0)
+            to_b_to_a = int(row.get("to_b_to_a") or 0)
+            cc_a_to_b = int(row.get("cc_a_to_b") or 0)
+            cc_b_to_a = int(row.get("cc_b_to_a") or 0)
+            bcc_a_to_b = int(row.get("bcc_a_to_b") or 0)
+            bcc_b_to_a = int(row.get("bcc_b_to_a") or 0)
+            series.append(
+                {
+                    "period": str(row["period"]),
+                    "total": int(row.get("total") or 0),
+                    "sent_a_to_b": sent_a_to_b,
+                    "sent_b_to_a": sent_b_to_a,
+                    "to_a_to_b": to_a_to_b,
+                    "to_b_to_a": to_b_to_a,
+                    "cc_a_to_b": cc_a_to_b,
+                    "cc_b_to_a": cc_b_to_a,
+                    "bcc_a_to_b": bcc_a_to_b,
+                    "bcc_b_to_a": bcc_b_to_a,
+                    "direct_total": to_a_to_b + to_b_to_a,
+                    "cc_total": cc_a_to_b + cc_b_to_a,
+                    "bcc_total": bcc_a_to_b + bcc_b_to_a,
+                }
+            )
+        summary = _pair_summary(series)
+        payload: dict[str, Any] = {
+            "between": [entity_name, entity_b],
+            "source": source,
+            "time_series": series,
+            **summary,
+            "summary": summary,
+        }
+    elif entity_name:
+        series = [
+            {
+                "period": str(row["period"]),
+                "sent": int(row.get("sent") or 0),
+                "received": int(row.get("received") or 0),
+                "total": int(row.get("total") or 0),
+            }
+            for row in results
+        ]
+        payload = {
+            "entity": entity_name,
+            "source": source,
+            "time_series": series,
+        }
+    else:
+        series = [{"period": str(row["period"]), "total": int(row.get("total") or 0)} for row in results]
+        payload = {
+            "source": source,
+            "time_series": series,
+        }
+    if extra:
+        payload.update(extra)
+    return json.dumps(payload, ensure_ascii=False, default=str)
+
+
+def _wave2_get_communication_timeline_hybrid(
+    entity_name: str = "",
+    entity_b: str = "",
+    *,
+    date_from: str = "",
+    date_to: str = "",
+) -> str | None:
+    tool_name = "get_communication_timeline"
+    if not _should_enable_wave2_hybrid_tool(tool_name):
+        return None
+    if not entity_name:
+        return None
+
+    results, sql_generated, source, resolved_entities, resolved_names = _query_communication_timeline_rows(
+        entity_name,
+        entity_b,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    if not results:
+        if entity_name and entity_b:
+            return f"No communication timeline found between '{entity_name}' and '{entity_b}'."
+        return f"No activity timeline found for '{entity_name}'."
+
+    primary_name = resolved_names.get("entity_name", entity_name)
+    secondary_name = resolved_names.get("entity_b", entity_b)
+    person_names = [name for name in [primary_name, secondary_name] if name]
+    pair_summary = None
+    if primary_name and secondary_name:
+        pair_rows = []
+        for row in results:
+            sent_a_to_b = int(row.get("sent_a_to_b") or 0)
+            sent_b_to_a = int(row.get("sent_b_to_a") or 0)
+            to_a_to_b = int(row.get("to_a_to_b") or 0)
+            to_b_to_a = int(row.get("to_b_to_a") or 0)
+            cc_a_to_b = int(row.get("cc_a_to_b") or 0)
+            cc_b_to_a = int(row.get("cc_b_to_a") or 0)
+            bcc_a_to_b = int(row.get("bcc_a_to_b") or 0)
+            bcc_b_to_a = int(row.get("bcc_b_to_a") or 0)
+            pair_rows.append(
+                {
+                    "period": str(row["period"]),
+                    "total": int(row.get("total") or 0),
+                    "sent_a_to_b": sent_a_to_b,
+                    "sent_b_to_a": sent_b_to_a,
+                    "direct_total": to_a_to_b + to_b_to_a,
+                    "cc_total": cc_a_to_b + cc_b_to_a,
+                    "bcc_total": bcc_a_to_b + bcc_b_to_a,
+                }
+            )
+        total_emails = sum(row["total"] for row in pair_rows)
+        sent_a_to_b_total = sum(row["sent_a_to_b"] for row in pair_rows)
+        sent_b_to_a_total = sum(row["sent_b_to_a"] for row in pair_rows)
+        direction_summary = (
+            "bidirectional"
+            if sent_a_to_b_total > 0 and sent_b_to_a_total > 0
+            else f"{primary_name} → {secondary_name}"
+            if sent_a_to_b_total > 0
+            else f"{secondary_name} → {primary_name}"
+            if sent_b_to_a_total > 0
+            else "none"
+        )
+        pair_summary = {
+            "total_emails": total_emails,
+            "sent_a_to_b": sent_a_to_b_total,
+            "sent_b_to_a": sent_b_to_a_total,
+            "direction_summary": direction_summary,
+            "direct_total": sum(row["direct_total"] for row in pair_rows),
+            "cc_total": sum(row["cc_total"] for row in pair_rows),
+            "bcc_total": sum(row["bcc_total"] for row in pair_rows),
+            "weeks_with_traffic": len(pair_rows),
+            "first_period": pair_rows[0]["period"] if pair_rows else None,
+            "last_period": pair_rows[-1]["period"] if pair_rows else None,
+        }
+    extra = _hybrid_contract_metadata(
+        tool_name,
+        analytics_intent="timeline",
+        resolved_entities=resolved_entities,
+        fallback_used=False,
+        fallback_reason=None,
+        evidence_ready=False,
+    )
+    extra.update(
+        {
+            "analytics_backend": "databricks_sql",
+            "semantic_layer": ENRON_COMMUNICATION_METRIC_VIEW,
+            "analytics_result": {
+                "query": (
+                    f"communication_timeline(entity_name={primary_name}, "
+                    f"entity_b={secondary_name}, date_from={date_from}, date_to={date_to})"
+                ),
+                "sql_generated": sql_generated,
+                "row_count": len(results),
+                "time_window": {
+                    "date_from": date_from or None,
+                    "date_to": date_to or None,
+                },
+                "summary": pair_summary,
+            },
+            "enrichment": _collect_analytics_enrichment(
+                " ".join(person_names),
+                person_names=person_names,
+            ),
+        }
+    )
+    return _build_communication_timeline_payload(
+        source=source,
+        results=results,
+        entity_name=primary_name,
+        entity_b=secondary_name,
+        extra=extra,
+    )
+
+
+def _query_topic_distribution_rows(
+    entity_name: str = "",
+    *,
+    limit: int,
+    resolved: "ResolvedEntity" = None,
+) -> tuple[list[dict], str, list[dict[str, Any]], str]:
+    safe_limit = _wave1_limit(limit, default=20)
+    threads_table = f"{CATALOG}.{ENRON_SCHEMA}.threads"
+    mentions_table = f"{CATALOG}.{ENRON_SCHEMA}.entity_mentions"
+
+    resolved_entities: list[dict[str, Any]] = []
+    resolved_name = entity_name or "all"
+    if entity_name:
+        resolved = resolved or resolve_entity_cached(entity_name)
+        resolved_entities = [_resolved_entity_contract_payload(resolved)]
+        resolved_name = resolved.canonical_name
+        where_clause = "WHERE LOWER(em.entity_id) LIKE :pattern"
+        params = {
+            "pattern": f"%{'_'.join(resolved.canonical_name.lower().split())}%",
+            "lim": safe_limit,
+        }
+    else:
+        where_clause = ""
+        params = {"lim": safe_limit}
+
+    join_clause = (
+        f" FROM {mentions_table} em"
+        f" JOIN {threads_table} t ON em.thread_id = t.thread_id"
+        if where_clause
+        else f" FROM {threads_table} t"
+    )
+    attempts = [
+        (
+            f"SELECT topic, COUNT(DISTINCT t.thread_id) AS thread_count,"
+            f" COLLECT_LIST(t.subject)[0] AS sample_subject"
+            f"{join_clause}"
+            f" LATERAL VIEW EXPLODE(t.key_topics) kt AS topic"
+            f" {where_clause}"
+            f" GROUP BY topic ORDER BY thread_count DESC LIMIT :lim"
+        ),
+        (
+            f"WITH exploded AS ("
+            f"  SELECT t.thread_id, t.subject, EXPLODE(t.key_topics) AS topic"
+            f"  {join_clause} {where_clause}"
+            f")"
+            f" SELECT topic, COUNT(DISTINCT thread_id) AS thread_count,"
+            f"   FIRST(subject) AS sample_subject"
+            f" FROM exploded GROUP BY topic ORDER BY thread_count DESC LIMIT :lim"
+        ),
+        (
+            f"WITH exploded AS ("
+            f"  SELECT t.thread_id, t.subject, unnest(t.key_topics) AS topic"
+            f"  {join_clause} {where_clause}"
+            f")"
+            f" SELECT topic, COUNT(DISTINCT thread_id) AS thread_count,"
+            f"   (array_agg(subject))[1] AS sample_subject"
+            f" FROM exploded GROUP BY topic ORDER BY thread_count DESC LIMIT :lim"
+        ),
+    ]
+
+    last_exc: Exception | None = None
+    for sql in attempts:
+        try:
+            rows = _backend.execute_sql(sql, params=params)
+            return rows or [], sql, resolved_entities, resolved_name
+        except Exception as exc:
+            last_exc = exc
+    if last_exc:
+        raise last_exc
+    return [], "", resolved_entities, resolved_name
+
+
+def _build_topic_distribution_payload(
+    entity_name: str = "",
+    *,
+    rows: list[dict],
+    extra: dict[str, Any] | None = None,
+) -> str:
+    payload: dict[str, Any] = {
+        "entity": entity_name or "all",
+        "topic_count": len(rows),
+        "topics": rows,
+    }
+    if extra:
+        payload.update(extra)
+    return json.dumps(payload, ensure_ascii=False, default=str)
+
+
+def _wave2_get_topic_distribution_hybrid(
+    entity_name: str = "",
+    *,
+    limit: int,
+    resolved: "ResolvedEntity" = None,
+) -> str | None:
+    tool_name = "get_topic_distribution"
+    if not _should_enable_wave2_hybrid_tool(tool_name):
+        return None
+
+    try:
+        rows, sql_generated, resolved_entities, resolved_name = _query_topic_distribution_rows(
+            entity_name,
+            limit=limit,
+            resolved=resolved,
+        )
+    except Exception as exc:
+        return f"Topic distribution query failed: {exc}"
+
+    person_names = [resolved_name] if entity_name else None
+    extra = _hybrid_contract_metadata(
+        tool_name,
+        analytics_intent="distribution",
+        resolved_entities=resolved_entities,
+        fallback_used=False,
+        fallback_reason=None,
+        evidence_ready=False,
+    )
+    extra.update(
+        {
+            "analytics_backend": "databricks_sql",
+            "semantic_layer": _topic_semantic_layer_name(),
+            "analytics_result": {
+                "query": (
+                    f"topic_distribution(entity_name={resolved_name if entity_name else 'all'}, "
+                    f"limit={_wave1_limit(limit, default=20)})"
+                ),
+                "sql_generated": sql_generated,
+                "row_count": len(rows),
+            },
+            "enrichment": _collect_analytics_enrichment(
+                entity_name,
+                person_names=person_names,
+            ),
+        }
+    )
+    return _build_topic_distribution_payload(
+        resolved_name if entity_name else "",
+        rows=rows,
+        extra=extra,
+    )
+
+
+def _query_browse_topics_rows(
+    category: str = "",
+    entity_name: str = "",
+    *,
+    resolved: "ResolvedEntity" = None,
+) -> tuple[list[dict], str, str, list[dict[str, Any]], dict[str, str], bool, str | None]:
+    taxonomy_table = _topic_semantic_layer_name()
+
+    if entity_name:
+        resolved = resolved or resolve_entity_cached(entity_name)
+        resolved_entities = [_resolved_entity_contract_payload(resolved)]
+        mentions_table = f"{CATALOG}.{ENRON_SCHEMA}.entity_mentions"
+        threads_table = f"{CATALOG}.{ENRON_SCHEMA}.threads"
+        pattern = f"%{'_'.join(resolved.canonical_name.lower().split())}%"
+        sql = (
+            f"SELECT tt.parent_label, tt.topic_label, COUNT(DISTINCT em.thread_id) AS thread_count"
+            f" FROM {mentions_table} em"
+            f" JOIN {threads_table} t ON em.thread_id = t.thread_id"
+            f" JOIN {taxonomy_table} tt ON tt.level = 1"
+            f"   AND LOWER(tt.topic_label) IN ("
+            f"     SELECT LOWER(topic) FROM (SELECT EXPLODE(t.key_topics) AS topic)"
+            f"   )"
+            f" WHERE LOWER(em.entity_id) LIKE :pattern"
+            f" GROUP BY tt.parent_label, tt.topic_label"
+            f" ORDER BY thread_count DESC"
+            f" LIMIT 20"
+        )
+        try:
+            rows = _backend.execute_sql(sql, params={"pattern": pattern})
+            return (
+                rows or [],
+                sql,
+                "entity",
+                resolved_entities,
+                {"entity_name": resolved.canonical_name},
+                False,
+                None,
+            )
+        except Exception:
+            fallback_sql = (
+                f"SELECT parent_label, topic_label, thread_count, entity_count"
+                f" FROM {taxonomy_table}"
+                f" WHERE level = 1"
+                f" ORDER BY entity_count DESC"
+                f" LIMIT 20"
+            )
+            rows = _backend.execute_sql(fallback_sql)
+            return (
+                rows or [],
+                fallback_sql,
+                "entity",
+                resolved_entities,
+                {"entity_name": resolved.canonical_name},
+                True,
+                "entity_topic_join_failed",
+            )
+
+    if category:
+        sql = (
+            f"SELECT topic_id, topic_label, thread_count, entity_count"
+            f" FROM {taxonomy_table}"
+            f" WHERE level = 1 AND LOWER(parent_label) = LOWER(:cat)"
+            f" ORDER BY thread_count DESC"
+            f" LIMIT 30"
+        )
+        rows = _backend.execute_sql(sql, params={"cat": category})
+        return rows or [], sql, "category", [], {"category": category}, False, None
+
+    sql = (
+        f"SELECT topic_id, topic_label AS category, thread_count, entity_count"
+        f" FROM {taxonomy_table}"
+        f" WHERE level = 0"
+        f" ORDER BY thread_count DESC"
+    )
+    rows = _backend.execute_sql(sql)
+    return rows or [], sql, "parent", [], {}, False, None
+
+
+def _build_browse_topics_payload(
+    *,
+    mode: str,
+    rows: list[dict],
+    category: str = "",
+    entity_name: str = "",
+    extra: dict[str, Any] | None = None,
+) -> str:
+    if mode == "entity":
+        payload: dict[str, Any] = {
+            "entity": entity_name,
+            "topics": rows,
+        }
+    elif mode == "category":
+        payload = {
+            "category": category,
+            "sub_topics": rows,
+        }
+    else:
+        payload = {
+            "parent_categories": rows,
+            "hint": "Pass a category name to see sub-topics, or entity_name to find topics for a person.",
+        }
+    if extra:
+        payload.update(extra)
+    return json.dumps(payload, ensure_ascii=False, default=str)
+
+
+def _wave2_browse_topics_hybrid(
+    category: str = "",
+    entity_name: str = "",
+    *,
+    resolved: "ResolvedEntity" = None,
+) -> str | None:
+    tool_name = "browse_topics"
+    if not _should_enable_wave2_hybrid_tool(tool_name):
+        return None
+
+    try:
+        rows, sql_generated, mode, resolved_entities, values, fallback_used, fallback_reason = (
+            _query_browse_topics_rows(
+                category=category,
+                entity_name=entity_name,
+                resolved=resolved,
+            )
+        )
+    except Exception as exc:
+        return f"Topic query failed: {exc}"
+
+    resolved_name = values.get("entity_name", entity_name)
+    resolved_category = values.get("category", category)
+    person_names = [resolved_name] if resolved_name else None
+    extra = _hybrid_contract_metadata(
+        tool_name,
+        analytics_intent="listing",
+        resolved_entities=resolved_entities,
+        fallback_used=fallback_used,
+        fallback_reason=fallback_reason,
+        evidence_ready=False,
+    )
+    extra.update(
+        {
+            "analytics_backend": "databricks_sql",
+            "semantic_layer": _topic_semantic_layer_name(),
+            "analytics_result": {
+                "query": (
+                    f"browse_topics(category={resolved_category or None}, "
+                    f"entity_name={resolved_name or None})"
+                ),
+                "sql_generated": sql_generated,
+                "row_count": len(rows),
+                "mode": mode,
+            },
+            "enrichment": _collect_analytics_enrichment(
+                entity_name or category,
+                person_names=person_names,
+            ),
+        }
+    )
+    return _build_browse_topics_payload(
+        mode=mode,
+        rows=rows,
+        category=resolved_category,
+        entity_name=resolved_name,
+        extra=extra,
+    )
+
+
+def _query_dyad_topics_context(
+    entity_a: str,
+    entity_b: str,
+    *,
+    limit: int,
+    resolved_a: "ResolvedEntity" = None,
+    resolved_b: "ResolvedEntity" = None,
+) -> dict[str, Any]:
+    safe_limit = _wave1_limit(limit, default=20)
+    resolved_a = resolved_a or resolve_entity_cached(entity_a)
+    resolved_b = resolved_b or resolve_entity_cached(entity_b)
+    src_table = ENRON_EMAILS_TABLE
+    threads_table = ENRON_THREADS_TABLE
+
+    thread_rows: list[dict] = []
+    thread_sql = ""
+    discovery_limit = min(safe_limit * 2, 200)
+    for a_pat in resolved_a.email_patterns:
+        for b_pat in resolved_b.email_patterns:
+            sql = (
+                f"SELECT DISTINCT e.thread_id"
+                f" FROM {src_table} e"
+                f" WHERE (LOWER(sender) LIKE :a_pat"
+                f"        AND (LOWER(CAST(to_recipients AS STRING)) LIKE :b_pat"
+                f"             OR LOWER(CAST(cc_recipients AS STRING)) LIKE :b_pat))"
+                f"    OR (LOWER(sender) LIKE :b_pat"
+                f"        AND (LOWER(CAST(to_recipients AS STRING)) LIKE :a_pat"
+                f"             OR LOWER(CAST(cc_recipients AS STRING)) LIKE :a_pat))"
+                f" LIMIT {discovery_limit}"
+            )
+            thread_sql = sql
+            thread_rows = _backend.execute_sql(
+                sql,
+                params={"a_pat": a_pat, "b_pat": b_pat},
+            )
+            if thread_rows:
+                break
+        if thread_rows:
+            break
+
+    thread_ids = [row["thread_id"] for row in thread_rows if row.get("thread_id")]
+    topic_sql = ""
+    topic_rows: list[dict] = []
+    if thread_ids:
+        thread_params = {f"t{i}": tid for i, tid in enumerate(thread_ids)}
+        placeholders = ", ".join(f":t{i}" for i in range(len(thread_ids)))
+        topic_sql = (
+            f"SELECT thread_id, subject, summary, key_topics"
+            f" FROM {threads_table}"
+            f" WHERE thread_id IN ({placeholders})"
+            f"   AND key_topics IS NOT NULL"
+            f" LIMIT {safe_limit}"
+        )
+        topic_rows = _backend.execute_sql(topic_sql, params=thread_params)
+
+    return {
+        "resolved_a": resolved_a,
+        "resolved_b": resolved_b,
+        "thread_rows": thread_rows,
+        "thread_ids": thread_ids,
+        "topic_rows": topic_rows,
+        "thread_sql": thread_sql,
+        "topic_sql": topic_sql,
+        "safe_limit": safe_limit,
+    }
+
+
+def _build_dyad_topics_payload(
+    context: dict[str, Any],
+    *,
+    extra: dict[str, Any] | None = None,
+) -> str:
+    from collections import Counter
+
+    resolved_a = context["resolved_a"]
+    resolved_b = context["resolved_b"]
+    thread_rows = context.get("thread_rows") or []
+    thread_ids = context.get("thread_ids") or []
+    topic_rows = context.get("topic_rows") or []
+
+    payload: dict[str, Any] = {
+        "between": [resolved_a.canonical_name, resolved_b.canonical_name],
+        "resolution": {
+            "a": _resolution_metadata(resolved_a),
+            "b": _resolution_metadata(resolved_b),
+        },
+    }
+
+    if not thread_rows:
+        payload.update(
+            {
+                "top_topics": [],
+                "threads": [],
+                "note": "No emails found between these people.",
+            }
+        )
+    elif not thread_ids:
+        payload.update(
+            {
+                "top_topics": [],
+                "threads": [],
+                "note": "No thread IDs found for emails between these people.",
+            }
+        )
+    elif not topic_rows:
+        payload.update(
+            {
+                "top_topics": [],
+                "threads": [],
+                "note": "Threads exist but have no AI-generated topic tags yet.",
+            }
+        )
+    else:
+        topic_counts: Counter = Counter()
+        threads_out = []
+        for row in topic_rows:
+            topics = row.get("key_topics") or []
+            if isinstance(topics, str):
+                try:
+                    topics = json.loads(topics)
+                except (json.JSONDecodeError, ValueError):
+                    topics = [t.strip() for t in topics.strip("[]").split(",") if t.strip()]
+            for tag in topics:
+                topic_counts[str(tag).strip().lower()] += 1
+            threads_out.append(
+                {
+                    "thread_id": row.get("thread_id", ""),
+                    "subject": row.get("subject", ""),
+                    "summary": (row.get("summary", "") or "")[:300],
+                    "key_topics": topics,
+                }
+            )
+
+        payload.update(
+            {
+                "threads_scanned": len(topic_rows),
+                "top_topics": [
+                    {"topic": tag, "count": cnt}
+                    for tag, cnt in topic_counts.most_common(30)
+                ],
+                "threads": threads_out[:10],
+            }
+        )
+
+    if extra:
+        payload.update(extra)
+    return json.dumps(payload, ensure_ascii=False, default=str)
+
+
+def _wave2_get_dyad_topics_hybrid(
+    entity_a: str,
+    entity_b: str,
+    *,
+    limit: int,
+    resolved_a: "ResolvedEntity" = None,
+    resolved_b: "ResolvedEntity" = None,
+) -> str | None:
+    tool_name = "get_dyad_topics"
+    if not _should_enable_wave2_hybrid_tool(tool_name):
+        return None
+
+    context = _query_dyad_topics_context(
+        entity_a,
+        entity_b,
+        limit=limit,
+        resolved_a=resolved_a,
+        resolved_b=resolved_b,
+    )
+    resolved_a = context["resolved_a"]
+    resolved_b = context["resolved_b"]
+    resolved_entities = [
+        _resolved_entity_contract_payload(resolved_a),
+        _resolved_entity_contract_payload(resolved_b),
+    ]
+    extra = _hybrid_contract_metadata(
+        tool_name,
+        analytics_intent="distribution",
+        resolved_entities=resolved_entities,
+        fallback_used=False,
+        fallback_reason=None,
+        evidence_ready=False,
+    )
+    extra.update(
+        {
+            "analytics_backend": "databricks_sql",
+            "semantic_layer": ENRON_THREADS_TABLE,
+            "analytics_result": {
+                "query": (
+                    f"dyad_topics(entity_a={resolved_a.canonical_name}, "
+                    f"entity_b={resolved_b.canonical_name}, limit={context['safe_limit']})"
+                ),
+                "sql_generated": {
+                    "thread_discovery": context.get("thread_sql", ""),
+                    "topic_lookup": context.get("topic_sql", ""),
+                },
+                "thread_candidate_count": len(context.get("thread_rows") or []),
+                "thread_ids_count": len(context.get("thread_ids") or []),
+                "row_count": len(context.get("topic_rows") or []),
+            },
+            "enrichment": _collect_analytics_enrichment(
+                f"{resolved_a.canonical_name} {resolved_b.canonical_name}",
+                person_names=[resolved_a.canonical_name, resolved_b.canonical_name],
+            ),
+        }
+    )
+    return _build_dyad_topics_payload(context, extra=extra)
+
+
 @tool
 def find_top_contacts(entity_name: str, direction: str = "both", limit: int = 10) -> str:
     """Find the people who communicated most frequently with an entity, ranked by total email count.
@@ -2578,106 +4928,27 @@ def find_top_contacts(entity_name: str, direction: str = "both", limit: int = 10
         return "find_top_contacts is only available for the Enron corpus. Use find_connections instead."
 
     resolved = resolve_entity_cached(entity_name)
-    email_patterns = resolved.email_patterns
-    dyads_table = ENRON_COMMUNICATION_DYADS_TABLE
-    participants_table = ENRON_PARTICIPANTS_TABLE
+    hybrid_result = _wave2_find_top_contacts_hybrid(
+        entity_name,
+        direction=direction,
+        limit=limit,
+        resolved=resolved,
+    )
+    if hybrid_result is not None:
+        return hybrid_result
 
-    results = None
-    for ep in email_patterns:
-        if direction == "outbound":
-            sql = (
-                f"SELECT d.person_b AS contact_email,"
-                f" SUM(d.total_count) AS sent,"
-                f" 0 AS received,"
-                f" SUM(d.total_count) AS total"
-                f" FROM {dyads_table} d"
-                f" WHERE LOWER(d.person_a) LIKE :email_pat"
-                f" GROUP BY d.person_b ORDER BY total DESC LIMIT {int(limit)}"
-            )
-        elif direction == "inbound":
-            sql = (
-                f"SELECT d.person_a AS contact_email,"
-                f" 0 AS sent,"
-                f" SUM(d.total_count) AS received,"
-                f" SUM(d.total_count) AS total"
-                f" FROM {dyads_table} d"
-                f" WHERE LOWER(d.person_b) LIKE :email_pat"
-                f" GROUP BY d.person_a ORDER BY total DESC LIMIT {int(limit)}"
-            )
-        else:
-            sql = (
-                f"SELECT contact_email,"
-                f" SUM(CASE WHEN dir = 'out' THEN cnt ELSE 0 END) AS sent,"
-                f" SUM(CASE WHEN dir = 'in' THEN cnt ELSE 0 END) AS received,"
-                f" SUM(cnt) AS total"
-                f" FROM ("
-                f"   SELECT d.person_b AS contact_email, 'out' AS dir,"
-                f"   SUM(d.total_count) AS cnt"
-                f"   FROM {dyads_table} d"
-                f"   WHERE LOWER(d.person_a) LIKE :email_pat"
-                f"   GROUP BY d.person_b"
-                f"   UNION ALL"
-                f"   SELECT d.person_a AS contact_email, 'in' AS dir,"
-                f"   SUM(d.total_count) AS cnt"
-                f"   FROM {dyads_table} d"
-                f"   WHERE LOWER(d.person_b) LIKE :email_pat"
-                f"   GROUP BY d.person_a"
-                f" ) combined"
-                f" GROUP BY contact_email ORDER BY total DESC LIMIT {int(limit)}"
-            )
-
-        results = _backend.execute_sql(sql, params={"email_pat": ep})
-        if results:
-            break
-
+    results, _ = _query_top_contacts_rows(
+        resolved,
+        direction=direction,
+        limit=limit,
+    )
     if not results:
         return f"No email contacts found for '{entity_name}'."
-
-    contact_emails = [r["contact_email"] for r in results if r.get("contact_email")]
-    display_map: dict[str, str] = {}
-    if contact_emails:
-        try:
-            chunks = [contact_emails[i:i + 20] for i in range(0, len(contact_emails), 20)]
-            for chunk in chunks:
-                conditions = " OR ".join(f"email_address = :e{i}" for i in range(len(chunk)))
-                params = {f"e{i}": e for i, e in enumerate(chunk)}
-                name_rows = _backend.execute_sql(
-                    f"SELECT email_address,"
-                    f" COALESCE(name_normalized, display_name, email_address) AS display"
-                    f" FROM {participants_table}"
-                    f" WHERE {conditions}",
-                    params=params,
-                )
-                for nr in name_rows:
-                    display_map[nr["email_address"]] = nr["display"]
-        except Exception:
-            pass
-
-    def _display_name(email_addr: str) -> str:
-        raw = display_map.get(email_addr, "")
-        if raw and "@" not in raw and "<" not in raw:
-            return raw
-        local = email_addr.split("@")[0] if "@" in email_addr else email_addr
-        return local.replace(".", " ").replace("_", " ").title()
-
-    contacts = []
-    for r in results:
-        addr = r["contact_email"]
-        contacts.append({
-            "name": _display_name(addr),
-            "email": addr,
-            "sent": int(r.get("sent") or 0),
-            "received": int(r.get("received") or 0),
-            "total": int(r.get("total") or 0),
-        })
-    contacts = _dedup_contacts(contacts)
-    return json.dumps({
-        "entity": resolved.canonical_name,
-        "direction": direction,
-        "source": "communication_dyads",
-        "top_contacts": contacts,
-        "resolution": _resolution_metadata(resolved),
-    }, ensure_ascii=False)
+    return _build_top_contacts_payload(
+        resolved,
+        direction=direction,
+        results=results,
+    )
 
 
 @tool
@@ -2691,6 +4962,10 @@ def get_top_email_pairs(limit: int = 20) -> str:
     """
     if CORPUS != "enron":
         return "get_top_email_pairs is only available for the Enron corpus."
+
+    semantic_result = _wave1_get_top_email_pairs_semantic(limit)
+    if semantic_result is not None:
+        return semantic_result
 
     dyads_table = ENRON_COMMUNICATION_DYADS_TABLE
     participants_table = ENRON_PARTICIPANTS_TABLE
@@ -2776,6 +5051,10 @@ def get_top_individuals(limit: int = 20, sort_by: str = "total") -> str:
     if CORPUS != "enron":
         return "get_top_individuals is only available for the Enron corpus."
 
+    semantic_result = _wave1_get_top_individuals_semantic(limit, sort_by)
+    if semantic_result is not None:
+        return semantic_result
+
     activity_table = ENRON_PERSON_ACTIVITY_TABLE
     participants_table = ENRON_PARTICIPANTS_TABLE
 
@@ -2843,6 +5122,351 @@ def get_top_individuals(limit: int = 20, sort_by: str = "total") -> str:
     }, ensure_ascii=False)
 
 
+def _query_emails_between_context(
+    entity_a: str,
+    entity_b: str,
+    *,
+    limit: int,
+    resolved_a: "ResolvedEntity" = None,
+    resolved_b: "ResolvedEntity" = None,
+) -> dict[str, Any]:
+    safe_limit = _wave1_limit(limit, default=15, maximum=100)
+    cfg = _get_corpus_config()
+    src_table = cfg["source_table"]
+    resolved_a = resolved_a or resolve_entity_cached(entity_a)
+    resolved_b = resolved_b or resolve_entity_cached(entity_b)
+
+    sql_generated: dict[str, str] = {
+        "header_lookup": "",
+        "body_mention_lookup": "",
+        "relationship_lookup": "",
+        "relationship_thread_fetch": "",
+        "count_lookup": "",
+    }
+
+    results: list[dict] = []
+    match_type = "header"
+    for a_pat in resolved_a.email_patterns:
+        for b_pat in resolved_b.email_patterns:
+            sql = (
+                f"SELECT message_id, sender, subject, date, thread_id,"
+                f" SUBSTRING(body, 1, {EVIDENCE_CONFIG['body_preview_length']}) AS body_preview,"
+                f" COALESCE(ARRAY_JOIN(to_recipients, ', '), '') AS to_list"
+                f" FROM {src_table}"
+                f" WHERE (LOWER(sender) LIKE :a_pat"
+                f"        AND (LOWER(CAST(to_recipients AS STRING)) LIKE :b_pat"
+                f"             OR LOWER(CAST(cc_recipients AS STRING)) LIKE :b_pat))"
+                f"    OR (LOWER(sender) LIKE :b_pat"
+                f"        AND (LOWER(CAST(to_recipients AS STRING)) LIKE :a_pat"
+                f"             OR LOWER(CAST(cc_recipients AS STRING)) LIKE :a_pat))"
+                f" ORDER BY date DESC LIMIT {safe_limit}"
+            )
+            sql_generated["header_lookup"] = sql
+            results = _backend.execute_sql(
+                sql,
+                params={"a_pat": a_pat, "b_pat": b_pat},
+            )
+            if results:
+                break
+        if results:
+            break
+
+    if not results:
+        mentions_table = cfg["entity_mentions"]
+        for a_pat in resolved_a.entity_id_patterns:
+            for b_pat in resolved_b.entity_id_patterns:
+                sql = (
+                    f"SELECT e.sender, e.subject, e.date,"
+                    f" SUBSTRING(e.body, 1, 500) AS body_preview"
+                    f" FROM {src_table} e"
+                    f" INNER JOIN {mentions_table} ma ON e.message_id = ma.message_id"
+                    f" INNER JOIN {mentions_table} mb ON e.message_id = mb.message_id"
+                    f" WHERE ma.entity_id LIKE :a_id AND mb.entity_id LIKE :b_id"
+                    f"   AND ma.entity_id != mb.entity_id"
+                    f" ORDER BY e.date DESC LIMIT {safe_limit}"
+                )
+                sql_generated["body_mention_lookup"] = sql
+                results = _backend.execute_sql(
+                    sql,
+                    params={"a_id": a_pat, "b_id": b_pat},
+                )
+                if results:
+                    break
+            if results:
+                break
+        match_type = "body_mention"
+
+    if not results:
+        rel_table = cfg["relationships"]
+        all_threads: list[str] = []
+        rel_sql_parts: list[str] = []
+        for sp in resolved_a.entity_id_patterns:
+            for tp in resolved_b.entity_id_patterns:
+                first_sql = (
+                    f"SELECT source_threads FROM {rel_table}"
+                    f" WHERE source_entity LIKE :sp AND target_entity LIKE :tp"
+                    f" LIMIT 20"
+                )
+                second_sql = (
+                    f"SELECT source_threads FROM {rel_table}"
+                    f" WHERE source_entity LIKE :tp AND target_entity LIKE :sp"
+                    f" LIMIT 20"
+                )
+                rel_sql_parts.extend([first_sql, second_sql])
+                for rels_batch in [
+                    _backend.execute_sql(first_sql, params={"sp": sp, "tp": tp}),
+                    _backend.execute_sql(second_sql, params={"sp": sp, "tp": tp}),
+                ]:
+                    for row in rels_batch or []:
+                        threads = row.get("source_threads") or []
+                        if isinstance(threads, str):
+                            threads = [t.strip() for t in threads.strip("[]").split(",") if t.strip()]
+                        all_threads.extend(threads)
+                if all_threads:
+                    break
+            if all_threads:
+                break
+
+        sql_generated["relationship_lookup"] = "\n-- reverse lookup\n".join(rel_sql_parts)
+        all_threads = list(dict.fromkeys(all_threads))[:30]
+        if all_threads:
+            thread_params = {f"t{i}": tid for i, tid in enumerate(all_threads)}
+            placeholders = ", ".join(f":t{i}" for i in range(len(all_threads)))
+            fetch_sql = (
+                f"SELECT sender, subject, date,"
+                f" SUBSTRING(body, 1, 500) AS body_preview"
+                f" FROM {src_table}"
+                f" WHERE thread_id IN ({placeholders})"
+                f" ORDER BY date DESC LIMIT {safe_limit}"
+            )
+            sql_generated["relationship_thread_fetch"] = fetch_sql
+            results = _backend.execute_sql(fetch_sql, params=thread_params)
+            match_type = "relationship_threads"
+
+    corrections = []
+    if getattr(resolved_a, "correction", None):
+        corrections.append(resolved_a.correction)
+    if getattr(resolved_b, "correction", None):
+        corrections.append(resolved_b.correction)
+    correction_note = " " + "; ".join(corrections) if corrections else ""
+
+    total_count = len(results)
+    if results and match_type == "header" and total_count >= safe_limit:
+        try:
+            dyads_table = ENRON_COMMUNICATION_DYADS_TABLE
+            for ap in resolved_a.email_patterns:
+                for bp in resolved_b.email_patterns:
+                    sql = (
+                        f"SELECT SUM(d.total_count) AS cnt"
+                        f" FROM {dyads_table} d"
+                        f" WHERE (LOWER(d.person_a) LIKE :a AND LOWER(d.person_b) LIKE :b)"
+                        f"    OR (LOWER(d.person_a) LIKE :b AND LOWER(d.person_b) LIKE :a)"
+                    )
+                    sql_generated["count_lookup"] = sql
+                    count_rows = _backend.execute_sql(sql, params={"a": ap, "b": bp})
+                    if count_rows and count_rows[0].get("cnt"):
+                        total_count = int(count_rows[0]["cnt"])
+                        break
+                if total_count > len(results):
+                    break
+        except Exception:
+            pass
+
+    return {
+        "cfg": cfg,
+        "src_table": src_table,
+        "resolved_a": resolved_a,
+        "resolved_b": resolved_b,
+        "results": results,
+        "match_type": match_type if results else "none",
+        "sql_generated": sql_generated,
+        "total_count": total_count,
+        "safe_limit": safe_limit,
+        "correction_note": correction_note,
+    }
+
+
+def _build_emails_between_payload(
+    context: dict[str, Any],
+    *,
+    extra: dict[str, Any] | None = None,
+) -> str:
+    resolved_a = context["resolved_a"]
+    resolved_b = context["resolved_b"]
+    results = context.get("results") or []
+
+    if not results:
+        payload: dict[str, Any] = {
+            "between": [resolved_a.canonical_name, resolved_b.canonical_name],
+            "total_emails": 0,
+            "showing": 0,
+            "match_type": "none",
+            "emails": [],
+            "resolution": {
+                "a": _resolution_metadata(resolved_a),
+                "b": _resolution_metadata(resolved_b),
+            },
+            "note": (
+                f"No emails found between '{resolved_a.canonical_name}' and "
+                f"'{resolved_b.canonical_name}'.{context.get('correction_note', '')}"
+            ),
+        }
+        if extra:
+            payload.update(extra)
+        return json.dumps(payload, ensure_ascii=False, default=str)
+
+    emails = []
+    sent_a_to_b = 0
+    sent_b_to_a = 0
+    match_type = context.get("match_type", "header")
+    a_emails = {p.lower() for p in resolved_a.email_patterns}
+    b_emails = {p.lower() for p in resolved_b.email_patterns}
+    for row in results:
+        sender = (row.get("sender", "") or "").lower()
+        emails.append(
+            {
+                "date": str(row.get("date", ""))[:10],
+                "sender": row.get("sender", ""),
+                "subject": row.get("subject", ""),
+                "body_preview": (row.get("body_preview", "") or "")[:800],
+                "thread_id": row.get("thread_id", ""),
+                "message_id": row.get("message_id", ""),
+            }
+        )
+        if any(sender.startswith(pattern.replace("%", "")) for pattern in a_emails):
+            sent_a_to_b += 1
+        elif any(sender.startswith(pattern.replace("%", "")) for pattern in b_emails):
+            sent_b_to_a += 1
+
+    direct_email_count = sent_a_to_b + sent_b_to_a
+    indirect_mention_count = len(emails) if direct_email_count == 0 and match_type in {
+        "body_mention",
+        "relationship_threads",
+    } else 0
+    direct_communication = direct_email_count > 0
+    if direct_communication:
+        direction_summary = (
+            f"{resolved_a.canonical_name} → {resolved_b.canonical_name}: {sent_a_to_b}, "
+            f"{resolved_b.canonical_name} → {resolved_a.canonical_name}: {sent_b_to_a}"
+        )
+        communication_interpretation = "direct_header_exchange"
+        note = ""
+    elif match_type == "body_mention":
+        direction_summary = (
+            "No direct header-to-header emails found. "
+            f"{indirect_mention_count} retrieved emails mention both entities in the same message context."
+        )
+        communication_interpretation = "indirect_co_mentions_only"
+        note = (
+            "These rows are indirect co-mentions, not direct email exchange. "
+            "Do not describe them as the two entities emailing each other."
+        )
+    elif match_type == "relationship_threads":
+        direction_summary = (
+            "No direct header-to-header emails found. "
+            f"{indirect_mention_count} retrieved emails came from relationship-linked threads."
+        )
+        communication_interpretation = "relationship_thread_evidence_only"
+        note = (
+            "These rows come from relationship-linked threads, not direct sender-to-recipient exchange "
+            "between the two entities."
+        )
+    else:
+        direction_summary = (
+            f"{resolved_a.canonical_name} → {resolved_b.canonical_name}: {sent_a_to_b}, "
+            f"{resolved_b.canonical_name} → {resolved_a.canonical_name}: {sent_b_to_a}"
+        )
+        communication_interpretation = "no_direct_exchange_detected"
+        note = ""
+
+    payload = {
+        "between": [resolved_a.canonical_name, resolved_b.canonical_name],
+        "total_emails": int(context.get("total_count") or len(emails)),
+        "showing": len(emails),
+        "sent_a_to_b": sent_a_to_b,
+        "sent_b_to_a": sent_b_to_a,
+        "direct_email_count": direct_email_count,
+        "indirect_mention_count": indirect_mention_count,
+        "direct_communication": direct_communication,
+        "direction_summary": direction_summary,
+        "communication_interpretation": communication_interpretation,
+        "match_type": match_type,
+        "emails": emails,
+        "resolution": {
+            "a": _resolution_metadata(resolved_a),
+            "b": _resolution_metadata(resolved_b),
+        },
+        "hint": "Use get_email_full_body(message_id=...) to see the complete untruncated body of any email.",
+    }
+    if note:
+        payload["note"] = note
+    if extra:
+        payload.update(extra)
+    return json.dumps(payload, ensure_ascii=False, default=str)
+
+
+def _wave2_get_emails_between_hybrid(
+    entity_a: str,
+    entity_b: str,
+    *,
+    limit: int,
+    resolved_a: "ResolvedEntity" = None,
+    resolved_b: "ResolvedEntity" = None,
+) -> str | None:
+    tool_name = "get_emails_between"
+    if not _should_enable_wave2_hybrid_tool(tool_name):
+        return None
+
+    context = _query_emails_between_context(
+        entity_a,
+        entity_b,
+        limit=limit,
+        resolved_a=resolved_a,
+        resolved_b=resolved_b,
+    )
+    resolved_a = context["resolved_a"]
+    resolved_b = context["resolved_b"]
+    match_type = context.get("match_type", "none")
+    fallback_reason = None
+    if match_type == "body_mention":
+        fallback_reason = "body_mention_fallback"
+    elif match_type == "relationship_threads":
+        fallback_reason = "relationship_thread_fallback"
+
+    extra = _hybrid_contract_metadata(
+        tool_name,
+        analytics_intent="listing",
+        resolved_entities=[
+            _resolved_entity_contract_payload(resolved_a),
+            _resolved_entity_contract_payload(resolved_b),
+        ],
+        fallback_used=match_type in {"body_mention", "relationship_threads"},
+        fallback_reason=fallback_reason,
+        evidence_ready=bool(context.get("results")),
+    )
+    extra.update(
+        {
+            "analytics_backend": "databricks_sql",
+            "semantic_layer": context.get("src_table", ENRON_EMAILS_TABLE),
+            "analytics_result": {
+                "query": (
+                    f"emails_between(entity_a={resolved_a.canonical_name}, "
+                    f"entity_b={resolved_b.canonical_name}, limit={context['safe_limit']})"
+                ),
+                "sql_generated": context.get("sql_generated", {}),
+                "row_count": len(context.get("results") or []),
+                "match_type": match_type,
+                "total_count": int(context.get("total_count") or 0),
+            },
+            "enrichment": _collect_analytics_enrichment(
+                f"{resolved_a.canonical_name} {resolved_b.canonical_name}",
+                person_names=[resolved_a.canonical_name, resolved_b.canonical_name],
+            ),
+        }
+    )
+    return _build_emails_between_payload(context, extra=extra)
+
+
 @tool
 def get_emails_between(entity_a: str, entity_b: str, limit: int = 15) -> str:
     """Retrieve emails between two people. First searches sender/recipient headers;
@@ -2857,178 +5481,26 @@ def get_emails_between(entity_a: str, entity_b: str, limit: int = 15) -> str:
     if CORPUS != "enron":
         return "get_emails_between is only available for the Enron corpus."
 
-    cfg = _get_corpus_config()
-    src_table = cfg["source_table"]
-
     resolved_a = resolve_entity_cached(entity_a)
     resolved_b = resolve_entity_cached(entity_b)
+    hybrid_result = _wave2_get_emails_between_hybrid(
+        entity_a,
+        entity_b,
+        limit=limit,
+        resolved_a=resolved_a,
+        resolved_b=resolved_b,
+    )
+    if hybrid_result is not None:
+        return hybrid_result
 
-    results = []
-    match_type = "header"
-    for a_pat in resolved_a.email_patterns:
-        for b_pat in resolved_b.email_patterns:
-            results = _backend.execute_sql(
-                f"SELECT message_id, sender, subject, date, thread_id,"
-                f" SUBSTRING(body, 1, {EVIDENCE_CONFIG['body_preview_length']}) AS body_preview,"
-                f" COALESCE(ARRAY_JOIN(to_recipients, ', '), '') AS to_list"
-                f" FROM {src_table}"
-                f" WHERE (LOWER(sender) LIKE :a_pat"
-                f"        AND (LOWER(CAST(to_recipients AS STRING)) LIKE :b_pat"
-                f"             OR LOWER(CAST(cc_recipients AS STRING)) LIKE :b_pat))"
-                f"    OR (LOWER(sender) LIKE :b_pat"
-                f"        AND (LOWER(CAST(to_recipients AS STRING)) LIKE :a_pat"
-                f"             OR LOWER(CAST(cc_recipients AS STRING)) LIKE :a_pat))"
-                f" ORDER BY date DESC LIMIT {int(limit)}",
-                params={"a_pat": a_pat, "b_pat": b_pat},
-            )
-            if results:
-                break
-        if results:
-            break
-
-    if not results:
-        mentions_table = cfg["entity_mentions"]
-        for a_pat in resolved_a.entity_id_patterns:
-            for b_pat in resolved_b.entity_id_patterns:
-                results = _backend.execute_sql(
-                    f"SELECT e.sender, e.subject, e.date,"
-                    f" SUBSTRING(e.body, 1, 500) AS body_preview"
-                    f" FROM {src_table} e"
-                    f" INNER JOIN {mentions_table} ma ON e.message_id = ma.message_id"
-                    f" INNER JOIN {mentions_table} mb ON e.message_id = mb.message_id"
-                    f" WHERE ma.entity_id LIKE :a_id AND mb.entity_id LIKE :b_id"
-                    f"   AND ma.entity_id != mb.entity_id"
-                    f" ORDER BY e.date DESC LIMIT {int(limit)}",
-                    params={"a_id": a_pat, "b_id": b_pat},
-                )
-                if results:
-                    break
-            if results:
-                break
-
-        match_type = "body_mention"
-
-    if not results:
-        rel_table = cfg["relationships"]
-        all_threads: list[str] = []
-        for si, sp in enumerate(resolved_a.entity_id_patterns):
-            for ti, tp in enumerate(resolved_b.entity_id_patterns):
-                for rels_batch in [
-                    _backend.execute_sql(
-                        f"SELECT source_threads FROM {rel_table}"
-                        f" WHERE source_entity LIKE :sp AND target_entity LIKE :tp"
-                        f" LIMIT 20",
-                        params={"sp": sp, "tp": tp},
-                    ),
-                    _backend.execute_sql(
-                        f"SELECT source_threads FROM {rel_table}"
-                        f" WHERE source_entity LIKE :tp AND target_entity LIKE :sp"
-                        f" LIMIT 20",
-                        params={"sp": sp, "tp": tp},
-                    ),
-                ]:
-                    for row in (rels_batch or []):
-                        threads = row.get("source_threads") or []
-                        if isinstance(threads, str):
-                            threads = [t.strip() for t in threads.strip("[]").split(",") if t.strip()]
-                        all_threads.extend(threads)
-                if all_threads:
-                    break
-            if all_threads:
-                break
-
-        all_threads = list(dict.fromkeys(all_threads))[:30]
-        if all_threads:
-            thread_params = {f"t{i}": tid for i, tid in enumerate(all_threads)}
-            placeholders = ", ".join(f":t{i}" for i in range(len(all_threads)))
-            results = _backend.execute_sql(
-                f"SELECT sender, subject, date,"
-                f" SUBSTRING(body, 1, 500) AS body_preview"
-                f" FROM {src_table}"
-                f" WHERE thread_id IN ({placeholders})"
-                f" ORDER BY date DESC LIMIT {int(limit)}",
-                params=thread_params,
-            )
-            match_type = "relationship_threads"
-
-    if not results:
-        corrections = []
-        if resolved_a.correction:
-            corrections.append(resolved_a.correction)
-        if resolved_b.correction:
-            corrections.append(resolved_b.correction)
-        correction_note = " " + "; ".join(corrections) if corrections else ""
-        return json.dumps({
-            "between": [resolved_a.canonical_name, resolved_b.canonical_name],
-            "total_emails": 0,
-            "showing": 0,
-            "match_type": "none",
-            "emails": [],
-            "resolution": {
-                "a": _resolution_metadata(resolved_a),
-                "b": _resolution_metadata(resolved_b),
-            },
-            "note": f"No emails found between '{resolved_a.canonical_name}' and '{resolved_b.canonical_name}'.{correction_note}",
-        }, ensure_ascii=False)
-
-    total_count = len(results)
-    if match_type == "header" and total_count >= int(limit):
-        try:
-            dyads_table = ENRON_COMMUNICATION_DYADS_TABLE
-            for ap in resolved_a.email_patterns:
-                for bp in resolved_b.email_patterns:
-                    count_rows = _backend.execute_sql(
-                        f"SELECT SUM(d.total_count) AS cnt"
-                        f" FROM {dyads_table} d"
-                        f" WHERE (LOWER(d.person_a) LIKE :a AND LOWER(d.person_b) LIKE :b)"
-                        f"    OR (LOWER(d.person_a) LIKE :b AND LOWER(d.person_b) LIKE :a)",
-                        params={"a": ap, "b": bp},
-                    )
-                    if count_rows and count_rows[0].get("cnt"):
-                        total_count = int(count_rows[0]["cnt"])
-                        break
-                if total_count > len(results):
-                    break
-        except Exception:
-            pass
-
-    emails = []
-    sent_a_to_b = 0
-    sent_b_to_a = 0
-    a_emails = {p.lower() for p in resolved_a.email_patterns}
-    b_emails = {p.lower() for p in resolved_b.email_patterns}
-    for r in results:
-        sender = (r.get("sender", "") or "").lower()
-        emails.append({
-            "date": str(r.get("date", ""))[:10],
-            "sender": r.get("sender", ""),
-            "subject": r.get("subject", ""),
-            "body_preview": (r.get("body_preview", "") or "")[:800],
-            "thread_id": r.get("thread_id", ""),
-            "message_id": r.get("message_id", ""),
-        })
-        if any(sender.startswith(p.replace("%", "")) for p in a_emails):
-            sent_a_to_b += 1
-        elif any(sender.startswith(p.replace("%", "")) for p in b_emails):
-            sent_b_to_a += 1
-    return json.dumps({
-        "between": [resolved_a.canonical_name, resolved_b.canonical_name],
-        "total_emails": total_count,
-        "showing": len(emails),
-        "sent_a_to_b": sent_a_to_b,
-        "sent_b_to_a": sent_b_to_a,
-        "direction_summary": (
-            f"{resolved_a.canonical_name} → {resolved_b.canonical_name}: {sent_a_to_b}, "
-            f"{resolved_b.canonical_name} → {resolved_a.canonical_name}: {sent_b_to_a}"
-        ),
-        "match_type": match_type,
-        "emails": emails,
-        "resolution": {
-            "a": _resolution_metadata(resolved_a),
-            "b": _resolution_metadata(resolved_b),
-        },
-        "hint": "Use get_email_full_body(message_id=...) to see the complete untruncated body of any email.",
-    }, ensure_ascii=False)
+    context = _query_emails_between_context(
+        entity_a,
+        entity_b,
+        limit=limit,
+        resolved_a=resolved_a,
+        resolved_b=resolved_b,
+    )
+    return _build_emails_between_payload(context)
 
 
 @tool
@@ -3045,12 +5517,21 @@ def get_dyad_topics(entity_a: str, entity_b: str, limit: int = 20) -> str:
     if CORPUS != "enron":
         return "get_dyad_topics is only available for the Enron corpus."
 
+    resolved_a = resolve_entity_cached(entity_a)
+    resolved_b = resolve_entity_cached(entity_b)
+    hybrid_result = _wave2_get_dyad_topics_hybrid(
+        entity_a,
+        entity_b,
+        limit=limit,
+        resolved_a=resolved_a,
+        resolved_b=resolved_b,
+    )
+    if hybrid_result is not None:
+        return hybrid_result
+
     cfg = _get_corpus_config()
     src_table = cfg["source_table"]
     threads_table = ENRON_THREADS_TABLE
-
-    resolved_a = resolve_entity_cached(entity_a)
-    resolved_b = resolve_entity_cached(entity_b)
 
     thread_rows = []
     for a_pat in resolved_a.email_patterns:
@@ -3976,6 +6457,15 @@ _BIBLE_LINEAGE_STOP_WORDS = {
     "Lineage", "Genealogy", "Connection",
 }
 
+_BIBLE_BOOK_PAIR_PATTERNS = (
+    re.compile(
+        r"\bboth\s+((?:[1-3]\s+)?[A-Z][a-z]+(?:\s+(?:of|[A-Z][a-z]+))*)\s+and\s+((?:[1-3]\s+)?[A-Z][a-z]+(?:\s+(?:of|[A-Z][a-z]+))*)\b"
+    ),
+    re.compile(
+        r"\bin\s+((?:[1-3]\s+)?[A-Z][a-z]+(?:\s+(?:of|[A-Z][a-z]+))*)\s+and\s+((?:[1-3]\s+)?[A-Z][a-z]+(?:\s+(?:of|[A-Z][a-z]+))*)\b"
+    ),
+)
+
 
 def _extract_bible_lineage_entities(question: str) -> list[dict]:
     candidates = re.findall(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b", question or "")
@@ -4002,6 +6492,81 @@ def _extract_bible_lineage_entities(question: str) -> list[dict]:
         if len(resolved) >= 2:
             break
     return resolved
+
+
+def _extract_bible_book_pair(question: str) -> tuple[str, str] | None:
+    for pattern in _BIBLE_BOOK_PAIR_PATTERNS:
+        match = pattern.search(question or "")
+        if match:
+            return match.group(1).strip(), match.group(2).strip()
+    return None
+
+
+def _maybe_expand_lineage_with_spouse(
+    path_ids: list[str], path_names: list[str], path_rels: list[str]
+) -> tuple[list[str], list[str], list[str]]:
+    if len(path_ids) < 2 or not path_rels:
+        return path_ids, path_names, path_rels
+
+    parent_relations = {
+        "PARENT_OF",
+        "CHILD_OF",
+        "ANCESTOR_OF",
+        "DESCENDANT_OF",
+        "FATHER_OF",
+        "MOTHER_OF",
+    }
+    spouse_relations = {"SPOUSE_OF", "MARRIED_TO", "HUSBAND_OF", "WIFE_OF"}
+    if path_rels[0] not in parent_relations:
+        return path_ids, path_names, path_rels
+
+    start_id = path_ids[0]
+    child_id = path_ids[1]
+    spouse_rel_csv = ", ".join(f"'{rel}'" for rel in spouse_relations)
+    parent_rel_csv = ", ".join(f"'{rel}'" for rel in parent_relations)
+
+    spouse_rows = _backend.execute_sql(
+        f"SELECT"
+        f" CASE WHEN r.source_entity = :entity_id THEN r.target_entity ELSE r.source_entity END AS spouse_id,"
+        f" COALESCE("
+        f"  CASE WHEN r.source_entity = :entity_id THEN e2.name ELSE e1.name END,"
+        f"  CASE WHEN r.source_entity = :entity_id THEN r.target_entity ELSE r.source_entity END"
+        f" ) AS spouse_name,"
+        f" r.relationship_type"
+        f" FROM {RELATIONSHIPS_TABLE} r"
+        f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
+        f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
+        f" WHERE (r.source_entity = :entity_id OR r.target_entity = :entity_id)"
+        f"   AND r.relationship_type IN ({spouse_rel_csv})"
+        f" ORDER BY r.book, r.chapter"
+        f" LIMIT 5",
+        params={"entity_id": start_id},
+    )
+    for spouse in spouse_rows or []:
+        spouse_id = spouse.get("spouse_id")
+        spouse_name = spouse.get("spouse_name")
+        spouse_rel = spouse.get("relationship_type")
+        if not spouse_id or not spouse_name or not spouse_rel or spouse_id in path_ids:
+            continue
+
+        parent_rows = _backend.execute_sql(
+            f"SELECT relationship_type"
+            f" FROM {RELATIONSHIPS_TABLE}"
+            f" WHERE ((source_entity = :src AND target_entity = :tgt)"
+            f"    OR (source_entity = :tgt AND target_entity = :src))"
+            f"   AND relationship_type IN ({parent_rel_csv})"
+            f" ORDER BY book, chapter"
+            f" LIMIT 1",
+            params={"src": spouse_id, "tgt": child_id},
+        )
+        if parent_rows:
+            return (
+                [path_ids[0], spouse_id, *path_ids[1:]],
+                [path_names[0], spouse_name, *path_names[1:]],
+                [spouse_rel, parent_rows[0]["relationship_type"], *path_rels[1:]],
+            )
+
+    return path_ids, path_names, path_rels
 
 
 def _build_bible_lineage_answer(question: str) -> str | None:
@@ -4083,6 +6648,9 @@ def _build_bible_lineage_answer(question: str) -> str | None:
     path_ids = [part for part in (row.get("path_ids") or "").split("|") if part]
     path_names = [part for part in (row.get("path_names") or "").split("|") if part]
     path_rels = [part for part in (row.get("path_rels") or "").split("|") if part]
+    path_ids, path_names, path_rels = _maybe_expand_lineage_with_spouse(
+        path_ids, path_names, path_rels
+    )
     if len(path_ids) < 2 or len(path_rels) != len(path_ids) - 1:
         return None
 
@@ -4132,6 +6700,65 @@ def _build_bible_lineage_answer(question: str) -> str | None:
         "### Provenance",
         f"- **Path**: {path_render}",
         f"- **Sources**: {sources_line}",
+        "- **Grounding**: All claims grounded in knowledge graph.",
+    ])
+
+
+def _build_bible_cross_book_answer(question: str) -> str | None:
+    q_lower = (question or "").lower()
+    if CORPUS != "bible":
+        return None
+    if "both" not in q_lower or "appear" not in q_lower:
+        return None
+
+    book_pair = _extract_bible_book_pair(question)
+    if not book_pair:
+        return None
+    book_a, book_b = book_pair
+
+    sql_params: dict[str, str] = {"book_a": book_a, "book_b": book_b}
+    type_filter = ""
+    label = "Entities"
+    if re.search(r"\bpeople\b|\bpersons?\b", q_lower):
+        sql_params["entity_type"] = "Person"
+        type_filter = " AND e.entity_type = :entity_type"
+        label = "People"
+
+    rows = _backend.execute_sql(
+        f"SELECT DISTINCT e.name, e.entity_type"
+        f" FROM {ENTITIES_TABLE} e"
+        f" WHERE e.entity_id IN ("
+        f"   SELECT source_entity FROM {RELATIONSHIPS_TABLE} WHERE book = :book_a"
+        f"   UNION"
+        f"   SELECT target_entity FROM {RELATIONSHIPS_TABLE} WHERE book = :book_a"
+        f" )"
+        f"   AND e.entity_id IN ("
+        f"   SELECT source_entity FROM {RELATIONSHIPS_TABLE} WHERE book = :book_b"
+        f"   UNION"
+        f"   SELECT target_entity FROM {RELATIONSHIPS_TABLE} WHERE book = :book_b"
+        f" )"
+        f"{type_filter}"
+        f" ORDER BY e.name"
+        f" LIMIT 25",
+        params=sql_params,
+    )
+    if not rows:
+        return None
+
+    names = [r["name"] for r in rows if r.get("name")]
+    if not names:
+        return None
+
+    shown = names[:12]
+    count_suffix = "" if len(shown) == len(names) else f" (showing {len(shown)} of {len(names)})"
+    return "\n".join([
+        "### Answer",
+        f"{label} appearing in both {book_a} and {book_b} according to the knowledge graph{count_suffix}:",
+        *[f"- {name}" for name in shown],
+        "",
+        "### Provenance",
+        f"- **Path**: entity intersection across {book_a} and {book_b}",
+        f"- **Sources**: {book_a}, {book_b}",
         "- **Grounding**: All claims grounded in knowledge graph.",
     ])
 
@@ -4394,6 +7021,10 @@ def detect_self_emails(limit: int = 20) -> str:
     if CORPUS != "enron":
         return "detect_self_emails is only available for the Enron corpus."
 
+    semantic_result = _wave1_detect_self_emails_semantic(limit)
+    if semantic_result is not None:
+        return semantic_result
+
     dyads_table = ENRON_COMMUNICATION_DYADS_TABLE
     participants_table = ENRON_PARTICIPANTS_TABLE
 
@@ -4478,72 +7109,33 @@ def get_external_contacts(entity_name: str = "", direction: str = "both", limit:
     if CORPUS != "enron":
         return "get_external_contacts is only available for the Enron corpus."
 
-    dyads_table = ENRON_COMMUNICATION_DYADS_TABLE
-    participants_table = ENRON_PARTICIPANTS_TABLE
-
     if entity_name:
         resolved = resolve_entity_cached(entity_name)
-        results = None
-        for ep in resolved.email_patterns:
-            if direction == "outbound":
-                sql = (
-                    f"SELECT d.person_b AS external_email, SUM(d.total_count) AS total"
-                    f" FROM {dyads_table} d"
-                    f" WHERE LOWER(d.person_a) LIKE :email_pat"
-                    f" AND d.person_b NOT LIKE '%@enron.com'"
-                    f" GROUP BY d.person_b ORDER BY total DESC LIMIT {int(limit)}"
-                )
-            elif direction == "inbound":
-                sql = (
-                    f"SELECT d.person_a AS external_email, SUM(d.total_count) AS total"
-                    f" FROM {dyads_table} d"
-                    f" WHERE LOWER(d.person_b) LIKE :email_pat"
-                    f" AND d.person_a NOT LIKE '%@enron.com'"
-                    f" GROUP BY d.person_a ORDER BY total DESC LIMIT {int(limit)}"
-                )
-            else:
-                sql = (
-                    f"SELECT external_email, SUM(cnt) AS total FROM ("
-                    f"  SELECT d.person_b AS external_email, SUM(d.total_count) AS cnt"
-                    f"  FROM {dyads_table} d"
-                    f"  WHERE LOWER(d.person_a) LIKE :email_pat"
-                    f"  AND d.person_b NOT LIKE '%@enron.com'"
-                    f"  GROUP BY d.person_b"
-                    f"  UNION ALL"
-                    f"  SELECT d.person_a AS external_email, SUM(d.total_count) AS cnt"
-                    f"  FROM {dyads_table} d"
-                    f"  WHERE LOWER(d.person_b) LIKE :email_pat"
-                    f"  AND d.person_a NOT LIKE '%@enron.com'"
-                    f"  GROUP BY d.person_a"
-                    f" ) combined GROUP BY external_email ORDER BY total DESC LIMIT {int(limit)}"
-                )
-            results = _backend.execute_sql(sql, params={"email_pat": ep})
-            if results:
-                break
+        hybrid_result = _wave2_get_external_contacts_hybrid(
+            entity_name,
+            direction=direction,
+            limit=limit,
+            resolved=resolved,
+        )
+        if hybrid_result is not None:
+            return hybrid_result
 
+        results, _ = _query_external_contacts_rows(
+            resolved,
+            direction=direction,
+            limit=limit,
+        )
         if not results:
             return f"No external contacts found for '{entity_name}'."
-
-        contacts = []
-        for r in results:
-            addr = r["external_email"]
-            domain = addr.split("@")[1] if "@" in addr else "unknown"
-            local = addr.split("@")[0] if "@" in addr else addr
-            contacts.append({
-                "email": addr,
-                "name": local.replace(".", " ").replace("_", " ").title(),
-                "domain": domain,
-                "total_emails": int(r["total"]),
-            })
-
-        return json.dumps({
-            "entity": entity_name,
-            "direction": direction,
-            "source": "communication_dyads",
-            "external_contacts": contacts,
-        }, ensure_ascii=False)
+        return _build_external_contacts_payload(
+            resolved,
+            direction=direction,
+            results=results,
+        )
 
     else:
+        dyads_table = ENRON_COMMUNICATION_DYADS_TABLE
+        participants_table = ENRON_PARTICIPANTS_TABLE
         sql = (
             f"SELECT enron_person, SUM(total) AS ext_total,"
             f" COUNT(DISTINCT external_email) AS unique_externals FROM ("
@@ -4625,6 +7217,15 @@ def get_communication_timeline(
     """
     if CORPUS != "enron":
         return "get_communication_timeline is only available for the Enron corpus."
+
+    hybrid_result = _wave2_get_communication_timeline_hybrid(
+        entity_name,
+        entity_b,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    if hybrid_result is not None:
+        return hybrid_result
 
     dyads_table = ENRON_COMMUNICATION_DYADS_TABLE
     activity_table = ENRON_PERSON_ACTIVITY_TABLE
@@ -5086,6 +7687,85 @@ def semantic_search_emails(query: str, limit: int = 10) -> str:
     }, ensure_ascii=False)
 
 
+def _collect_analytics_enrichment(
+    question: str = "",
+    *,
+    person_names: list[str] | None = None,
+) -> dict[str, Any]:
+    enrichment: dict[str, Any] = {}
+    names = list(person_names or _heuristic_entity_names(question))
+
+    try:
+        quality_rows = _backend.execute_sql(
+            f"SELECT table_name, SUM(null_count) as total_nulls, AVG(null_rate) as avg_null_rate"
+            f" FROM {CATALOG}.{ENRON_SCHEMA}.data_quality_report"
+            f" GROUP BY table_name"
+            f" ORDER BY avg_null_rate DESC LIMIT 5"
+        )
+        if quality_rows:
+            enrichment["data_quality_caveats"] = quality_rows
+    except Exception:
+        pass
+
+    for pname in names[:2]:
+        try:
+            role_rows = _backend.execute_sql(
+                f"SELECT entity_id, title, department, reports_to, effective_from, effective_to, source"
+                f" FROM {CATALOG}.{ENRON_SCHEMA}.person_role_timeline"
+                f" WHERE LOWER(entity_id) LIKE :pattern"
+                f" ORDER BY effective_from"
+                f" LIMIT 5",
+                params={"pattern": f"%{'_'.join(pname.lower().split())}%"},
+            )
+            if role_rows:
+                enrichment.setdefault("role_context", {})[pname] = role_rows
+        except Exception:
+            pass
+
+    try:
+        cov_rows = _backend.execute_sql(
+            f"SELECT metric_name, coverage_pct"
+            f" FROM {CATALOG}.{ENRON_SCHEMA}.corpus_coverage"
+            f" WHERE coverage_pct < 80"
+        )
+        if cov_rows:
+            enrichment["coverage_warnings"] = [
+                f"{row['metric_name']}: {row.get('coverage_pct', 0):.1f}%"
+                for row in cov_rows
+            ]
+    except Exception:
+        pass
+
+    try:
+        cls_rows = _backend.execute_sql(
+            f"SELECT email_type, COUNT(*) AS cnt,"
+            f" ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER(), 1) AS pct"
+            f" FROM {CATALOG}.{ENRON_SCHEMA}.email_classification"
+            f" GROUP BY email_type"
+            f" ORDER BY cnt DESC"
+        )
+        if cls_rows:
+            enrichment["email_classification_summary"] = cls_rows
+    except Exception:
+        pass
+
+    for pname in names[:2]:
+        try:
+            ent_rows = _backend.execute_sql(
+                f"SELECT name, entity_type, description"
+                f" FROM {ENTITIES_TABLE if CORPUS != 'enron' else f'{CATALOG}.{ENRON_SCHEMA}.entities'}"
+                f" WHERE LOWER(name) LIKE :pattern"
+                f" LIMIT 3",
+                params={"pattern": f"%{pname.lower()}%"},
+            )
+            if ent_rows:
+                enrichment.setdefault("entity_context", {})[pname] = ent_rows
+        except Exception:
+            pass
+
+    return enrichment
+
+
 def _genie_sql_fallback(question: str, space_name: str) -> dict | None:
     """Direct SQL fallback when Genie is unavailable (e.g. Model Serving identity issues).
 
@@ -5102,6 +7782,8 @@ def _genie_sql_fallback(question: str, space_name: str) -> dict | None:
     mentions_table = f"{CATALOG}.{ENRON_SCHEMA}.entity_mentions"
 
     person_names = _heuristic_entity_names(question)
+    requested_limit = _extract_rank_limit_from_question(question, default=20)
+    time_window = _extract_temporal_metadata(question)
 
     def _make_result(sql: str, rows: list, description: str = "") -> dict:
         return {
@@ -5117,6 +7799,143 @@ def _genie_sql_fallback(question: str, space_name: str) -> dict | None:
         }
 
     try:
+        if not person_names and any(
+            kw in q_lower
+            for kw in (
+                "top email pairs",
+                "communication pairs",
+                "emailed each other the most",
+                "pair ranking",
+            )
+        ):
+            sql = (
+                f"SELECT"
+                f" CASE WHEN person_a < person_b THEN person_a ELSE person_b END AS email_a,"
+                f" CASE WHEN person_a < person_b THEN person_b ELSE person_a END AS email_b,"
+                f" SUM(total_count) AS total_emails"
+                f" FROM {dyads_table}"
+                f" GROUP BY 1, 2"
+                f" ORDER BY total_emails DESC"
+                f" LIMIT {requested_limit}"
+            )
+            rows = _backend.execute_sql(sql)
+            if rows:
+                normalized_rows = []
+                for row in rows:
+                    email_a = row.get("email_a", "")
+                    email_b = row.get("email_b", "")
+                    normalized_rows.append(
+                        {
+                            "email_a": email_a,
+                            "email_b": email_b,
+                            "total_emails": int(row.get("total_emails") or 0),
+                            "is_self_email": _is_likely_same_person(email_a, email_b),
+                        }
+                    )
+                return _make_result(sql, normalized_rows, f"Top {requested_limit} communication pairs")
+
+        if not person_names and any(
+            kw in q_lower
+            for kw in (
+                "top individuals",
+                "top senders",
+                "top recipients",
+                "most active people",
+                "who sent the most",
+                "who received the most",
+                "busiest communicators",
+            )
+        ):
+            sort_mode = "total"
+            if any(kw in q_lower for kw in ("top senders", "sent email volume", "who sent the most")):
+                sort_mode = "sent"
+            elif any(kw in q_lower for kw in ("top recipients", "received email volume", "who received the most")):
+                sort_mode = "received"
+
+            order_col = {
+                "sent": "total_sent",
+                "received": "total_received",
+            }.get(sort_mode, "total")
+            sql = (
+                f"SELECT person_id,"
+                f" SUM(emails_sent) AS total_sent,"
+                f" SUM(emails_received) AS total_received,"
+                f" SUM(emails_sent) + SUM(emails_received) AS total"
+                f" FROM {activity_table}"
+                f" GROUP BY person_id"
+                f" ORDER BY {order_col} DESC"
+                f" LIMIT {requested_limit}"
+            )
+            rows = _backend.execute_sql(sql)
+            if rows:
+                normalized_rows = [
+                    {
+                        "person_id": row.get("person_id", ""),
+                        "total_sent": int(row.get("total_sent") or 0),
+                        "total_received": int(row.get("total_received") or 0),
+                        "total": int(row.get("total") or 0),
+                    }
+                    for row in rows
+                ]
+                return _make_result(sql, normalized_rows, f"Top {requested_limit} individuals by {sort_mode}")
+
+        if any(
+            kw in q_lower
+            for kw in (
+                "self-email",
+                "self email",
+                "personal account",
+                "corporate-to-personal",
+                "same-person cross-domain",
+            )
+        ):
+            sql = (
+                f"SELECT d.person_a, d.person_b,"
+                f" SUM(d.total_count) AS total,"
+                f" MAX(d.total_count) AS peak_week,"
+                f" MIN(d.period) AS first_seen,"
+                f" MAX(d.period) AS last_seen,"
+                f" COUNT(DISTINCT d.period) AS active_weeks"
+                f" FROM {dyads_table} d"
+                f" WHERE ("
+                f"   (d.person_a LIKE '%@enron.com' AND d.person_b NOT LIKE '%@enron.com')"
+                f"   OR (d.person_b LIKE '%@enron.com' AND d.person_a NOT LIKE '%@enron.com')"
+                f" )"
+                f" GROUP BY d.person_a, d.person_b"
+                f" HAVING SUM(d.total_count) >= 3"
+                f" ORDER BY total DESC"
+                f" LIMIT 200"
+            )
+            rows = _backend.execute_sql(sql)
+            if rows:
+                normalized_rows = []
+                for row in rows:
+                    email_a = row.get("person_a", "")
+                    email_b = row.get("person_b", "")
+                    if not _is_likely_same_person(email_a, email_b):
+                        continue
+                    corporate_email = email_a if "@enron.com" in email_a else email_b
+                    personal_email = email_b if corporate_email == email_a else email_a
+                    normalized_rows.append(
+                        {
+                            "corporate_email": corporate_email,
+                            "personal_email": personal_email,
+                            "total_emails": int(row.get("total") or 0),
+                            "peak_week_volume": int(row.get("peak_week") or 0),
+                            "first_seen": str(row.get("first_seen", "")),
+                            "last_seen": str(row.get("last_seen", "")),
+                            "active_weeks": int(row.get("active_weeks") or 0),
+                        }
+                    )
+                    if len(normalized_rows) >= requested_limit:
+                        break
+                if normalized_rows:
+                    return _make_result(
+                        sql,
+                        normalized_rows,
+                        f"Top {requested_limit} corporate-to-personal self-email pairs",
+                    )
+
         if person_names and any(kw in q_lower for kw in
                 ("communicated most", "top contacts", "most frequently",
                  "who did", "email most", "top email")):
@@ -5152,6 +7971,56 @@ def _genie_sql_fallback(question: str, space_name: str) -> dict | None:
                             ),
                         })
                     return _make_result(sql, normalized_rows, f"Top contacts for {resolved.canonical_name}")
+
+        if len(person_names) >= 2 and time_window.get("date_from") and (
+            "week beginning" in q_lower
+            or "week of" in q_lower
+            or "communication dyad" in q_lower
+            or "change" in q_lower
+        ) and any(
+            kw in q_lower
+            for kw in ("direct", "message count", "messages", "recorded", "change")
+        ):
+            results, sql, _, _, resolved_names = _query_communication_timeline_rows(
+                person_names[0],
+                person_names[1],
+                date_from=time_window.get("date_from", ""),
+                date_to=time_window.get("date_to", ""),
+            )
+            if results:
+                normalized_rows = []
+                for row in results:
+                    sent_a_to_b = int(row.get("sent_a_to_b") or 0)
+                    sent_b_to_a = int(row.get("sent_b_to_a") or 0)
+                    to_a_to_b = int(row.get("to_a_to_b") or 0)
+                    to_b_to_a = int(row.get("to_b_to_a") or 0)
+                    cc_a_to_b = int(row.get("cc_a_to_b") or 0)
+                    cc_b_to_a = int(row.get("cc_b_to_a") or 0)
+                    bcc_a_to_b = int(row.get("bcc_a_to_b") or 0)
+                    bcc_b_to_a = int(row.get("bcc_b_to_a") or 0)
+                    normalized_rows.append(
+                        {
+                            "period": str(row.get("period", "")),
+                            "total": int(row.get("total") or 0),
+                            "sent_a_to_b": sent_a_to_b,
+                            "sent_b_to_a": sent_b_to_a,
+                            "to_a_to_b": to_a_to_b,
+                            "to_b_to_a": to_b_to_a,
+                            "cc_a_to_b": cc_a_to_b,
+                            "cc_b_to_a": cc_b_to_a,
+                            "bcc_a_to_b": bcc_a_to_b,
+                            "bcc_b_to_a": bcc_b_to_a,
+                            "direct_total": to_a_to_b + to_b_to_a,
+                            "cc_total": cc_a_to_b + cc_b_to_a,
+                            "bcc_total": bcc_a_to_b + bcc_b_to_a,
+                        }
+                    )
+                label = (
+                    f"Weekly communication dyad timeline between "
+                    f"{resolved_names.get('entity_name', person_names[0])} and "
+                    f"{resolved_names.get('entity_b', person_names[1])}"
+                )
+                return _make_result(sql, normalized_rows, label)
 
         if len(person_names) >= 2 and any(kw in q_lower for kw in
                 ("how many", "emails between", "email count", "exchanged")):
@@ -5216,6 +8085,50 @@ def _genie_sql_fallback(question: str, space_name: str) -> dict | None:
                     if rows:
                         return _make_result(sql, rows,
                             f"All emails between {resolved_a.canonical_name} and {resolved_b.canonical_name}")
+
+        if len(person_names) >= 2 and any(
+            kw in q_lower
+            for kw in (
+                "what did",
+                "discuss",
+                "discussed",
+                "talk about",
+                "topics between",
+                "common topics",
+                "subjects between",
+                "top topics between",
+            )
+        ):
+            context = _query_dyad_topics_context(
+                person_names[0],
+                person_names[1],
+                limit=requested_limit,
+            )
+            if context.get("topic_rows"):
+                from collections import Counter
+
+                topic_counts: Counter = Counter()
+                for row in context["topic_rows"]:
+                    topics = row.get("key_topics") or []
+                    if isinstance(topics, str):
+                        try:
+                            topics = json.loads(topics)
+                        except (json.JSONDecodeError, ValueError):
+                            topics = [t.strip() for t in topics.strip("[]").split(",") if t.strip()]
+                    for tag in topics:
+                        topic_counts[str(tag).strip().lower()] += 1
+                rows = [
+                    {"topic": tag, "count": cnt}
+                    for tag, cnt in topic_counts.most_common(30)
+                ]
+                sql = "\n-- topic lookup\n".join(
+                    part for part in [context.get("thread_sql", ""), context.get("topic_sql", "")] if part
+                )
+                return _make_result(
+                    sql,
+                    rows,
+                    f"Top topics between {context['resolved_a'].canonical_name} and {context['resolved_b'].canonical_name}",
+                )
 
         if person_names and any(kw in q_lower for kw in ("topic", "common topic", "most common", "subjects")):
             pattern = f"%{'_'.join(person_names[0].lower().split())}%"
@@ -5295,6 +8208,7 @@ def query_and_enrich(question: str, space_name: str = "auto") -> str:
     if CORPUS != "enron":
         return "query_and_enrich is only available for the Enron corpus."
 
+    hybrid_enabled = _should_enable_wave2_hybrid_tool("query_and_enrich")
     genie_space_ids = {
         "communication_analytics": os.environ.get("GENIE_COMM_SPACE_ID", ""),
         "organizational_intelligence": os.environ.get("GENIE_ORG_SPACE_ID", ""),
@@ -5305,6 +8219,10 @@ def query_and_enrich(question: str, space_name: str = "auto") -> str:
         os.environ.get("GRAPHRAG_ANALYTICS_BACKEND", "databricks_sql").strip().lower()
         == "databricks_sql"
     )
+    resolved_entities, resolved_names = _resolve_hybrid_entities_from_question(question)
+    time_window = _extract_temporal_metadata(question)
+    fallback_used = False
+    fallback_reason = None
 
     if space_name == "auto":
         q_lower = question.lower()
@@ -5331,12 +8249,16 @@ def query_and_enrich(question: str, space_name: str = "auto") -> str:
         genie_result = sql_first_result
     elif not space_id:
         if sql_first_result:
-            return json.dumps(sql_first_result, ensure_ascii=False, default=str)
-        return json.dumps({
-            "error": f"Genie Space '{space_name}' not configured. Set GENIE_*_SPACE_ID env vars.",
-            "available_spaces": list(genie_space_ids.keys()),
-            "analytics_backend": "databricks_sql",
-        })
+            genie_result = sql_first_result
+        else:
+            genie_result = {
+                "error": f"Genie Space '{space_name}' not configured. Set GENIE_*_SPACE_ID env vars.",
+                "available_spaces": list(genie_space_ids.keys()),
+                "analytics_backend": "databricks_sql",
+                "space": space_name,
+            }
+            if not hybrid_enabled:
+                return json.dumps(genie_result, ensure_ascii=False, default=str)
     else:
         genie_result = None
 
@@ -5409,84 +8331,32 @@ def query_and_enrich(question: str, space_name: str = "auto") -> str:
     if genie_result.get("error"):
         fallback = sql_first_result or _genie_sql_fallback(question, space_name)
         if fallback:
+            fallback_reason = "genie_error_databricks_sql_fallback"
+            fallback_used = True
+            if not fallback.get("semantic_layer"):
+                fallback["semantic_layer"] = ENRON_COMMUNICATION_METRIC_VIEW
             genie_result = fallback
 
-    enrichment = {}
-    try:
-        quality_rows = _backend.execute_sql(
-            f"SELECT table_name, SUM(null_count) as total_nulls, AVG(null_rate) as avg_null_rate"
-            f" FROM {CATALOG}.{ENRON_SCHEMA}.data_quality_report"
-            f" GROUP BY table_name"
-            f" ORDER BY avg_null_rate DESC LIMIT 5"
-        )
-        if quality_rows:
-            enrichment["data_quality_caveats"] = quality_rows
-    except Exception:
-        pass
+    person_names = resolved_names or _heuristic_entity_names(question)
+    enrichment = _collect_analytics_enrichment(
+        question,
+        person_names=person_names,
+    )
 
-    q_lower = question.lower()
-    person_names = _heuristic_entity_names(question)
+    if not hybrid_enabled and not space_id and sql_first_result:
+        return json.dumps(sql_first_result, ensure_ascii=False, default=str)
 
-    for pname in person_names[:2]:
-        try:
-            role_rows = _backend.execute_sql(
-                f"SELECT entity_id, title, department, reports_to, effective_from, effective_to, source"
-                f" FROM {CATALOG}.{ENRON_SCHEMA}.person_role_timeline"
-                f" WHERE LOWER(entity_id) LIKE :pattern"
-                f" ORDER BY effective_from"
-                f" LIMIT 5",
-                params={"pattern": f"%{'_'.join(pname.lower().split())}%"},
-            )
-            if role_rows:
-                enrichment.setdefault("role_context", {})[pname] = role_rows
-        except Exception:
-            pass
-
-    try:
-        cov_rows = _backend.execute_sql(
-            f"SELECT metric_name, coverage_pct"
-            f" FROM {CATALOG}.{ENRON_SCHEMA}.corpus_coverage"
-            f" WHERE coverage_pct < 80"
-        )
-        if cov_rows:
-            enrichment["coverage_warnings"] = [
-                f"{r['metric_name']}: {r.get('coverage_pct', 0):.1f}%"
-                for r in cov_rows
-            ]
-    except Exception:
-        pass
-
-    try:
-        cls_rows = _backend.execute_sql(
-            f"SELECT email_type, COUNT(*) AS cnt,"
-            f" ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER(), 1) AS pct"
-            f" FROM {CATALOG}.{ENRON_SCHEMA}.email_classification"
-            f" GROUP BY email_type"
-            f" ORDER BY cnt DESC"
-        )
-        if cls_rows:
-            enrichment["email_classification_summary"] = cls_rows
-    except Exception:
-        pass
-
-    for pname in person_names[:2]:
-        try:
-            ent_rows = _backend.execute_sql(
-                f"SELECT name, entity_type, description"
-                f" FROM {ENTITIES_TABLE if CORPUS != 'enron' else f'{CATALOG}.{ENRON_SCHEMA}.entities'}"
-                f" WHERE LOWER(name) LIKE :pattern"
-                f" LIMIT 3",
-                params={"pattern": f"%{pname.lower()}%"},
-            )
-            if ent_rows:
-                enrichment.setdefault("entity_context", {})[pname] = ent_rows
-        except Exception:
-            pass
-
-    return json.dumps({
-        "genie_result": genie_result,
-        "enrichment": enrichment,
-    }, ensure_ascii=False, default=str)
+    return _build_query_and_enrich_payload(
+        question,
+        space_name=space_name,
+        analytics_transport=analytics_transport,
+        genie_result=genie_result,
+        enrichment=enrichment,
+        resolved_entities=resolved_entities,
+        time_window=time_window,
+        fallback_used=fallback_used,
+        fallback_reason=fallback_reason,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -5668,6 +8538,13 @@ def browse_topics(category: str = "", entity_name: str = "") -> str:
     if CORPUS != "enron":
         return "browse_topics is only available for the Enron corpus."
 
+    hybrid_result = _wave2_browse_topics_hybrid(
+        category=category,
+        entity_name=entity_name,
+    )
+    if hybrid_result is not None:
+        return hybrid_result
+
     taxonomy_table = f"{CATALOG}.{ENRON_SCHEMA}.topic_taxonomy"
 
     if entity_name:
@@ -5751,6 +8628,13 @@ def get_topic_distribution(entity_name: str = "", limit: int = 20) -> str:
     if CORPUS != "enron":
         return "get_topic_distribution is only available for the Enron corpus."
 
+    hybrid_result = _wave2_get_topic_distribution_hybrid(
+        entity_name,
+        limit=limit,
+    )
+    if hybrid_result is not None:
+        return hybrid_result
+
     threads_table = f"{CATALOG}.{ENRON_SCHEMA}.threads"
     mentions_table = f"{CATALOG}.{ENRON_SCHEMA}.entity_mentions"
 
@@ -5816,6 +8700,228 @@ def get_topic_distribution(entity_name: str = "", limit: int = 20) -> str:
     }, ensure_ascii=False, default=str)
 
 
+def _query_find_emails_context(
+    *,
+    person_a: str = "",
+    person_b: str = "",
+    keywords: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    hour_from: int = -1,
+    hour_to: int = -1,
+    limit: int = 15,
+    resolved_a: "ResolvedEntity" = None,
+    resolved_b: "ResolvedEntity" = None,
+) -> dict[str, Any]:
+    safe_limit = _wave1_limit(limit, default=15, maximum=100)
+    cfg = _get_corpus_config()
+    source_table = cfg["source_table"]
+    where_parts: list[str] = []
+    params: dict[str, Any] = {}
+    resolved_entities: list[dict[str, Any]] = []
+    person_names: list[str] = []
+
+    if person_a:
+        resolved_a = resolved_a or resolve_entity_cached(person_a)
+        resolved_entities.append(_resolved_entity_contract_payload(resolved_a))
+        person_names.append(resolved_a.canonical_name)
+        pats_a = resolved_a.email_patterns
+        if pats_a:
+            if person_b:
+                resolved_b = resolved_b or resolve_entity_cached(person_b)
+                resolved_entities.append(_resolved_entity_contract_payload(resolved_b))
+                person_names.append(resolved_b.canonical_name)
+                pats_b = resolved_b.email_patterns
+                if pats_b:
+                    where_parts.append(
+                        "("
+                        "(LOWER(sender) LIKE :pa AND ("
+                        "LOWER(CAST(to_recipients AS STRING)) LIKE :pb"
+                        " OR LOWER(CAST(cc_recipients AS STRING)) LIKE :pb))"
+                        " OR "
+                        "(LOWER(sender) LIKE :pb AND ("
+                        "LOWER(CAST(to_recipients AS STRING)) LIKE :pa"
+                        " OR LOWER(CAST(cc_recipients AS STRING)) LIKE :pa))"
+                        ")"
+                    )
+                    params["pa"] = pats_a[0]
+                    params["pb"] = pats_b[0]
+            else:
+                where_parts.append(
+                    "(LOWER(sender) LIKE :pa"
+                    " OR LOWER(CAST(to_recipients AS STRING)) LIKE :pa"
+                    " OR LOWER(body) LIKE :pa)"
+                )
+                params["pa"] = pats_a[0]
+
+    if keywords:
+        kw_list = [k.strip().lower() for k in keywords.split(",") if k.strip()]
+        kw_conds = []
+        for i, kw in enumerate(kw_list):
+            pk = f"kw{i}"
+            kw_conds.append(f"(LOWER(subject) LIKE :{pk} OR LOWER(body) LIKE :{pk})")
+            params[pk] = f"%{kw}%"
+        if kw_conds:
+            where_parts.append(f"({' OR '.join(kw_conds)})")
+
+    if date_from:
+        where_parts.append("date >= :date_from")
+        params["date_from"] = date_from
+    if date_to:
+        where_parts.append("date <= :date_to")
+        params["date_to"] = date_to
+    if hour_from >= 0:
+        where_parts.append("HOUR(date) >= :hour_from")
+        params["hour_from"] = hour_from
+    if hour_to >= 0:
+        where_parts.append("HOUR(date) <= :hour_to")
+        params["hour_to"] = hour_to
+
+    filters = {
+        "person_a": person_a or None,
+        "person_b": person_b or None,
+        "keywords": keywords or None,
+        "date_from": date_from or None,
+        "date_to": date_to or None,
+        "hour_from": hour_from if hour_from >= 0 else None,
+        "hour_to": hour_to if hour_to >= 0 else None,
+    }
+
+    if not where_parts:
+        return {
+            "error": "No search criteria provided. Specify at least person_a, keywords, or a date range.",
+            "filters": filters,
+            "source_table": source_table,
+            "sql_generated": "",
+            "results": [],
+            "resolved_entities": resolved_entities,
+            "person_names": person_names,
+            "safe_limit": safe_limit,
+        }
+
+    where_clause = " AND ".join(where_parts)
+    sql = (
+        f"SELECT date, sender, subject,"
+        f" SUBSTR(body, 1, 400) AS body_preview"
+        f" FROM {source_table}"
+        f" WHERE {where_clause}"
+        f" ORDER BY date DESC"
+        f" LIMIT {safe_limit}"
+    )
+
+    try:
+        results = _backend.execute_sql(sql, params=params)
+    except Exception as exc:
+        return {
+            "error": f"Email search failed: {exc}",
+            "filters": filters,
+            "source_table": source_table,
+            "sql_generated": sql,
+            "results": [],
+            "resolved_entities": resolved_entities,
+            "person_names": person_names,
+            "safe_limit": safe_limit,
+        }
+
+    return {
+        "filters": filters,
+        "source_table": source_table,
+        "sql_generated": sql,
+        "results": results or [],
+        "resolved_entities": resolved_entities,
+        "person_names": list(dict.fromkeys(person_names)),
+        "safe_limit": safe_limit,
+    }
+
+
+def _build_find_emails_payload(
+    context: dict[str, Any],
+    *,
+    extra: dict[str, Any] | None = None,
+) -> str:
+    emails = []
+    for row in context.get("results") or []:
+        emails.append(
+            {
+                "date": str(row.get("date", "")),
+                "sender": row.get("sender", ""),
+                "subject": row.get("subject", ""),
+                "body_preview": row.get("body_preview", ""),
+            }
+        )
+
+    payload: dict[str, Any] = {
+        "filters": context.get("filters", {}),
+        "total": len(emails),
+        "emails": emails,
+    }
+    if extra:
+        payload.update(extra)
+    return json.dumps(payload, ensure_ascii=False, default=str)
+
+
+def _wave2_find_emails_hybrid(
+    *,
+    person_a: str = "",
+    person_b: str = "",
+    keywords: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    hour_from: int = -1,
+    hour_to: int = -1,
+    limit: int = 15,
+) -> str | None:
+    tool_name = "find_emails"
+    if not _should_enable_wave2_hybrid_tool(tool_name):
+        return None
+
+    context = _query_find_emails_context(
+        person_a=person_a,
+        person_b=person_b,
+        keywords=keywords,
+        date_from=date_from,
+        date_to=date_to,
+        hour_from=hour_from,
+        hour_to=hour_to,
+        limit=limit,
+    )
+    if context.get("error"):
+        return context["error"]
+    if not context.get("results"):
+        return "No emails found matching the given criteria."
+
+    extra = _hybrid_contract_metadata(
+        tool_name,
+        analytics_intent="listing",
+        resolved_entities=context.get("resolved_entities", []),
+        fallback_used=False,
+        fallback_reason=None,
+        evidence_ready=True,
+    )
+    extra.update(
+        {
+            "analytics_backend": "databricks_sql",
+            "semantic_layer": context.get("source_table", ENRON_EMAILS_TABLE),
+            "analytics_result": {
+                "query": (
+                    f"find_emails(person_a={person_a or None}, person_b={person_b or None}, "
+                    f"keywords={keywords or None}, date_from={date_from or None}, date_to={date_to or None}, "
+                    f"hour_from={hour_from if hour_from >= 0 else None}, "
+                    f"hour_to={hour_to if hour_to >= 0 else None}, limit={context['safe_limit']})"
+                ),
+                "sql_generated": context.get("sql_generated", ""),
+                "row_count": len(context.get("results") or []),
+                "filters": context.get("filters", {}),
+            },
+            "enrichment": _collect_analytics_enrichment(
+                " ".join(context.get("person_names", [])),
+                person_names=context.get("person_names", []),
+            ),
+        }
+    )
+    return _build_find_emails_payload(context, extra=extra)
+
+
 @tool
 def get_communication_stats(entity_name: str = "", group_by: str = "contact", limit: int = 20) -> str:
     """Get communication volume statistics: top contacts, sent/received ratio, monthly trends.
@@ -5855,34 +8961,47 @@ def get_communication_stats(entity_name: str = "", group_by: str = "contact", li
             contact_data = json.loads(contact_raw)
         except (json.JSONDecodeError, TypeError):
             return contact_raw
-        return json.dumps({
+        payload = {
             "entity": resolved.canonical_name,
             "group_by": "contact",
             "contacts": contact_data.get("top_contacts", []),
             "resolution": contact_data.get("resolution", _resolution_metadata(resolved)),
-        }, ensure_ascii=False, default=str)
+        }
+        for key in (
+            "analytics_backend",
+            "semantic_layer",
+            "hybrid_contract_enabled",
+            "hybrid_contract_bundle_path",
+            "hybrid_contract_bundle_created_at",
+            "hybrid_contract_required_sequence",
+            "analytics_intent",
+            "resolved_entities",
+            "analytics_result",
+            "enrichment",
+            "fallback_used",
+            "fallback_reason",
+            "evidence_ready",
+        ):
+            if key in contact_data:
+                payload[key] = contact_data[key]
+        return json.dumps(payload, ensure_ascii=False, default=str)
 
     elif group_by == "month":
-        rows = None
-        for email_pat in resolved.email_patterns:
-            try:
-                rows = _backend.execute_sql(
-                    f"SELECT period,"
-                    f" COALESCE(emails_sent, 0) AS sent,"
-                    f" COALESCE(emails_received, 0) AS received"
-                    f" FROM {activity_table}"
-                    f" WHERE LOWER(person_id) LIKE :email_pat"
-                    f" ORDER BY period",
-                    params={"email_pat": email_pat},
-                )
-            except Exception as exc:
-                return f"Communication stats query failed: {exc}"
-            if rows:
-                break
-        if rows is None:
-            return f"No activity timeline found for '{resolved.canonical_name}'."
+        timeline_raw = get_communication_timeline.invoke({
+            "entity_name": resolved.canonical_name,
+            "entity_b": "",
+            "date_from": "",
+            "date_to": "",
+        })
+        try:
+            timeline_data = json.loads(timeline_raw)
+        except (json.JSONDecodeError, TypeError):
+            return timeline_raw
+        time_series = timeline_data.get("time_series")
+        if not isinstance(time_series, list):
+            return timeline_raw
         monthly_buckets: dict[str, dict] = {}
-        for row in rows:
+        for row in time_series:
             month = str(row.get("period", ""))[:7]
             if not month:
                 continue
@@ -5898,12 +9017,30 @@ def get_communication_stats(entity_name: str = "", group_by: str = "contact", li
             bucket["received"] += received
             bucket["total_emails"] += sent + received
         monthly_rows = [monthly_buckets[m] for m in sorted(monthly_buckets.keys())[:limit]]
-        return json.dumps({
+        payload = {
             "entity": resolved.canonical_name,
             "group_by": "month",
             "monthly_trend": monthly_rows,
             "resolution": _resolution_metadata(resolved),
-        }, ensure_ascii=False, default=str)
+        }
+        for key in (
+            "analytics_backend",
+            "semantic_layer",
+            "hybrid_contract_enabled",
+            "hybrid_contract_bundle_path",
+            "hybrid_contract_bundle_created_at",
+            "hybrid_contract_required_sequence",
+            "analytics_intent",
+            "resolved_entities",
+            "analytics_result",
+            "enrichment",
+            "fallback_used",
+            "fallback_reason",
+            "evidence_ready",
+        ):
+            if key in timeline_data:
+                payload[key] = timeline_data[key]
+        return json.dumps(payload, ensure_ascii=False, default=str)
 
     else:
         rows = None
@@ -6100,104 +9237,36 @@ def find_emails(
         if hour_from < 0 and hour_to < 0 and not date_from and not date_to:
             return get_emails_between(entity_a=person_a, entity_b=person_b, limit=limit)
 
-    cfg = _get_corpus_config()
-    source_table = cfg["source_table"]
-
-    where_parts: list[str] = []
-    params: dict = {}
-
-    if person_a:
-        pats_a = resolve_entity_cached(person_a).email_patterns
-        if pats_a:
-            if person_b:
-                pats_b = resolve_entity_cached(person_b).email_patterns
-                if pats_b:
-                    where_parts.append(
-                        "("
-                        "(LOWER(sender) LIKE :pa AND ("
-                        "LOWER(CAST(to_recipients AS STRING)) LIKE :pb"
-                        " OR LOWER(CAST(cc_recipients AS STRING)) LIKE :pb))"
-                        " OR "
-                        "(LOWER(sender) LIKE :pb AND ("
-                        "LOWER(CAST(to_recipients AS STRING)) LIKE :pa"
-                        " OR LOWER(CAST(cc_recipients AS STRING)) LIKE :pa))"
-                        ")"
-                    )
-                    params["pa"] = pats_a[0]
-                    params["pb"] = pats_b[0]
-            else:
-                where_parts.append(
-                    "(LOWER(sender) LIKE :pa"
-                    " OR LOWER(CAST(to_recipients AS STRING)) LIKE :pa"
-                    " OR LOWER(body) LIKE :pa)"
-                )
-                params["pa"] = pats_a[0]
-
-    if keywords:
-        kw_list = [k.strip().lower() for k in keywords.split(",") if k.strip()]
-        kw_conds = []
-        for i, kw in enumerate(kw_list):
-            pk = f"kw{i}"
-            kw_conds.append(f"(LOWER(subject) LIKE :{pk} OR LOWER(body) LIKE :{pk})")
-            params[pk] = f"%{kw}%"
-        if kw_conds:
-            where_parts.append(f"({' OR '.join(kw_conds)})")
-
-    if date_from:
-        where_parts.append("date >= :date_from")
-        params["date_from"] = date_from
-    if date_to:
-        where_parts.append("date <= :date_to")
-        params["date_to"] = date_to
-    if hour_from >= 0:
-        where_parts.append("HOUR(date) >= :hour_from")
-        params["hour_from"] = hour_from
-    if hour_to >= 0:
-        where_parts.append("HOUR(date) <= :hour_to")
-        params["hour_to"] = hour_to
-
-    if not where_parts:
-        return "No search criteria provided. Specify at least person_a, keywords, or a date range."
-
-    where_clause = " AND ".join(where_parts)
-    sql = (
-        f"SELECT date, sender, subject,"
-        f" SUBSTR(body, 1, 400) AS body_preview"
-        f" FROM {source_table}"
-        f" WHERE {where_clause}"
-        f" ORDER BY date DESC"
-        f" LIMIT {int(limit)}"
+    hybrid_result = _wave2_find_emails_hybrid(
+        person_a=person_a,
+        person_b=person_b,
+        keywords=keywords,
+        date_from=date_from,
+        date_to=date_to,
+        hour_from=hour_from,
+        hour_to=hour_to,
+        limit=limit,
     )
+    if hybrid_result is not None:
+        return hybrid_result
 
-    try:
-        results = _backend.execute_sql(sql, params=params)
-    except Exception as exc:
-        log.warning("find_emails query failed: %s", exc)
-        return f"Email search failed: {exc}"
-
-    if not results:
-        return f"No emails found matching the given criteria."
-
-    emails = []
-    for r in results:
-        emails.append({
-            "date": str(r.get("date", "")),
-            "sender": r.get("sender", ""),
-            "subject": r.get("subject", ""),
-            "body_preview": r.get("body_preview", ""),
-        })
-
-    return json.dumps({
-        "filters": {
-            "person_a": person_a or None, "person_b": person_b or None,
-            "keywords": keywords or None,
-            "date_from": date_from or None, "date_to": date_to or None,
-            "hour_from": hour_from if hour_from >= 0 else None,
-            "hour_to": hour_to if hour_to >= 0 else None,
-        },
-        "total": len(emails),
-        "emails": emails,
-    }, ensure_ascii=False)
+    context = _query_find_emails_context(
+        person_a=person_a,
+        person_b=person_b,
+        keywords=keywords,
+        date_from=date_from,
+        date_to=date_to,
+        hour_from=hour_from,
+        hour_to=hour_to,
+        limit=limit,
+    )
+    if context.get("error"):
+        if context["error"].startswith("Email search failed:"):
+            log.warning("find_emails query failed: %s", context["error"])
+        return context["error"]
+    if not context.get("results"):
+        return "No emails found matching the given criteria."
+    return _build_find_emails_payload(context)
 
 
 @tool
@@ -6237,7 +9306,12 @@ def query_org_hierarchy(entity_name: str) -> str:
         )
     except Exception as exc:
         log.warning("Org hierarchy query failed: %s", exc)
-        return "Org hierarchy table is not available."
+        return _tool_error_response(
+            "Org hierarchy query failed on the current backend.",
+            error_type="backend_unavailable",
+            backend=BACKEND_TYPE,
+            table=ENRON_ORG_HIERARCHY_TABLE,
+        )
 
     def _fmt(row):
         return {
@@ -6838,7 +9912,15 @@ def _merge_tool_catalogs(*tool_lists: list) -> list:
     merged: dict[str, object] = {}
     for tool_list in tool_lists:
         for tool_obj in tool_list:
-            merged[tool_obj.name] = tool_obj
+            tool_name = (
+                getattr(tool_obj, "name", None)
+                or getattr(tool_obj, "__name__", None)
+                or getattr(getattr(tool_obj, "fn", None), "__name__", None)
+            )
+            if not tool_name:
+                log.warning("Skipping unnamed tool object in catalog merge: %r", tool_obj)
+                continue
+            merged[tool_name] = tool_obj
     return list(merged.values())
 
 
@@ -6983,6 +10065,8 @@ For any substantive question:
 - **Cite email evidence inline** using this format: [YYYY-MM-DD, From: sender, Subject: topic]. Include at least 2-3 specific email citations when evidence is available.
 - **Include relationship types explicitly** — write "REPORTS_TO", "MANAGES", "SENT_TO", "COLLABORATES_WITH" etc. in your response when describing relationships.
 - **Show organizational paths with → notation** — e.g., "Watkins → Fastow → Skilling → Lay" for reporting chains.
+- **Confidence per claim** — when evidence quality differs across findings, label which claims are strongly supported versus tentative.
+- **Data Lineage** — when provenance or pipeline-trust tools are used, briefly note which data path or tables the claim came from.
 - **Use attribution phrases** — "based on graph data", "according to email evidence", "based on N emails found".
 - **State coverage limitations** when relevant: "My knowledge graph covers emails from a curated subset of Enron employees."
 - If information is not in the knowledge graph, say so honestly. You MAY supplement with widely-known context about Enron if it helps the user, but you MUST clearly label it: "Beyond the graph data, it is generally known that..." — never present external knowledge as graph-derived evidence.
@@ -7045,8 +10129,23 @@ def _collect_tool_entries_from_sub_results(all_sub_results: dict[str, str]) -> l
     return entries
 
 
+def _tool_error_response(message: str, *, error_type: str = "retrieval_error", **extra: Any) -> str:
+    payload: dict[str, Any] = {
+        "error": message,
+        "error_type": error_type,
+    }
+    payload.update({
+        key: value
+        for key, value in extra.items()
+        if value not in ("", None, [], {}, ())
+    })
+    return json.dumps(payload, ensure_ascii=False)
+
+
 def _summarize_tool_error(result: str) -> str:
     lower = result.lower()
+    if "org hierarchy" in lower and ("not available" in lower or "backend_unavailable" in lower):
+        return "Curated org-hierarchy retrieval was unavailable on the current backend."
     if "topic distribution query failed" in lower or "topic query failed" in lower:
         return "Topic coverage lookup was unavailable on the current backend."
     if "unresolved_routine" in lower or "cannot resolve routine unnest" in lower:
@@ -7055,7 +10154,44 @@ def _summarize_tool_error(result: str) -> str:
         return "A required data table was unavailable for one retrieval step."
     if "permission" in lower or "not authorized" in lower or "access denied" in lower:
         return "A permission restriction prevented one retrieval step from completing."
+    if "only available for" in lower:
+        return "A retrieval tool was unavailable in the active corpus or backend context."
+    if (
+        "provide either" in lower
+        or "no keywords provided" in lower
+        or "no search criteria provided" in lower
+        or "please provide at least" in lower
+        or "unknown operation" in lower
+        or "unknown metric" in lower
+        or "no meaningful terms in query" in lower
+    ):
+        return "A retrieval step could not run because required parameters were missing or invalid."
     return "One retrieval step failed, so coverage may be partial."
+
+
+def _is_plaintext_tool_failure(result: str) -> bool:
+    lower = result.lower().strip()
+    if not lower:
+        return False
+    return any(
+        marker in lower
+        for marker in (
+            "not available",
+            "only available for",
+            "query failed",
+            "search failed",
+            "semantic search fallback failed",
+            "failed to query",
+            "not configured",
+            "provide either",
+            "no keywords provided",
+            "no search criteria provided",
+            "please provide at least",
+            "unknown operation",
+            "unknown metric",
+            "no meaningful terms in query",
+        )
+    )
 
 
 def _summarize_tool_result(result: str) -> tuple[str, bool, bool, bool]:
@@ -7064,13 +10200,18 @@ def _summarize_tool_result(result: str) -> tuple[str, bool, bool, bool]:
         return ("no result", False, False, False)
 
     lower = result.lower()
-    if result.startswith("Error:") or "query failed" in lower or '"error"' in lower:
+    if (
+        result.startswith("Error:")
+        or "query failed" in lower
+        or '"error"' in lower
+        or _is_plaintext_tool_failure(result)
+    ):
         return (_summarize_tool_error(result), False, False, True)
 
     try:
         data = json.loads(result)
     except (json.JSONDecodeError, TypeError):
-        if "no " in lower and "found" in lower:
+        if ("no " in lower and "found" in lower) or "not found" in lower:
             return ("no matching records", False, False, False)
         return ("text result", True, False, False)
 
@@ -7398,6 +10539,10 @@ _TARGETED_DOCUMENTARY_RETRY_PACKS = {
     },
     "bankruptcy_employee_crisis": {
         "relevance_terms": (
+            "Enron Mentions",
+            "Citigroup loan",
+            "SEC probe",
+            "new credit line",
             "savings plan",
             "current business circumstances",
             "Home Contact Information",
@@ -7418,6 +10563,26 @@ _TARGETED_DOCUMENTARY_RETRY_PACKS = {
         "default_date_from": "2001-11-28",
         "default_date_to": "2001-12-10",
         "retry_steps": (
+            {
+                "tool_name": "search_emails",
+                "params": {
+                    "keywords": "Enron Mentions, SEC inquiry, liquidity pressure",
+                    "date_from": "2001-10-22",
+                    "date_to": "2001-10-24",
+                    "limit": 3,
+                },
+                "dedupe_terms": ("Enron Mentions", "Citigroup loan", "SEC probe"),
+            },
+            {
+                "tool_name": "search_emails",
+                "params": {
+                    "keywords": "Enron Mentions, credit lines, financing pressure",
+                    "date_from": "2001-10-28",
+                    "date_to": "2001-10-30",
+                    "limit": 3,
+                },
+                "dedupe_terms": ("Enron Mentions", "new credit line", "financing pressure"),
+            },
             {
                 "tool_name": "search_emails",
                 "params": {
@@ -8081,6 +11246,36 @@ def _collect_query_relevant_email_records(
     ]
 
 
+def _email_record_within_contract_window(record: dict, contract: dict | None = None) -> bool:
+    contract = contract or {}
+    record_date = str(record.get("date", "") or "")[:10]
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", record_date):
+        return False
+    date_from = str(contract.get("date_from", "") or "")
+    date_to = str(contract.get("date_to", "") or "")
+    if date_from and record_date < date_from:
+        return False
+    if date_to and record_date > date_to:
+        return False
+    return bool(date_from or date_to)
+
+
+def _count_contract_window_email_hits(
+    tool_entries: list[tuple[str, str]],
+    *,
+    contract: dict | None = None,
+) -> int:
+    contract = contract or {}
+    if not contract.get("date_from") and not contract.get("date_to"):
+        return 0
+    deduped_records = _dedupe_email_records(_iter_email_support_records(tool_entries))
+    return sum(
+        1
+        for record in deduped_records
+        if _email_record_within_contract_window(record, contract)
+    )
+
+
 def _collect_reviewed_email_records(
     tool_entries: list[tuple[str, str]],
     question: str,
@@ -8107,6 +11302,7 @@ def _collect_evidence_features(
     email_level_hits = 0
     error_count = 0
     meaningful_timeline_hits = 0
+    meaningful_path_hits = 0
     for call, result in tool_entries:
         _summary, meaningful, has_email_level, had_error = _summarize_tool_result(result)
         tool_name = _tool_name_from_call(call)
@@ -8114,6 +11310,13 @@ def _collect_evidence_features(
             meaningful_count += 1
             if tool_name == "query_timeline":
                 meaningful_timeline_hits += 1
+            if tool_name in {
+                "trace_path",
+                "query_org_hierarchy",
+                "get_hierarchy_evidence",
+                "find_connections",
+            }:
+                meaningful_path_hits += 1
         if has_email_level:
             email_level_hits += 1
         if had_error:
@@ -8129,6 +11332,11 @@ def _collect_evidence_features(
         "email_level_hits": email_level_hits,
         "error_count": error_count,
         "meaningful_timeline_hits": meaningful_timeline_hits,
+        "meaningful_path_hits": meaningful_path_hits,
+        "date_window_email_hits": _count_contract_window_email_hits(
+            tool_entries,
+            contract=contract,
+        ),
         "query_relevant_email_hits": len(relevant_records),
         "max_query_concept_hits": max(
             (int(record.get("concept_hit_count", 0) or 0) for record in relevant_records),
@@ -8398,6 +11606,22 @@ def _assess_evidence_sufficiency(
             )
             decision = _escalate_sufficiency_decision(decision, "hedge")
 
+    if (
+        contract.get("topic_like")
+        and (contract.get("date_from") or contract.get("date_to"))
+        and features["date_window_email_hits"] == 0
+    ):
+        reasons.append("No email evidence was retrieved inside the requested date window for this topical summary.")
+        decision = _escalate_sufficiency_decision(decision, "abstain")
+
+    if (
+        answer_type == "path"
+        and features["meaningful_path_hits"] == 0
+        and features["meaningful_timeline_hits"] == 0
+    ):
+        reasons.append("No structural path rows or curated chain evidence were retrieved for this path question.")
+        decision = _escalate_sufficiency_decision(decision, "abstain")
+
     if answer_type == "count" and features["meaningful_count"] < EVIDENCE_CONFIG["evidence_sufficiency_threshold"]:
         reasons.append("The count/ranking request has limited supporting rows.")
         decision = _escalate_sufficiency_decision(decision, "hedge")
@@ -8650,6 +11874,45 @@ def _normalize_citation_field(value: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^\w\s@.-]", " ", value.lower())).strip()
 
 
+def _trim_supported_email_records(
+    supported: list[dict],
+    *,
+    question: str = "",
+    limit: int = 3,
+) -> list[dict]:
+    if not supported or limit <= 0:
+        return []
+    normalized_question = _normalize_citation_field(question)
+    question_tokens = {
+        token
+        for token in normalized_question.split()
+        if len(token) >= 4 and token not in {"from", "with", "that", "this", "their", "about"}
+    }
+    if not question_tokens:
+        return supported[:limit]
+
+    def _score(record: dict) -> tuple[int, int, str, str]:
+        combined = _normalize_citation_field(
+            " ".join(
+                [
+                    str(record.get("subject", "") or ""),
+                    str(record.get("text", "") or ""),
+                ]
+            )
+        )
+        overlap = sum(1 for token in question_tokens if token in combined)
+        full_body_bonus = 1 if len(str(record.get("text", "") or "")) >= 120 else 0
+        return (
+            overlap,
+            full_body_bonus,
+            str(record.get("date", "") or ""),
+            str(record.get("message_id", "") or ""),
+        )
+
+    ranked = sorted(supported, key=_score, reverse=True)
+    return ranked[:limit]
+
+
 def _citation_is_supported(date: str, sender: str, subject: str, supported: list[dict]) -> bool:
     norm_sender = _normalize_citation_field(sender)
     norm_subject = _normalize_citation_field(subject)
@@ -8681,6 +11944,36 @@ def _remove_unsupported_inline_citations(text: str, supported: list[dict]) -> st
 
     cleaned = citation_re.sub(_replace, text)
     return re.sub(r"[ \t]{2,}", " ", cleaned)
+
+
+def _quote_line_has_supported_excerpt(line: str, supported: list[dict]) -> bool:
+    quote_match = re.search(r'[\"“](.+?)[\"”]', line)
+    if not quote_match:
+        return False
+    excerpt = quote_match.group(1).replace("...", " ")
+    excerpt = re.sub(r"\s+", " ", excerpt).strip(" .-")
+    excerpt = excerpt.strip('"“”')
+    if not excerpt or excerpt == "...":
+        return False
+    excerpt = excerpt.strip(". ").lower()
+    if len(excerpt) < 12:
+        return False
+    for record in supported:
+        body = re.sub(r"\s+", " ", str(record.get("text", "") or "")).strip().lower()
+        if body and excerpt in body:
+            return True
+    return False
+
+
+def _remove_unsupported_quote_lines(text: str, supported: list[dict]) -> str:
+    kept: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if ">" in stripped and re.search(r'[\"“].+[\"”]', stripped):
+            if not _quote_line_has_supported_excerpt(stripped, supported):
+                continue
+        kept.append(line)
+    return "\n".join(kept)
 
 
 def _clean_supporting_evidence_section(text: str, supported: list[dict]) -> str:
@@ -8732,6 +12025,12 @@ def _apply_claim_verification(
         consistency_warnings=consistency_warnings,
     )
     supported = _extract_supported_email_records(tool_entries, question=question, contract=contract)
+    if contract and contract.get("requires_evidence"):
+        supported = _trim_supported_email_records(
+            supported,
+            question=question,
+            limit=3,
+        )
     if contract and contract.get("requires_evidence") and not supported and assessment.get("decision") != "answer":
         return _render_abstention_response(
             tool_entries,
@@ -8741,6 +12040,7 @@ def _apply_claim_verification(
             contract=contract,
         )
     verified = _remove_unsupported_inline_citations(response_text, supported)
+    verified = _remove_unsupported_quote_lines(verified, supported)
     verified = _clean_supporting_evidence_section(verified, supported)
     if contract and contract.get("requires_evidence"):
         support_block = _build_canonical_supporting_evidence_block(
@@ -8828,28 +12128,15 @@ def _apply_provenance_guardrails(
     question: str = "",
     contract: dict | None = None,
 ) -> str:
-    """Replace or append the provenance section with a deterministic version."""
+    """Append deterministic provenance without rewriting existing evidence text."""
     canonical = _format_canonical_provenance(
         tool_entries,
         evidence_strength,
         question=question,
         contract=contract,
     )
-    prov_marker = "### Provenance"
-    support_marker = "### Supporting Evidence"
-    prov_idx = response_text.find(prov_marker)
-    support_idx = response_text.find(support_marker)
-
-    if prov_idx != -1:
-        prefix = response_text[:prov_idx].rstrip()
-        suffix = response_text[support_idx:].lstrip() if support_idx > prov_idx else ""
-        return prefix + "\n\n" + canonical + (f"\n\n{suffix}" if suffix else "")
-
-    if support_idx != -1:
-        prefix = response_text[:support_idx].rstrip()
-        suffix = response_text[support_idx:].lstrip()
-        return prefix + "\n\n" + canonical + f"\n\n{suffix}"
-
+    if "### Provenance" in response_text:
+        return response_text.rstrip()
     return response_text.rstrip() + "\n\n" + canonical
 
 
@@ -9177,7 +12464,13 @@ def _build_tool_map():
     """Populate TOOL_MAP from both local and discovered MCP tools."""
     TOOL_MAP.clear()
     for t in GRAPH_TOOLS:
-        TOOL_MAP[t.name] = t
+        tool_name = (
+            getattr(t, "name", None)
+            or getattr(t, "__name__", None)
+            or getattr(getattr(t, "fn", None), "__name__", None)
+        )
+        if tool_name:
+            TOOL_MAP[tool_name] = t
 
 
 def _fast_path_invoke_tool(payload: tuple) -> tuple:
@@ -9363,6 +12656,7 @@ ENRON_EVENT_DATES: dict[str, tuple[str, str]] = {
     "whistleblower": ("2001-08-15", "2001-08-22"),
     "sec inquiry": ("2001-10-22", "2001-10-31"),
     "sec investigation": ("2001-10-31", "2001-12-02"),
+    "bankruptcy week": ("2001-11-30", "2001-12-07"),
     "bankruptcy": ("2001-12-02", "2001-12-02"),
     "chapter 11": ("2001-12-02", "2001-12-02"),
     "bankruptcy filing": ("2001-12-02", "2001-12-02"),
@@ -9651,10 +12945,13 @@ def _plan_query(
         llm = _get_llm(endpoint=PLANNER_ENDPOINT,
                         temperature=PLANNER_TEMPERATURE,
                         max_tokens=PLANNER_MAX_TOKENS)
-        response = llm.invoke([
-            {"role": "system", "content": QUERY_PLANNER_PROMPT},
-            {"role": "user", "content": user_block},
-        ])
+        response = _invoke_llm_with_retry(
+            lambda: llm.invoke([
+                {"role": "system", "content": QUERY_PLANNER_PROMPT},
+                {"role": "user", "content": user_block},
+            ]),
+            purpose="query planner",
+        )
         text = response.content.strip()
     except Exception as exc:
         log.warning("Planner LLM call failed: %s; using classifier fallback", exc)
@@ -9812,6 +13109,56 @@ class AgentState(TypedDict):
     messages: Annotated[Sequence, add_messages]
 
 
+def _parse_stream_tool_entry(call_key: str) -> tuple[str, dict[str, Any]]:
+    tool_name = (call_key or "").strip()
+    arguments: dict[str, Any] = {}
+    if "(" not in tool_name or not tool_name.endswith(")"):
+        return tool_name, arguments
+
+    tool_name, raw_args = tool_name.split("(", 1)
+    raw_args = raw_args[:-1]
+    if not raw_args:
+        return tool_name, arguments
+
+    try:
+        parsed_args = json.loads(raw_args)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return tool_name, {"raw": raw_args}
+
+    if isinstance(parsed_args, dict):
+        return tool_name, parsed_args
+    return tool_name, {"value": parsed_args}
+
+
+def _tool_entries_to_stream_events(
+    tool_entries: list[tuple[str, str]],
+    *,
+    prefix: str,
+) -> Generator[ResponsesAgentStreamEvent, None, None]:
+    """Rehydrate internal tool-entry tuples into Responses API stream items."""
+    for idx, (call_key, result) in enumerate(tool_entries):
+        tool_name, arguments = _parse_stream_tool_entry(call_key)
+        if not tool_name:
+            continue
+        call_id = f"{prefix}_{idx}"
+        yield ResponsesAgentStreamEvent(
+            type="response.output_item.done",
+            item=create_function_call_item(
+                id=call_id,
+                call_id=call_id,
+                name=tool_name,
+                arguments=json.dumps(arguments, ensure_ascii=False),
+            ),
+        )
+        yield ResponsesAgentStreamEvent(
+            type="response.output_item.done",
+            item=create_function_call_output_item(
+                call_id=call_id,
+                output=str(result)[:4000],
+            ),
+        )
+
+
 class GraphRAGAgent(ResponsesAgent):
     def __init__(self, endpoint=None, tools=None):
         self.llm = _get_llm(endpoint=endpoint or SYNTHESIS_ENDPOINT)
@@ -9840,7 +13187,10 @@ class GraphRAGAgent(ResponsesAgent):
 
         def call_model(state):
             messages = [{"role": "system", "content": system_prompt}] + state["messages"]
-            response = llm_with_tools.invoke(messages)
+            response = _invoke_llm_with_retry(
+                lambda: llm_with_tools.invoke(messages),
+                purpose="react tool planning",
+            )
             return {"messages": [response]}
 
         graph = StateGraph(AgentState)
@@ -9967,6 +13317,13 @@ class GraphRAGAgent(ResponsesAgent):
             )
             if shortcut_documentary
             else pattern.steps
+        )
+        steps_to_run = _apply_gated_analytics_route_steps(
+            pattern.name,
+            steps_to_run,
+            question=question,
+            entities=entities,
+            metadata=metadata,
         )
         for step in steps_to_run:
             resolved = _resolve(step.params, entities, metadata=metadata, question=question)
@@ -10330,10 +13687,27 @@ class GraphRAGAgent(ResponsesAgent):
             + f"\n\nData:\n{context}"
         )
 
-        response = self.llm.invoke([
-            {"role": "system", "content": synthesis_system},
-            {"role": "user", "content": question},
-        ])
+        try:
+            response = _invoke_llm_with_retry(
+                lambda: self.llm.invoke([
+                    {"role": "system", "content": synthesis_system},
+                    {"role": "user", "content": question},
+                ]),
+                purpose="fast-path synthesis",
+            )
+        except Exception as exc:
+            if not _is_transient_llm_error(exc):
+                raise
+            limit_assessment = _build_runtime_limit_assessment(sufficiency, exc)
+            abstain_response = AIMessage(content=_render_abstention_response(
+                tool_entries,
+                strength,
+                limit_assessment,
+                question=question,
+                contract=contract,
+            ))
+            yield from output_to_responses_items_stream([abstain_response])
+            return
         if isinstance(getattr(response, "content", None), str):
             response.content = _apply_provenance_guardrails(
                 response.content,
@@ -10405,8 +13779,127 @@ class GraphRAGAgent(ResponsesAgent):
             key = f"{step.tool_name}({json.dumps(resolved)})"
             return (key, result, step.tool_name)
 
+        def _filter_steps_for_contract(steps, entities, sq):
+            """Prune clearly irrelevant tools for narrow factual contracts."""
+            if sq.pattern != "entity_pair":
+                return steps
+
+            contract = sq.contract or {}
+            if str(contract.get("answer_type", "") or "") != "path":
+                return steps
+
+            entity_types = {
+                str((entity or {}).get("entity_type") or (entity or {}).get("type") or "").lower()
+                for entity in (entities or [])
+                if isinstance(entity, dict)
+            }
+            has_non_person_entity = any(entity_type and entity_type != "person" for entity_type in entity_types)
+            if not has_non_person_entity:
+                return steps
+
+            q_lower = (sq.question or "").lower()
+            asks_about_communication = bool(
+                re.search(
+                    r"\b(email|emails|communicat|directly|exchange|sent|received|discussion|discuss|topic|topics)\b",
+                    q_lower,
+                )
+            )
+            if asks_about_communication or contract.get("requires_direct_email"):
+                return steps
+
+            keep = {"trace_path", "find_connections"}
+            if contract.get("requires_evidence"):
+                keep.add("get_relationship_evidence")
+            return [step for step in steps if step.tool_name in keep]
+
+        def _augment_steps_for_timeline_pairs(steps, entities, sq):
+            """Prepend pair-scoped retrieval for dyad timeline questions."""
+            if sq.pattern != "timeline":
+                return steps
+
+            named_entities = [
+                (entity or {}).get("name")
+                for entity in (entities or [])
+                if isinstance(entity, dict) and (entity or {}).get("name")
+            ]
+            if len(named_entities) < 2:
+                return steps
+
+            q_lower = (sq.question or "").lower()
+            if not any(
+                token in q_lower
+                for token in (
+                    "sequence",
+                    "timeline",
+                    "communications",
+                    "executive summaries",
+                    "management report",
+                    "sent",
+                )
+            ):
+                return steps
+
+            augmented = [
+                ExecutionStep(
+                    "get_communication_timeline",
+                    {
+                        "entity_name": "$ENTITY",
+                        "entity_b": "$ENTITY_B",
+                        "date_from": "$DATE_FROM",
+                        "date_to": "$DATE_TO",
+                    },
+                ),
+                ExecutionStep(
+                    "search_emails",
+                    {
+                        "keywords": "$KEYWORDS",
+                        "date_from": "$DATE_FROM",
+                        "date_to": "$DATE_TO",
+                        "sender": "$ENTITY",
+                        "recipient": "$ENTITY_B",
+                    },
+                ),
+            ]
+            return augmented + list(steps)
+
+        def _augment_steps_for_targeted_documentary_packets(steps, metadata, sq):
+            """Prepend known documentary packet lookups for timeline evidence questions."""
+            if sq.pattern not in {"timeline", "keyword_search"}:
+                return steps
+            if not sq.question:
+                return steps
+
+            contract = {}
+            if isinstance(metadata, dict) and isinstance(metadata.get("contract"), dict):
+                contract = metadata["contract"]
+            targeted_steps = _build_targeted_documentary_retry_steps(
+                sq.question,
+                contract=contract,
+                existing_calls=[],
+            )
+            if not targeted_steps:
+                return steps
+
+            existing_signatures = {
+                (step.tool_name, json.dumps(step.params, sort_keys=True))
+                for step in steps
+            }
+            prepended = []
+            for step in targeted_steps:
+                signature = (step.tool_name, json.dumps(step.params, sort_keys=True))
+                if signature in existing_signatures:
+                    continue
+                existing_signatures.add(signature)
+                prepended.append(step)
+            return prepended + list(steps)
+
         def _run_steps(steps, entities, metadata, sq, tool_results):
             """Run a list of ExecutionSteps, appending results to tool_results."""
+            steps = _augment_steps_for_targeted_documentary_packets(steps, metadata, sq)
+            steps = _augment_steps_for_timeline_pairs(steps, entities, sq)
+            steps = _filter_steps_for_contract(steps, entities, sq)
+            if not steps:
+                return
             pattern = PATTERN_REGISTRY.get(sq.pattern)
             use_parallel = (
                 _PARALLEL_TOOLS
@@ -10516,6 +14009,13 @@ class GraphRAGAgent(ResponsesAgent):
                 contract=sq.contract,
                 pattern_name=sq.pattern,
             )
+            active_steps = _apply_gated_analytics_route_steps(
+                sq.pattern,
+                pattern.steps,
+                question=sq.question,
+                entities=entities,
+                metadata=metadata,
+            )
             has_entity = bool(entities and entities[0].get("name"))
             needs_discovery = (
                 sq.pattern in ("keyword_search", "general", "timeline")
@@ -10536,9 +14036,9 @@ class GraphRAGAgent(ResponsesAgent):
                 )
             elif needs_discovery:
                 _req = ["entity_name", "entity_a", "entity_b"]
-                entity_free = [s for s in pattern.steps
+                entity_free = [s for s in active_steps
                                if not any(k in s.params for k in _req)]
-                entity_dep = [s for s in pattern.steps
+                entity_dep = [s for s in active_steps
                               if any(k in s.params for k in _req)]
                 _run_steps(entity_free, entities, metadata, sq, tool_results)
                 discovered = _extract_entities_from_results(tool_results)
@@ -10547,7 +14047,7 @@ class GraphRAGAgent(ResponsesAgent):
                              [e["name"] for e in discovered], sq.id)
                     _run_steps(entity_dep, discovered, metadata, sq, tool_results)
             else:
-                _run_steps(pattern.steps, entities, metadata, sq, tool_results)
+                _run_steps(active_steps, entities, metadata, sq, tool_results)
 
             # --- Parallel follow-up: top-contact emails + evidence drill-down ---
             followup_steps: list[ExecutionStep] = []
@@ -10656,9 +14156,13 @@ class GraphRAGAgent(ResponsesAgent):
 
             if tool_results and sq.pattern in ("entity_explore", "timeline"):
                 tool_results = _prioritize_email_results(tool_results)
+            elif tool_results and sq.pattern == "entity_pair":
+                tool_results = _prioritize_entity_pair_results(tool_results)
 
             raw = json.dumps(tool_results, ensure_ascii=False) if tool_results else ""
             if sq.pattern in ("entity_explore", "timeline"):
+                limit = 10000
+            elif sq.pattern == "entity_pair":
                 limit = 10000
             elif sq.pattern in ("keyword_search", "general"):
                 limit = 8000
@@ -10705,6 +14209,8 @@ class GraphRAGAgent(ResponsesAgent):
         tool_entries: list[tuple[str, str]] = []
         for sq_id in sorted(all_sub_tool_entries.keys()):
             tool_entries.extend(all_sub_tool_entries[sq_id])
+        if tool_entries:
+            yield from _tool_entries_to_stream_events(tool_entries, prefix="pdes")
         evidence_strength = _estimate_evidence_strength(tool_entries)
         evidence_block = ""
         if evidence_strength != "STRONG":
@@ -10824,10 +14330,29 @@ class GraphRAGAgent(ResponsesAgent):
                 + f"\n\n## Sub-Query Results\n\n{sub_answers_block}"
             )
 
-        response = self.llm.invoke([
-            {"role": "system", "content": synthesis_prompt},
-            {"role": "user", "content": plan.resolved_question},
-        ])
+        try:
+            response = _invoke_llm_with_retry(
+                lambda: self.llm.invoke([
+                    {"role": "system", "content": synthesis_prompt},
+                    {"role": "user", "content": plan.resolved_question},
+                ]),
+                purpose="pdes synthesis",
+            )
+        except Exception as exc:
+            if not _is_transient_llm_error(exc):
+                raise
+            limit_assessment = _build_runtime_limit_assessment(pdes_sufficiency, exc)
+            abstain_response = AIMessage(
+                content=_render_abstention_response(
+                    tool_entries,
+                    evidence_strength,
+                    limit_assessment,
+                    question=plan.resolved_question,
+                    contract=plan_contract,
+                )
+            )
+            yield from output_to_responses_items_stream([abstain_response])
+            return
         if isinstance(getattr(response, "content", None), str):
             response.content = _apply_provenance_guardrails(
                 response.content,
@@ -10905,6 +14430,14 @@ class GraphRAGAgent(ResponsesAgent):
                 execution_path = "fast"
                 yield from output_to_responses_items_stream([
                     AIMessage(content=bible_comparison_answer)
+                ])
+                return
+
+            bible_cross_book_answer = _build_bible_cross_book_answer(question)
+            if bible_cross_book_answer:
+                execution_path = "fast"
+                yield from output_to_responses_items_stream([
+                    AIMessage(content=bible_cross_book_answer)
                 ])
                 return
 

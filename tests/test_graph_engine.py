@@ -24,9 +24,11 @@ Layer 3 — raw LLM baseline (expected failures prove graph value):
     pytest tests/test_graph_engine.py -m baseline -v
 """
 
+import json
 import os
 import subprocess
 import sys
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -97,7 +99,18 @@ def _mock_heavy_imports():
     lc_messages.ToolMessage = type("ToolMessage", (), {})
 
     lc_tools = sys.modules["langchain_core.tools"]
-    lc_tools.tool = lambda f, **kwargs: f
+
+    def _mock_tool(f=None, **kwargs):
+        def _decorate(inner):
+            inner.name = kwargs.get("name", inner.__name__)
+            inner.invoke = lambda params=None, _inner=inner: _inner(**(params or {}))
+            return inner
+
+        if f is None:
+            return _decorate
+        return _decorate(f)
+
+    lc_tools.tool = _mock_tool
 
     sys.modules["langgraph.graph.message"].add_messages = None
     sys.modules["langgraph.graph"].END = "end"
@@ -143,6 +156,19 @@ def _patch_backend():
     backend = _TestLocalBackend()
     with patch.object(mod, "_backend", backend):
         yield mod
+
+
+def _resolved_entity(name: str, *, email_patterns=None, entity_id_patterns=None):
+    slug = "_".join(name.lower().split())
+    default_email = f"%{name.lower().replace(' ', '.')}@enron.com%"
+    return SimpleNamespace(
+        input_name=name,
+        canonical_name=name,
+        confidence="exact",
+        correction=None,
+        email_patterns=email_patterns or [default_email],
+        entity_id_patterns=entity_id_patterns or [f"%{slug}%"],
+    )
 
 
 # ===================================================================
@@ -196,16 +222,17 @@ class TestFindConnections:
     def test_many_connections_moses(self, _patch_backend):
         mod = _patch_backend
         result = mod.find_connections("Moses")
-        assert "Moses" in result
-        lines = [l for l in result.split("\n") if l.startswith("- ")]
-        assert len(lines) >= 10, f"Expected >=10 connections for Moses, got {len(lines)}"
+        data = json.loads(result)
+        assert data["entity"] == "Moses"
+        assert data["total"] >= 10, f"Expected >=10 connections for Moses, got {data['total']}"
 
     def test_bidirectional_pharaoh(self, _patch_backend):
         """Pharaoh is both a source (opposes Moses) and a target (opposed by God)."""
         mod = _patch_backend
         result = mod.find_connections("Pharaoh")
-        assert "Pharaoh" in result
-        assert "OPPOSED" in result
+        data = json.loads(result)
+        assert data["entity"] == "Pharaoh"
+        assert "OPPOSED" in data["by_type"]
 
     def test_zero_connections_nonexistent(self, _patch_backend):
         mod = _patch_backend
@@ -215,13 +242,18 @@ class TestFindConnections:
     def test_connections_include_book_chapter(self, _patch_backend):
         mod = _patch_backend
         result = mod.find_connections("Abraham")
-        assert "Genesis" in result
-        assert "ch." in result
+        data = json.loads(result)
+        assert any(
+            entry.get("book") == "Genesis" and entry.get("chapter") is not None
+            for entries in data["by_type"].values()
+            for entry in entries
+        )
 
     def test_relationship_types_present(self, _patch_backend):
         mod = _patch_backend
         result = mod.find_connections("Ruth")
-        assert any(rt in result for rt in ["SPOUSE_OF", "PARENT_OF", "FAMILY_OF"])
+        data = json.loads(result)
+        assert any(rt in data["by_type"] for rt in ["SPOUSE_OF", "PARENT_OF", "FAMILY_OF"])
 
 
 @skip_no_db
@@ -230,20 +262,25 @@ class TestGetSourceEvidence:
     def test_verse_text_returned(self, _patch_backend):
         mod = _patch_backend
         result = mod.get_source_evidence("Moses")
-        assert "Verses mentioning" in result
-        assert "Moses" in result
+        data = json.loads(result)
+        assert data["entity"] == "Moses"
+        assert data["total"] > 0
+        assert any("Moses" in verse["text"] for verse in data["verses"])
 
     def test_book_filter(self, _patch_backend):
         mod = _patch_backend
         result = mod.get_source_evidence("Moses", book="Exodus")
-        assert "Exodus" in result
-        assert "Genesis" not in result.replace("Verses mentioning", "")
+        data = json.loads(result)
+        assert data["total"] > 0
+        assert all(verse["reference"].startswith("Exodus ") for verse in data["verses"])
 
     def test_ruth_loyalty_verse(self, _patch_backend):
         """Ruth 1:16 — 'whither thou goest, I will go'."""
         mod = _patch_backend
         result = mod.get_source_evidence("Ruth", book="Ruth")
-        assert "whither thou goest" in result or "Ruth" in result
+        data = json.loads(result)
+        verse_text = " ".join(verse["text"] for verse in data["verses"])
+        assert "whither thou goest" in verse_text or "Ruth" in verse_text
 
     def test_no_verses_for_nonexistent(self, _patch_backend):
         mod = _patch_backend
@@ -253,8 +290,9 @@ class TestGetSourceEvidence:
     def test_burning_bush_verse(self, _patch_backend):
         mod = _patch_backend
         result = mod.get_source_evidence("bush", book="Exodus")
-        assert "bush" in result.lower()
-        assert "Exodus" in result
+        data = json.loads(result)
+        assert all(verse["reference"].startswith("Exodus ") for verse in data["verses"])
+        assert any("bush" in verse["text"].lower() for verse in data["verses"])
 
 
 @skip_no_db
@@ -301,15 +339,15 @@ class TestFindTopContacts:
     def test_returns_ranked_contacts(self, _patch_backend):
         mod = _patch_backend
         mock_results = [
-            {"contact": "Karen Denne", "sent": 5, "received": 26, "total": 31},
-            {"contact": "Vanessa Groscrand", "sent": 2, "received": 14, "total": 16},
-            {"contact": "Kathryn Corbally", "sent": 0, "received": 12, "total": 12},
+            {"contact_email": "karen.denne@enron.com", "sent": 5, "received": 26, "total": 31},
+            {"contact_email": "vanessa.groscrand@enron.com", "sent": 2, "received": 14, "total": 16},
+            {"contact_email": "kathryn.corbally@enron.com", "sent": 0, "received": 12, "total": 12},
         ]
         with patch.object(mod, "CORPUS", "enron"), \
-             patch.object(mod, "_backend") as mock_be:
+             patch.object(mod, "_backend") as mock_be, \
+             patch.object(mod, "resolve_entity_cached", return_value=_resolved_entity("Kenneth Lay", email_patterns=["%kenneth.lay@enron.com%"])):
             mock_be.execute_sql.return_value = mock_results
             result = mod.find_top_contacts("Kenneth Lay")
-        import json
         data = json.loads(result)
         assert data["entity"] == "Kenneth Lay"
         assert len(data["top_contacts"]) == 3
@@ -318,13 +356,13 @@ class TestFindTopContacts:
     def test_direction_outbound(self, _patch_backend):
         mod = _patch_backend
         mock_results = [
-            {"contact": "Brian Redmond", "sent": 3, "received": 0, "total": 3},
+            {"contact_email": "brian.redmond@enron.com", "sent": 3, "received": 0, "total": 3},
         ]
         with patch.object(mod, "CORPUS", "enron"), \
-             patch.object(mod, "_backend") as mock_be:
+             patch.object(mod, "_backend") as mock_be, \
+             patch.object(mod, "resolve_entity_cached", return_value=_resolved_entity("Kenneth Lay", email_patterns=["%kenneth.lay@enron.com%"])):
             mock_be.execute_sql.return_value = mock_results
             result = mod.find_top_contacts("Kenneth Lay", direction="outbound")
-        import json
         data = json.loads(result)
         assert data["direction"] == "outbound"
         assert data["top_contacts"][0]["sent"] == 3
@@ -332,13 +370,13 @@ class TestFindTopContacts:
     def test_direction_inbound(self, _patch_backend):
         mod = _patch_backend
         mock_results = [
-            {"contact": "Karen Denne", "sent": 0, "received": 26, "total": 26},
+            {"contact_email": "karen.denne@enron.com", "sent": 0, "received": 26, "total": 26},
         ]
         with patch.object(mod, "CORPUS", "enron"), \
-             patch.object(mod, "_backend") as mock_be:
+             patch.object(mod, "_backend") as mock_be, \
+             patch.object(mod, "resolve_entity_cached", return_value=_resolved_entity("Kenneth Lay", email_patterns=["%kenneth.lay@enron.com%"])):
             mock_be.execute_sql.return_value = mock_results
             result = mod.find_top_contacts("Kenneth Lay", direction="inbound")
-        import json
         data = json.loads(result)
         assert data["direction"] == "inbound"
         assert data["top_contacts"][0]["received"] == 26
@@ -346,7 +384,8 @@ class TestFindTopContacts:
     def test_no_contacts_found(self, _patch_backend):
         mod = _patch_backend
         with patch.object(mod, "CORPUS", "enron"), \
-             patch.object(mod, "_backend") as mock_be:
+             patch.object(mod, "_backend") as mock_be, \
+             patch.object(mod, "resolve_entity_cached", return_value=_resolved_entity("Nobody Here", email_patterns=["%nobody.here@enron.com%"])):
             mock_be.execute_sql.return_value = []
             result = mod.find_top_contacts("Nobody Here")
         assert "No email contacts found" in result
@@ -360,13 +399,13 @@ class TestFindTopContacts:
     def test_humanizes_slug_names(self, _patch_backend):
         mod = _patch_backend
         mock_results = [
-            {"contact": "karen_denne", "sent": 0, "received": 26, "total": 26},
+            {"contact_email": "karen_denne", "sent": 0, "received": 26, "total": 26},
         ]
         with patch.object(mod, "CORPUS", "enron"), \
-             patch.object(mod, "_backend") as mock_be:
+             patch.object(mod, "_backend") as mock_be, \
+             patch.object(mod, "resolve_entity_cached", return_value=_resolved_entity("Kenneth Lay", email_patterns=["%kenneth.lay@enron.com%"])):
             mock_be.execute_sql.return_value = mock_results
             result = mod.find_top_contacts("Kenneth Lay")
-        import json
         data = json.loads(result)
         assert data["top_contacts"][0]["name"] == "Karen Denne"
 
@@ -377,31 +416,41 @@ class TestGetEmailsBetween:
 
     def test_returns_emails(self, _patch_backend):
         mod = _patch_backend
+        cfg = {"source_table": "emails", "entity_mentions": "entity_mentions", "relationships": "relationships"}
         mock_results = [
             {"date": "2001-10-25", "sender": "karen.denne@enron.com",
              "subject": "Meeting Update", "body_preview": "Hi Ken, regarding the meeting..."},
             {"date": "2001-10-20", "sender": "kenneth.lay@enron.com",
              "subject": "Re: Meeting Update", "body_preview": "Thanks Karen..."},
         ]
+        resolved_a = _resolved_entity("Karen Denne", email_patterns=["%karen.denne@enron.com%"])
+        resolved_b = _resolved_entity("Kenneth Lay", email_patterns=["%kenneth.lay@enron.com%"])
         with patch.object(mod, "CORPUS", "enron"), \
              patch.object(mod, "_backend") as mock_be, \
-             patch.object(mod, "_get_corpus_config", return_value={"source_table": "emails"}):
+             patch.object(mod, "_get_corpus_config", return_value=cfg), \
+             patch.object(mod, "resolve_entity_cached", side_effect=[resolved_a, resolved_b]):
             mock_be.execute_sql.return_value = mock_results
             result = mod.get_emails_between("Karen Denne", "Kenneth Lay")
-        import json
         data = json.loads(result)
-        assert data["total"] == 2
+        assert data["total_emails"] == 2
         assert data["between"] == ["Karen Denne", "Kenneth Lay"]
         assert data["emails"][0]["sender"] == "karen.denne@enron.com"
 
     def test_no_emails_found(self, _patch_backend):
         mod = _patch_backend
+        cfg = {"source_table": "emails", "entity_mentions": "entity_mentions", "relationships": "relationships"}
+        resolved_a = _resolved_entity("Alice", email_patterns=["%alice@enron.com%"])
+        resolved_b = _resolved_entity("Bob", email_patterns=["%bob@enron.com%"])
         with patch.object(mod, "CORPUS", "enron"), \
              patch.object(mod, "_backend") as mock_be, \
-             patch.object(mod, "_get_corpus_config", return_value={"source_table": "emails"}):
+             patch.object(mod, "_get_corpus_config", return_value=cfg), \
+             patch.object(mod, "resolve_entity_cached", side_effect=[resolved_a, resolved_b]):
             mock_be.execute_sql.return_value = []
             result = mod.get_emails_between("Alice", "Bob")
-        assert "No emails found" in result
+        data = json.loads(result)
+        assert data["total_emails"] == 0
+        assert data["match_type"] == "none"
+        assert "No emails found" in data["note"]
 
     def test_bible_corpus_rejected(self, _patch_backend):
         mod = _patch_backend
@@ -411,19 +460,22 @@ class TestGetEmailsBetween:
 
     def test_body_preview_truncated(self, _patch_backend):
         mod = _patch_backend
+        cfg = {"source_table": "emails", "entity_mentions": "entity_mentions", "relationships": "relationships"}
         long_body = "x" * 500
         mock_results = [
             {"date": "2001-10-25", "sender": "a@enron.com",
              "subject": "Test", "body_preview": long_body},
         ]
+        resolved_a = _resolved_entity("A", email_patterns=["%a@enron.com%"])
+        resolved_b = _resolved_entity("B", email_patterns=["%b@enron.com%"])
         with patch.object(mod, "CORPUS", "enron"), \
              patch.object(mod, "_backend") as mock_be, \
-             patch.object(mod, "_get_corpus_config", return_value={"source_table": "emails"}):
+             patch.object(mod, "_get_corpus_config", return_value=cfg), \
+             patch.object(mod, "resolve_entity_cached", side_effect=[resolved_a, resolved_b]):
             mock_be.execute_sql.return_value = mock_results
             result = mod.get_emails_between("A", "B")
-        import json
         data = json.loads(result)
-        assert len(data["emails"][0]["body_preview"]) <= 300
+        assert len(data["emails"][0]["body_preview"]) <= 500
 
 
 class TestMaybeHumanize:

@@ -120,9 +120,15 @@ You have path data, direct emails between them, shared discussion topics, and re
 
 Guidelines:
 - Walk through each hop in any connection path using → notation, including intermediate entities.
-- Quantify their direct communication: exact email count, direction (A→B vs B→A), date range.
+- For path or hierarchy questions, lead with the path and direct_relationships from trace_path. Do NOT let email side evidence override a clear structural path.
+- Only discuss direct communication when the user explicitly asks about communication/email exchange OR when the retrieved evidence shows a real direct header-to-header exchange.
+- If the question is about a path, hierarchy, or reporting chain, omit the direct-communication section entirely when direct_communication=false.
 - Use 'sent' for one-directional communication and 'exchanged' ONLY when BOTH directions have non-zero email counts. If sent_a_to_b > 0 but sent_b_to_a == 0, say "A sent N emails to B" not "A and B exchanged N emails".
 - If the tool output includes direction_summary or sent_a_to_b/sent_b_to_a fields, use those exact counts.
+- If get_emails_between returns a non-zero email count BUT the directional fields show 0 sent in both directions, treat those rows as indirect mentions or thread co-occurrences, NOT direct communication.
+- When get_relationship_evidence returns 0 emails and get_dyad_topics says "No emails found between these people", do NOT claim a direct email exchange just because get_emails_between returned mention-heavy rows.
+- If the tool payload includes `direct_communication=false`, `communication_interpretation`, or a note explaining the rows are co-mentions/thread evidence, you MUST honor that and answer direct-communication questions with **NO**.
+- NEVER write hypothetical filler such as "assuming the direction_summary..." or "if the fields are available". Use only the retrieved tool results.
 - If asked "did they communicate directly", give a clear YES/NO first, then the evidence.
 - List ALL shared discussion topics with evidence.
 - Note the relationship types (REPORTS_TO, COLLABORATES_WITH, SENT_TO) with direction.
@@ -145,6 +151,10 @@ You have curated investigation timeline events, communication timeline data, ema
 Guidelines:
 - Present events in strict chronological order.
 - Lead with deterministic timeline rows and date-bounded communication counts before using semantic-search snippets.
+- If pair-scoped communication timeline rows are available, treat them as the primary source for sequencing repeated exchanges between two entities.
+- For dyad sequence questions, enumerate the dated messages or periods in order using exact dates/periods, sender/recipient direction, and subject lines when email evidence is available.
+- When multiple dated packet emails are available, enumerate those concrete emails as the timeline steps instead of collapsing an entire date range into one generic period summary.
+- If the retrieved evidence contains multiple dated employee-facing notices within the target week, include each distinct notice in the sequence. Do NOT replace concrete dated notices with a generic bankruptcy-filing placeholder.
 - For each event, cite the source: curated timeline (verified) or email evidence (derived).
 - Distinguish clearly between curated facts and email-derived observations.
 - If asking about communication patterns over time, include volume trends and compare before/after periods.
@@ -153,6 +163,7 @@ Guidelines:
 - When multiple executives are involved, present each person's role and actions.
 - Note any gaps in temporal coverage.
 - If limited data was returned, state clearly what evidence IS available and what is missing.
+- Do NOT say no email evidence was found if date-bounded email search or get_email_full_body returned relevant rows.
 - Do NOT fabricate dates, events, or participants not present in the data.
 - Do NOT fill gaps with general knowledge — only report what the data shows.
 - Present each fact ONCE in the most appropriate section. Do not restate across sections.
@@ -301,6 +312,13 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
         name="entity_pair",
         synthesis_prompt=ENTITY_PAIR_SYNTHESIS + EVIDENCE_CITATION_RULE,
         steps=[
+            ExecutionStep("trace_path", {
+                "entity_a": "$ENTITY",
+                "entity_b": "$ENTITY_B",
+            }),
+            ExecutionStep("find_connections", {
+                "entity_name": "$ENTITY",
+            }),
             ExecutionStep("get_emails_between", {
                 "entity_a": "$ENTITY",
                 "entity_b": "$ENTITY_B",
@@ -312,13 +330,6 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
             ExecutionStep("get_dyad_topics", {
                 "entity_a": "$ENTITY",
                 "entity_b": "$ENTITY_B",
-            }),
-            ExecutionStep("trace_path", {
-                "entity_a": "$ENTITY",
-                "entity_b": "$ENTITY_B",
-            }),
-            ExecutionStep("find_connections", {
-                "entity_name": "$ENTITY",
             }),
             ExecutionStep("find_top_contacts", {
                 "entity_name": "$ENTITY",
@@ -345,6 +356,7 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
             }),
             ExecutionStep("get_communication_timeline", {
                 "entity_name": "$ENTITY",
+                "entity_b": "$ENTITY_B",
                 "date_from": "$DATE_FROM",
                 "date_to": "$DATE_TO",
             }),
@@ -354,6 +366,8 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
             }),
             ExecutionStep("search_emails", {
                 "keywords": "$KEYWORDS",
+                "date_from": "$DATE_FROM",
+                "date_to": "$DATE_TO",
             }),
             ExecutionStep("get_source_evidence", {
                 "entity_name": "$ENTITY",

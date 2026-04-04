@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import contextlib
 import hashlib
 import json
@@ -65,7 +66,16 @@ ENRON_TABLE_NAMES = [
     "data_quality_report",
     "threads",
     "org_hierarchy",
+    "org_hierarchy_evidence",
 ]
+
+ENRON_REQUIRED_LAKEBASE_TABLES = (
+    "enron.entities",
+    "enron.relationships",
+    "enron.emails",
+    "enron.org_hierarchy",
+    "enron.org_hierarchy_evidence",
+)
 
 ENRON_PIP_REQUIREMENTS = [
     "mlflow>=3.0",
@@ -74,6 +84,7 @@ ENRON_PIP_REQUIREMENTS = [
     "databricks-agents",
     "databricks-mcp",
     "databricks-sdk",
+    "psycopg[binary,pool]>=3.0",
 ]
 
 ENRON_INPUT_EXAMPLE = {
@@ -86,6 +97,63 @@ ENRON_INPUT_EXAMPLE = {
 }
 
 DEFAULT_PROMOTION_MANIFEST = "enron_promotion_manifest.json"
+
+
+def _explicit_lakebase_username() -> str:
+    return (
+        os.environ.get("GRAPHRAG_LAKEBASE_USERNAME")
+        or os.environ.get("LAKEBASE_USERNAME")
+        or os.environ.get("LAKEBASE_USER")
+        or ""
+    ).strip()
+
+
+def _default_serving_lakebase_username() -> str:
+    override = _explicit_lakebase_username()
+    if override:
+        return override
+
+    try:
+        from databricks.sdk import WorkspaceClient
+
+        username = str(WorkspaceClient().current_user.me().user_name or "").strip()
+    except Exception:
+        return ""
+    return username
+
+
+def resolve_lakebase_username(
+    token: str,
+    *,
+    workspace_user_name: str | None = None,
+) -> str:
+    """Resolve the Postgres username for a generated Lakebase credential.
+
+    Databricks-hosted runtimes can surface `current_user.me().user_name` as an
+    internal principal id. The generated database credential is authoritative,
+    so prefer explicit overrides or the JWT subject claim when available.
+    """
+    override = _explicit_lakebase_username()
+    if override:
+        return override
+
+    payload: dict[str, Any] = {}
+    try:
+        parts = str(token or "").split(".")
+        if len(parts) >= 2:
+            padded = parts[1] + "=" * (-len(parts[1]) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(padded.encode()).decode())
+    except Exception:
+        payload = {}
+
+    for key in ("sub", "preferred_username", "email", "upn"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    if workspace_user_name:
+        return workspace_user_name.strip()
+    return ""
 
 
 def _utc_now() -> str:
@@ -121,8 +189,7 @@ def get_default_lakebase_endpoint(project_id: str = DEFAULT_LAKEBASE_PROJECT) ->
 def build_enron_code_paths(repo_root: str | Path) -> list[str]:
     root = Path(repo_root).resolve()
     return [
-        str((root / "src" / "agent" / "pattern_registry.py").resolve()),
-        str((root / "src" / "evaluation" / "question_bank.py").resolve()),
+        str((root / "src").resolve()),
     ]
 
 
@@ -133,11 +200,12 @@ def build_enron_serving_environment(
     small_llm_endpoint: str = DEFAULT_SMALL_LLM_ENDPOINT,
     synthesis_endpoint: str = DEFAULT_SYNTHESIS_ENDPOINT,
     react_endpoint: str = DEFAULT_REACT_ENDPOINT,
-    backend: str = "lakebase",
+    backend: str = "databricks",
     llm_provider: str = "databricks",
     lakebase_endpoint: str | None = None,
     lakebase_host: str | None = None,
     lakebase_dbname: str | None = None,
+    model_logging_tool_limit: int | None = 32,
     extra_env: dict[str, str] | None = None,
 ) -> dict[str, str]:
     graph_transport = "local" if backend == "local" else "mcp"
@@ -162,6 +230,8 @@ def build_enron_serving_environment(
         "GRAPHRAG_ANALYTICS_TRANSPORT": analytics_transport,
         "GRAPHRAG_ANALYTICS_BACKEND": "databricks_sql",
     }
+    if model_logging_tool_limit is not None:
+        env["GRAPHRAG_MODEL_LOGGING_TOOL_LIMIT"] = str(model_logging_tool_limit)
     env.update(GENIE_SPACE_IDS)
 
     resolved_lakebase_endpoint = lakebase_endpoint or os.environ.get("LAKEBASE_ENDPOINT")
@@ -178,6 +248,14 @@ def build_enron_serving_environment(
     if resolved_lakebase_dbname:
         env["LAKEBASE_DBNAME"] = resolved_lakebase_dbname
 
+    resolved_lakebase_username = ""
+    if backend == "lakebase":
+        # Serving runtimes can decode Lakebase credential subjects as UUID principals.
+        # Carry a known username into the environment so connections stay stable.
+        resolved_lakebase_username = _default_serving_lakebase_username()
+    if resolved_lakebase_username:
+        env["GRAPHRAG_LAKEBASE_USERNAME"] = resolved_lakebase_username
+
     if extra_env:
         env.update({k: str(v) for k, v in extra_env.items() if v is not None})
     return env
@@ -191,7 +269,7 @@ def enron_model_logging_env(
     small_llm_endpoint: str = DEFAULT_SMALL_LLM_ENDPOINT,
     synthesis_endpoint: str = DEFAULT_SYNTHESIS_ENDPOINT,
     react_endpoint: str = DEFAULT_REACT_ENDPOINT,
-    backend: str = "lakebase",
+    backend: str = "databricks",
     llm_provider: str = "databricks",
     lakebase_endpoint: str | None = None,
     lakebase_host: str | None = None,
@@ -272,6 +350,7 @@ def assert_enron_lakebase_ready(
     endpoint_name: str | None = None,
     dbname: str | None = None,
     check_connectivity: bool = True,
+    required_tables: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     from databricks.sdk import WorkspaceClient
 
@@ -291,19 +370,27 @@ def assert_enron_lakebase_ready(
         "host": host,
         "dbname": resolved_dbname,
         "connected": False,
+        "required_tables": list(required_tables or ENRON_REQUIRED_LAKEBASE_TABLES),
+        "table_status": [],
     }
     if not check_connectivity:
         return summary
 
     try:
         import psycopg
+        from psycopg import sql
     except ImportError as exc:  # pragma: no cover - environment dependent
         raise RuntimeError(
             "psycopg is required for Lakebase connectivity validation."
         ) from exc
 
     cred = w.postgres.generate_database_credential(endpoint=resolved_endpoint)
-    username = w.current_user.me().user_name
+    username = resolve_lakebase_username(
+        cred.token,
+        workspace_user_name=w.current_user.me().user_name,
+    )
+    if not username:
+        raise RuntimeError("Lakebase credential did not yield a usable username.")
     with psycopg.connect(
         host=host,
         dbname=resolved_dbname,
@@ -315,6 +402,49 @@ def assert_enron_lakebase_ready(
         with conn.cursor() as cur:
             cur.execute("SELECT 1")
             cur.fetchone()
+            required = tuple(required_tables or ENRON_REQUIRED_LAKEBASE_TABLES)
+            table_status: list[dict[str, Any]] = []
+            for full_name in required:
+                if "." in full_name:
+                    schema_name, table_name = full_name.split(".", 1)
+                else:
+                    schema_name, table_name = "public", full_name
+                cur.execute(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM information_schema.tables
+                        WHERE table_schema = %s AND table_name = %s
+                    )
+                    """,
+                    (schema_name, table_name),
+                )
+                exists = bool(cur.fetchone()[0])
+                entry = {"table": full_name, "exists": exists, "readable": False}
+                if exists:
+                    cur.execute(
+                        sql.SQL("SELECT 1 FROM {}.{} LIMIT 1").format(
+                            sql.Identifier(schema_name),
+                            sql.Identifier(table_name),
+                        )
+                    )
+                    cur.fetchone()
+                    entry["readable"] = True
+                table_status.append(entry)
+            summary["table_status"] = table_status
+
+    missing = [row["table"] for row in summary["table_status"] if not row["exists"]]
+    unreadable = [row["table"] for row in summary["table_status"] if row["exists"] and not row["readable"]]
+    if missing:
+        raise RuntimeError(
+            "Lakebase is reachable but missing required Enron tables: "
+            + ", ".join(missing)
+        )
+    if unreadable:
+        raise RuntimeError(
+            "Lakebase is reachable but required Enron tables are unreadable: "
+            + ", ".join(unreadable)
+        )
     summary["connected"] = True
     return summary
 
@@ -350,6 +480,18 @@ def capture_git_snapshot(
     root = Path(repo_root).resolve()
     tracked_paths = tracked_paths or []
 
+    def _hash_path(path: Path) -> str:
+        if path.is_file():
+            return hashlib.sha256(path.read_bytes()).hexdigest()
+
+        digest = hashlib.sha256()
+        for child in sorted(p for p in path.rglob("*") if p.is_file()):
+            digest.update(str(child.relative_to(path)).encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(child.read_bytes())
+            digest.update(b"\0")
+        return digest.hexdigest()
+
     def _git(*args: str) -> str:
         result = subprocess.run(
             ["git", *args],
@@ -381,7 +523,7 @@ def capture_git_snapshot(
             relative = str(path.relative_to(root))
         except ValueError:
             relative = str(path)
-        file_hashes[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+        file_hashes[relative] = _hash_path(path)
 
     return {
         "git_commit": commit,
@@ -438,7 +580,7 @@ def build_promotion_manifest(
     small_llm_endpoint: str = DEFAULT_SMALL_LLM_ENDPOINT,
     synthesis_endpoint: str = DEFAULT_SYNTHESIS_ENDPOINT,
     react_endpoint: str = DEFAULT_REACT_ENDPOINT,
-    serving_backend: str = "lakebase",
+    serving_backend: str = "databricks",
     lakebase_endpoint: str | None = None,
     warehouse_id: str = DEFAULT_WAREHOUSE_ID,
 ) -> dict[str, Any]:

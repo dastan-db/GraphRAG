@@ -2751,13 +2751,15 @@ QUESTION_BANK = [{'question_id': 'bible-core-e4b211422d',
   'difficulty': 'medium',
   'eval_split': 'holdout',
   'legacy_category': 'communication',
-  'expected_entities': ['Kenneth Lay'],
+  'expected_entities': ['Kenneth Lay', 'Leonardo Pacheco'],
   'expected_facts': [],
   'graph_ground_truth': 'The communication_dyads table and find_top_contacts tool should return '
-                        "Lay's highest-volume correspondents from email headers. These likely "
-                        'include Rosalee Fleming (assistant) and senior executives.',
-  'historical_ground_truth': "Lay's most frequent correspondents included his executive assistant "
-                             'Rosalee Fleming, Jeff Skilling, and various board members.',
+                        "Leonardo Pacheco as Kenneth Lay's highest-volume correspondent in the "
+                        'current local export, with Karen Denne and Brown Mary Jo trailing well '
+                        'behind.',
+  'historical_ground_truth': "In the current local export, Lay's heaviest direct correspondence "
+                             'comes from Leonardo Pacheco sending EnronOnline executive summaries '
+                             'rather than from assistant-driven traffic.',
   'forbidden_facts': [],
   'forbidden_inferences': [],
   'evidence_required': True,
@@ -2777,13 +2779,15 @@ QUESTION_BANK = [{'question_id': 'bible-core-e4b211422d',
   'difficulty': 'hard',
   'eval_split': 'holdout',
   'legacy_category': 'genie_routing',
-  'expected_entities': ['Kenneth Lay', 'Rosalee Fleming'],
+  'expected_entities': ['Kenneth Lay', 'Leonardo Pacheco'],
   'expected_facts': [],
-  'graph_ground_truth': "communication_dyads shows Rosalee Fleming as Lay's top contact by email "
-                        'volume. find_top_contacts returns a ranked list. A Genie SQL query on '
-                        'communication_dyads should produce a clean ranked table.',
-  'historical_ground_truth': "Lay's most frequent correspondents included his executive assistant "
-                             'Rosalee Fleming and senior executives.',
+  'graph_ground_truth': "communication_dyads shows Leonardo Pacheco as Lay's top contact by email "
+                        'volume in the current local export, with 28 one-way messages to Lay. '
+                        'find_top_contacts returns the ranked table, with Karen Denne and Brown '
+                        'Mary Jo trailing well behind.',
+  'historical_ground_truth': "In the current local export, Lay's most frequent direct "
+                             'correspondence is Pacheco\'s EnronOnline reporting stream rather '
+                             'than assistant-driven traffic.',
   'forbidden_facts': [],
   'forbidden_inferences': [],
   'evidence_required': False,

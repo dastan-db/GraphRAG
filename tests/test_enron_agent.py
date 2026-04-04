@@ -92,6 +92,7 @@ def _mock_heavy_imports():
 
     def _mock_tool(f, **kwargs):
         f.name = kwargs.get("name", f.__name__)
+        f.invoke = lambda params=None, _f=f: _f(**(params or {}))
         return f
 
     lc_tools.tool = _mock_tool
@@ -141,6 +142,7 @@ def enron_backend(mod):
         def execute_sql(self, query, params=None):
             query = query.replace(self._FQN_ENRON, "")
             query = query.replace(self._FQN_BIBLE, "")
+            query = mod.LocalBackend._translate_sql(query)
             query = re.sub(r":(\w+)", r"$\1", query)
             result = self._conn.execute(query, params or {})
             columns = [desc[0] for desc in result.description]
@@ -721,6 +723,26 @@ class TestLakebaseSqlTranslation:
         assert "AS STRING" not in translated.upper()
         assert "VARCHAR(4000)" not in translated.upper()
 
+    def test_build_conninfo_includes_application_name(self, mod):
+        workspace = MagicMock()
+        workspace.postgres.get_endpoint.return_value.status.hosts.host = "lakebase.internal"
+        workspace.postgres.generate_database_credential.return_value.token = "token-123"
+        workspace.current_user.me.return_value.user_name = "user@example.com"
+
+        with patch.dict(
+            os.environ,
+            {
+                "GRAPHRAG_LAKEBASE_APPLICATION_NAME": "GraphRAG Enron Agent/Serving",
+            },
+            clear=False,
+        ), patch("databricks.sdk.WorkspaceClient", return_value=workspace):
+            backend = mod.LakebaseBackend()
+            conninfo = backend._build_conninfo()
+
+        assert "application_name=GraphRAG-Enron-Agent-Serving" in conninfo
+        assert "host=lakebase.internal" in conninfo
+        assert "user=user@example.com" in conninfo
+
 
 # ===================================================================
 # Investigative Trust Tools — Unit Tests (MockBackend)
@@ -750,7 +772,6 @@ class TestGetExtractionProvenance:
         assert parsed["extraction_steps"][0]["step"] == "entity_extraction"
 
     def test_entity_resolution_audit(self, mod, mock_backend):
-        alias_rows = [{"canonical_id": "jeff_skilling"}]
         audit_rows = [
             {
                 "alias_id": "jeff_skilling_ect",
@@ -771,8 +792,9 @@ class TestGetExtractionProvenance:
                 "confidence": 1.0,
             },
         ]
-        backend, ctx = mock_backend([alias_rows, audit_rows, identity_rows])
-        with ctx:
+        backend, ctx = mock_backend([audit_rows, identity_rows])
+        resolved = _make_resolved(mod, "Jeff Skilling", entity_id_patterns=["%jeff_skilling%"])
+        with ctx, patch.object(mod, "resolve_entity_cached", return_value=resolved):
             result = mod.get_extraction_provenance(entity_name="Jeff Skilling")
         parsed = json.loads(result)
         assert "resolution_audit" in parsed
@@ -1306,3 +1328,57 @@ class TestProvenanceFormat:
         """ENRON_SYSTEM_PROMPT must include per-claim confidence."""
         prompt = mod.ENRON_SYSTEM_PROMPT
         assert "Confidence per claim" in prompt
+
+
+class TestRuntimeToolTelemetry:
+    def test_tool_entries_round_trip_into_runtime_tool_calls(self, mod):
+        from src.runtime.responses import parse_agent_response
+
+        class _FakeEvent:
+            def __init__(self, *, type, item):
+                self.type = type
+                self.item = item
+
+        class _FakeResponse:
+            def __init__(self, *, output):
+                self.output = output
+
+        with (
+            patch.object(mod, "ResponsesAgentStreamEvent", _FakeEvent),
+            patch.object(
+                mod,
+                "create_function_call_item",
+                side_effect=lambda **kwargs: {"type": "function_call", **kwargs},
+            ),
+            patch.object(
+                mod,
+                "create_function_call_output_item",
+                side_effect=lambda **kwargs: {"type": "function_call_output", **kwargs},
+            ),
+        ):
+            events = list(
+                mod._tool_entries_to_stream_events(
+                    [
+                        (
+                            'find_top_contacts({"entity_name": "Kenneth Lay", "direction": "both", "limit": 20})',
+                            '{"top_contacts":[{"email":"leonardo.pacheco@enron.com","total":28}]}',
+                        ),
+                        (
+                            'get_communication_timeline({"entity_name": "Pacheco", "entity_b": "Lay", "date_from": "2000-06-19", "date_to": "2000-06-19"})',
+                            '{"time_series":[{"period":"2000-06-19","sent_a_to_b":2,"to_a_to_b":2}]}',
+                        ),
+                    ],
+                    prefix="pdes",
+                )
+            )
+
+        response = _FakeResponse(output=[event.item for event in events])
+        parsed = parse_agent_response(response)
+
+        assert [tc.name for tc in parsed.tool_calls] == [
+            "find_top_contacts",
+            "get_communication_timeline",
+        ]
+        assert parsed.tool_calls[0].arguments["entity_name"] == "Kenneth Lay"
+        assert parsed.tool_calls[1].arguments["date_from"] == "2000-06-19"
+        assert "top_contacts" in parsed.tool_calls[0].output

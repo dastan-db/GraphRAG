@@ -7,6 +7,8 @@ Parallel Subagent Orchestration" spec:
 - MLflow-backed quality evaluation with concurrent question execution
 - latency evaluation over the same benchmark slice
 - measure-phase orchestration that manages ``data/loop_state.json``
+- implement-stage orchestration via a shared ``data/implementation_log.json``
+- loop orchestration with archive, gating, and final report emission
 
 The implementation deliberately isolates answer generation in subprocesses.
 `src/agent/agent_serving.py` clears module-global caches/backend counters at the
@@ -22,8 +24,11 @@ Usage:
     python -m src.agent.factual_parallel_orchestrator assess-iteration
     python -m src.agent.factual_parallel_orchestrator orchestrate-measure
     python -m src.agent.factual_parallel_orchestrator orchestrate-analyze
+    python -m src.agent.factual_parallel_orchestrator orchestrate-implement
     python -m src.agent.factual_parallel_orchestrator orchestrate-assess
     python -m src.agent.factual_parallel_orchestrator orchestrate-iteration
+    python -m src.agent.factual_parallel_orchestrator emit-final-report
+    python -m src.agent.factual_parallel_orchestrator orchestrate-loop
 """
 
 from __future__ import annotations
@@ -34,7 +39,9 @@ import json
 import math
 import os
 import re
+import shlex
 import shutil
+import subprocess
 import time
 from collections import Counter, defaultdict
 from concurrent.futures import (
@@ -71,11 +78,16 @@ from src.evaluation.question_bank import export_governed_flat_questions
 DEFAULT_ARTIFACT_DIR = Path("data")
 DEFAULT_BENCHMARK_PATH = DEFAULT_ARTIFACT_DIR / "factual_benchmark_definition.json"
 DEFAULT_LOOP_STATE_PATH = DEFAULT_ARTIFACT_DIR / "loop_state.json"
+DEFAULT_FINAL_REPORT_PATH = DEFAULT_ARTIFACT_DIR / "final_report.json"
 DEFAULT_PROMOTION_MANIFEST_PATH = DEFAULT_ARTIFACT_DIR / "enron_promotion_manifest.json"
 DEFAULT_MAX_CONCURRENT_QUESTIONS = 8
 DEFAULT_MAX_CONCURRENT_JUDGE_CALLS = 4
 DEFAULT_REPRO_RUNS = 3
 DEFAULT_LATENCY_SLA_MS = 15000
+DEFAULT_MAX_ITERATIONS = 10
+DEFAULT_PLATEAU_THRESHOLD = 0.02
+DEFAULT_PLATEAU_WINDOW = 2
+DEFAULT_SUBAGENT_TIMEOUT_SECONDS = 600
 JUDGE_ENDPOINT = os.environ.get(
     "GRAPHRAG_JUDGE_ENDPOINT",
     "databricks-claude-sonnet-4-6",
@@ -533,6 +545,18 @@ KNOWN_ARTIFACTS = [
     "enron_promotion_manifest.json",
 ]
 
+ARTIFACT_REQUIRED_KEYS = {
+    "benchmark_definition": {"questions", "composition_summary"},
+    "quality": {"overall_metrics", "questions"},
+    "latency": {"runtime", "questions"},
+    "failure_taxonomy": {"quality_failures", "latency_failures", "ranked_by_impact"},
+    "root_cause_report": {"investigated_failure_classes"},
+    "improvement_plan": {"changes", "plan_empty"},
+    "implementation_log": {"changes_implemented", "changes_skipped"},
+    "assessment": {"verdict", "success_criteria_met", "success_criteria_unmet"},
+    "final_report": {"termination_reason", "iterations_completed", "history"},
+}
+
 _PROVENANCE_SECTIONS = {
     "provenance": r"(?:^|\n)#{1,3}\s*provenance",
     "path": r"(?:^|\n)\s*[-*]?\s*\**path\**\s*:",
@@ -608,6 +632,111 @@ def _write_json(path: str | Path, payload: dict[str, Any]) -> None:
 
 def _read_json(path: str | Path) -> dict[str, Any]:
     return json.loads(Path(path).read_text())
+
+
+def _require_artifact(
+    path: str | Path,
+    required_keys: set[str],
+    label: str,
+) -> dict[str, Any]:
+    artifact_path = Path(path)
+    if not artifact_path.exists():
+        raise FileNotFoundError(f"Missing required {label} artifact: {artifact_path}")
+    payload = _read_json(artifact_path)
+    missing = sorted(key for key in required_keys if key not in payload)
+    if missing:
+        missing_str = ", ".join(missing)
+        raise ValueError(
+            f"Invalid {label} artifact at {artifact_path}; missing keys: {missing_str}"
+        )
+    return payload
+
+
+def _wait_for_artifact(
+    path: str | Path,
+    required_keys: set[str],
+    label: str,
+    *,
+    timeout_seconds: int,
+    poll_seconds: float = 1.0,
+) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout_seconds
+    last_error: Exception | None = None
+    while time.monotonic() <= deadline:
+        try:
+            return _require_artifact(path, required_keys, label)
+        except (FileNotFoundError, ValueError, json.JSONDecodeError) as exc:
+            last_error = exc
+            time.sleep(poll_seconds)
+    raise TimeoutError(
+        f"Timed out waiting for {label} artifact at {Path(path)}"
+    ) from last_error
+
+
+def _copy_measurement_artifacts(
+    artifact_root: Path,
+    *,
+    source_label: str,
+    target_label: str,
+) -> dict[str, str]:
+    copied: dict[str, str] = {}
+    for suffix in ("quality", "latency"):
+        source = artifact_root / f"factual_{source_label}_{suffix}.json"
+        target = artifact_root / f"factual_{target_label}_{suffix}.json"
+        if not source.exists():
+            continue
+        shutil.copy2(source, target)
+        copied[suffix] = str(target)
+    return copied
+
+
+def _run_external_command(
+    command_template: str,
+    *,
+    iteration: int,
+    artifact_dir: str | Path,
+    improvement_plan: str | Path,
+    implementation_log: str | Path,
+    loop_state: str | Path,
+    timeout_seconds: int,
+) -> subprocess.CompletedProcess[str]:
+    context = {
+        "iteration": iteration,
+        "artifact_dir": str(Path(artifact_dir)),
+        "improvement_plan": str(Path(improvement_plan)),
+        "implementation_log": str(Path(implementation_log)),
+        "loop_state": str(Path(loop_state)),
+    }
+    try:
+        formatted_command = command_template.format(**context)
+    except KeyError as exc:
+        raise ValueError(
+            f"Unknown implementer command placeholder: {exc}"
+        ) from exc
+
+    completed = subprocess.run(
+        shlex.split(formatted_command),
+        text=True,
+        capture_output=True,
+        timeout=timeout_seconds,
+        check=False,
+        env={
+            **os.environ,
+            "GRAPHRAG_FACTUAL_ITERATION": str(iteration),
+            "GRAPHRAG_FACTUAL_ARTIFACT_DIR": str(Path(artifact_dir)),
+            "GRAPHRAG_FACTUAL_IMPROVEMENT_PLAN": str(Path(improvement_plan)),
+            "GRAPHRAG_FACTUAL_IMPLEMENTATION_LOG": str(Path(implementation_log)),
+            "GRAPHRAG_FACTUAL_LOOP_STATE": str(Path(loop_state)),
+        },
+    )
+    if completed.returncode != 0:
+        stdout = _trim_text(completed.stdout or "", 500)
+        stderr = _trim_text(completed.stderr or "", 500)
+        raise RuntimeError(
+            "External implementer command failed "
+            f"(exit={completed.returncode}). stdout={stdout!r} stderr={stderr!r}"
+        )
+    return completed
 
 
 def _emit_progress(event: str, **payload: Any) -> None:
@@ -2127,6 +2256,7 @@ def analyze_failures(
     latency_path: str | Path = DEFAULT_ARTIFACT_DIR / "factual_baseline_latency.json",
     output_path: str | Path = DEFAULT_ARTIFACT_DIR / "failure_taxonomy.json",
     *,
+    iteration: int | None = None,
     prior_assessment_path: str | Path | None = None,
 ) -> dict[str, Any]:
     quality_artifact = _read_json(quality_path)
@@ -2216,11 +2346,15 @@ def analyze_failures(
     payload = {
         "version": "1.0",
         "created_at": _utc_now(),
-        "iteration": 0,
+        "iteration": int(iteration or 0),
         "inputs": {
             "quality_artifact": str(quality_path),
             "latency_artifact": str(latency_path),
             "prior_assessment": str(prior_assessment_path) if prior_assessment_path else None,
+        },
+        "prior_focus": {
+            "top_blockers": (prior_assessment or {}).get("top_blockers", []),
+            "next_fixes": (prior_assessment or {}).get("next_fixes", []),
         },
         "total_failing_questions": len(quality_failing_qids | latency_failing_qids),
         "quality_failing_questions": len(quality_failing_qids),
@@ -2540,9 +2674,9 @@ def _detect_plateau(loop_state: dict[str, Any], primary_metric_delta: float | No
         except (TypeError, ValueError):
             continue
     deltas.append(abs(primary_metric_delta))
-    if len(deltas) < 2:
+    if len(deltas) < DEFAULT_PLATEAU_WINDOW:
         return False
-    return all(delta < 0.02 for delta in deltas[-2:])
+    return all(delta < DEFAULT_PLATEAU_THRESHOLD for delta in deltas[-DEFAULT_PLATEAU_WINDOW :])
 
 
 def assess_iteration(
@@ -2553,6 +2687,9 @@ def assess_iteration(
     failure_taxonomy_path: str | Path = DEFAULT_ARTIFACT_DIR / "failure_taxonomy.json",
     loop_state_path: str | Path = DEFAULT_LOOP_STATE_PATH,
     output_path: str | Path = DEFAULT_ARTIFACT_DIR / "assessment.json",
+    *,
+    plateau_threshold: float = DEFAULT_PLATEAU_THRESHOLD,
+    plateau_window: int = DEFAULT_PLATEAU_WINDOW,
 ) -> dict[str, Any]:
     baseline_quality = _read_json(baseline_quality_path)
     postchange_quality = _read_json(postchange_quality_path)
@@ -2677,7 +2814,24 @@ def assess_iteration(
         if meta.get("default_fix"):
             next_fixes.append(meta["default_fix"])
 
-    plateau_detected = _detect_plateau(loop_state, primary_metric_delta)
+    if primary_metric_delta is None:
+        plateau_detected = False
+    else:
+        deltas: list[float] = []
+        for entry in loop_state.get("history", []):
+            assessment = entry.get("assessment", {})
+            delta = assessment.get("primary_metric_delta")
+            if delta is None:
+                continue
+            try:
+                deltas.append(abs(float(delta)))
+            except (TypeError, ValueError):
+                continue
+        deltas.append(abs(primary_metric_delta))
+        plateau_detected = (
+            len(deltas) >= plateau_window
+            and all(delta < plateau_threshold for delta in deltas[-plateau_window:])
+        )
     verdict = "READY" if not success_criteria_unmet else "NOT_READY"
     if plateau_detected and verdict != "READY":
         recommendation = "Plateau detected — stop unless a new traced high-confidence fix emerges."
@@ -2700,6 +2854,8 @@ def assess_iteration(
         "top_blockers": top_blockers[:5],
         "next_fixes": next_fixes[:3],
         "plateau_detected": plateau_detected,
+        "plateau_threshold": plateau_threshold,
+        "plateau_window": plateau_window,
         "recommendation": recommendation,
         "inputs": {
             "baseline_quality": str(baseline_quality_path),
@@ -2754,6 +2910,52 @@ def _load_or_init_loop_state(path: str | Path) -> dict[str, Any]:
     }
 
 
+def _ensure_history_entry(
+    loop_state: dict[str, Any],
+    *,
+    iteration: int,
+    phase: str,
+    label: str | None = None,
+) -> dict[str, Any]:
+    history = loop_state.setdefault("history", [])
+    for entry in history:
+        if entry.get("iteration") != iteration:
+            continue
+        entry["phase"] = phase
+        entry.setdefault("artifacts", {})
+        entry.setdefault("started_at", _utc_now())
+        labels = entry.setdefault("labels", [])
+        if entry.get("label") and not labels:
+            labels.append(entry["label"])
+        if label:
+            entry.setdefault("label", label)
+            if label not in labels:
+                labels.append(label)
+        return entry
+
+    entry = {
+        "iteration": iteration,
+        "label": label,
+        "labels": [label] if label else [],
+        "phase": phase,
+        "started_at": _utc_now(),
+        "artifacts": {},
+    }
+    history.append(entry)
+    return entry
+
+
+def _archive_iteration_if_present(
+    iteration: int,
+    *,
+    artifact_dir: str | Path,
+) -> dict[str, Any] | None:
+    artifact_root = Path(artifact_dir)
+    if not any((artifact_root / filename).exists() for filename in KNOWN_ARTIFACTS):
+        return None
+    return archive_iteration_artifacts(iteration, artifact_dir=artifact_root)
+
+
 def orchestrate_measure(
     *,
     artifact_dir: str | Path = DEFAULT_ARTIFACT_DIR,
@@ -2765,6 +2967,7 @@ def orchestrate_measure(
     max_concurrent_judge_calls: int = DEFAULT_MAX_CONCURRENT_JUDGE_CALLS,
     latency_mode: str = "isolated",
     latency_sla_ms: int = DEFAULT_LATENCY_SLA_MS,
+    subagent_timeout_seconds: int = DEFAULT_SUBAGENT_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     artifact_root = Path(artifact_dir)
     artifact_root.mkdir(parents=True, exist_ok=True)
@@ -2776,48 +2979,74 @@ def orchestrate_measure(
 
     if not benchmark_path.exists():
         build_benchmark_definition(benchmark_path, limit=limit)
+    _require_artifact(
+        benchmark_path,
+        ARTIFACT_REQUIRED_KEYS["benchmark_definition"],
+        "benchmark definition",
+    )
 
     loop_state = _load_or_init_loop_state(loop_state_path)
     loop_state["iteration"] = iteration
     loop_state["phase"] = "MEASURE"
     loop_state["updated_at"] = _utc_now()
-    loop_state.setdefault("history", []).append(
-        {
-            "iteration": iteration,
-            "label": label,
-            "phase": "MEASURE",
-            "started_at": _utc_now(),
-            "artifacts": {
-                "benchmark_definition": str(benchmark_path),
-            },
-        }
+    entry = _ensure_history_entry(
+        loop_state,
+        iteration=iteration,
+        label=label,
+        phase="MEASURE",
     )
+    entry["artifacts"]["benchmark_definition"] = str(benchmark_path)
     _write_json(loop_state_path, loop_state)
 
-    quality_payload = run_quality_evaluation(
-        benchmark_path,
-        quality_path,
-        max_concurrent_questions=max_concurrent_questions,
-        max_concurrent_judge_calls=max_concurrent_judge_calls,
-        limit=limit,
-    )
-    latency_payload = run_latency_evaluation(
-        benchmark_path,
-        latency_path,
-        mode=latency_mode,
-        max_concurrent_questions=max_concurrent_questions,
-        limit=limit,
-        sla_ms=latency_sla_ms,
-        precomputed_rows=quality_payload.get("questions", []),
-    )
+    def _run_quality() -> dict[str, Any]:
+        return run_quality_evaluation(
+            benchmark_path,
+            quality_path,
+            max_concurrent_questions=max_concurrent_questions,
+            max_concurrent_judge_calls=max_concurrent_judge_calls,
+            limit=limit,
+        )
 
+    def _run_latency() -> dict[str, Any]:
+        return run_latency_evaluation(
+            benchmark_path,
+            latency_path,
+            mode=latency_mode,
+            max_concurrent_questions=max_concurrent_questions,
+            limit=limit,
+            sla_ms=latency_sla_ms,
+            precomputed_rows=None,
+        )
+
+    if parallel_subagents:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            quality_future = pool.submit(_run_quality)
+            latency_future = pool.submit(_run_latency)
+            quality_payload = quality_future.result(timeout=subagent_timeout_seconds)
+            latency_payload = latency_future.result(timeout=subagent_timeout_seconds)
+    else:
+        quality_payload = _run_quality()
+        latency_payload = _run_latency()
+
+    _require_artifact(quality_path, ARTIFACT_REQUIRED_KEYS["quality"], f"{label} quality")
+    _require_artifact(latency_path, ARTIFACT_REQUIRED_KEYS["latency"], f"{label} latency")
+
+    loop_state = _load_or_init_loop_state(loop_state_path)
     loop_state["phase"] = "MEASURE_COMPLETE"
     loop_state["updated_at"] = _utc_now()
-    loop_state["history"][-1]["completed_at"] = _utc_now()
-    loop_state["history"][-1]["artifacts"].update(
+    entry = _ensure_history_entry(
+        loop_state,
+        iteration=iteration,
+        label=label,
+        phase="MEASURE_COMPLETE",
+    )
+    entry["completed_at"] = _utc_now()
+    entry["artifacts"].update(
         {
             "quality": str(quality_path),
             "latency": str(latency_path),
+            f"{label}_quality": str(quality_path),
+            f"{label}_latency": str(latency_path),
         }
     )
     _write_json(loop_state_path, loop_state)
@@ -2851,22 +3080,19 @@ def orchestrate_analyze(
     loop_state["iteration"] = iteration
     loop_state["phase"] = "DIAGNOSE"
     loop_state["updated_at"] = _utc_now()
-    if not loop_state.get("history") or loop_state["history"][-1].get("iteration") != iteration:
-        loop_state.setdefault("history", []).append(
-            {
-                "iteration": iteration,
-                "label": quality_label,
-                "phase": "DIAGNOSE",
-                "started_at": _utc_now(),
-                "artifacts": {},
-            }
-        )
+    _ensure_history_entry(
+        loop_state,
+        iteration=iteration,
+        label=quality_label,
+        phase="DIAGNOSE",
+    )
     _write_json(loop_state_path, loop_state)
 
     failure_payload = analyze_failures(
         quality_path,
         latency_path,
         failure_path,
+        iteration=iteration,
         prior_assessment_path=prior_assessment_path,
     )
     loop_state["phase"] = "ROOT_CAUSE"
@@ -2889,16 +3115,38 @@ def orchestrate_analyze(
         loop_state_path,
         plan_path,
     )
+    _require_artifact(
+        failure_path,
+        ARTIFACT_REQUIRED_KEYS["failure_taxonomy"],
+        "failure taxonomy",
+    )
+    _require_artifact(
+        root_cause_path,
+        ARTIFACT_REQUIRED_KEYS["root_cause_report"],
+        "root cause report",
+    )
+    _require_artifact(
+        plan_path,
+        ARTIFACT_REQUIRED_KEYS["improvement_plan"],
+        "improvement plan",
+    )
+    loop_state = _load_or_init_loop_state(loop_state_path)
     loop_state["phase"] = "PLAN_COMPLETE"
     loop_state["updated_at"] = _utc_now()
-    loop_state["history"][-1]["artifacts"].update(
+    entry = _ensure_history_entry(
+        loop_state,
+        iteration=iteration,
+        label=quality_label,
+        phase="PLAN_COMPLETE",
+    )
+    entry["artifacts"].update(
         {
             "failure_taxonomy": str(failure_path),
             "root_cause_report": str(root_cause_path),
             "improvement_plan": str(plan_path),
         }
     )
-    loop_state["history"][-1]["improvement_plan"] = plan_payload
+    entry["improvement_plan"] = plan_payload
     _write_json(loop_state_path, loop_state)
 
     return {
@@ -2917,10 +3165,24 @@ def orchestrate_assess(
     iteration: int = 1,
     baseline_label: str = "baseline",
     postchange_label: str = "postchange",
+    plateau_threshold: float = DEFAULT_PLATEAU_THRESHOLD,
+    plateau_window: int = DEFAULT_PLATEAU_WINDOW,
 ) -> dict[str, Any]:
     artifact_root = Path(artifact_dir)
     assessment_path = artifact_root / "assessment.json"
     loop_state_path = artifact_root / DEFAULT_LOOP_STATE_PATH.name
+
+    loop_state = _load_or_init_loop_state(loop_state_path)
+    loop_state["iteration"] = iteration
+    loop_state["phase"] = "ASSESS"
+    loop_state["updated_at"] = _utc_now()
+    _ensure_history_entry(
+        loop_state,
+        iteration=iteration,
+        label=postchange_label,
+        phase="ASSESS",
+    )
+    _write_json(loop_state_path, loop_state)
 
     payload = assess_iteration(
         artifact_root / f"factual_{baseline_label}_quality.json",
@@ -2930,24 +3192,23 @@ def orchestrate_assess(
         artifact_root / "failure_taxonomy.json",
         loop_state_path,
         assessment_path,
+        plateau_threshold=plateau_threshold,
+        plateau_window=plateau_window,
     )
+    _require_artifact(assessment_path, ARTIFACT_REQUIRED_KEYS["assessment"], "assessment")
 
     loop_state = _load_or_init_loop_state(loop_state_path)
     loop_state["iteration"] = iteration
     loop_state["phase"] = "ASSESS_COMPLETE"
     loop_state["updated_at"] = _utc_now()
-    if not loop_state.get("history") or loop_state["history"][-1].get("iteration") != iteration:
-        loop_state.setdefault("history", []).append(
-            {
-                "iteration": iteration,
-                "label": postchange_label,
-                "phase": "ASSESS",
-                "started_at": _utc_now(),
-                "artifacts": {},
-            }
-        )
-    loop_state["history"][-1]["artifacts"]["assessment"] = str(assessment_path)
-    loop_state["history"][-1]["assessment"] = {
+    entry = _ensure_history_entry(
+        loop_state,
+        iteration=iteration,
+        label=postchange_label,
+        phase="ASSESS_COMPLETE",
+    )
+    entry["artifacts"]["assessment"] = str(assessment_path)
+    entry["assessment"] = {
         "verdict": payload.get("verdict"),
         "primary_metric_delta": payload.get("primary_metric_delta"),
     }
@@ -2957,7 +3218,13 @@ def orchestrate_assess(
         candidate_label=postchange_label,
         output_path=artifact_root / DEFAULT_PROMOTION_MANIFEST_PATH.name,
     )
-    loop_state["history"][-1]["artifacts"]["promotion_manifest"] = promotion_manifest[
+    entry = _ensure_history_entry(
+        loop_state,
+        iteration=iteration,
+        label=postchange_label,
+        phase="ASSESS_COMPLETE",
+    )
+    entry["artifacts"]["promotion_manifest"] = promotion_manifest[
         "manifest_path"
     ]
     _write_json(loop_state_path, loop_state)
@@ -2983,6 +3250,464 @@ def emit_promotion_manifest(
     )
 
 
+def orchestrate_implement(
+    *,
+    artifact_dir: str | Path = DEFAULT_ARTIFACT_DIR,
+    iteration: int = 1,
+    implementer_mode: str = "manual",
+    implementer_command: str | None = None,
+    output_path: str | Path | None = None,
+    subagent_timeout_seconds: int = DEFAULT_SUBAGENT_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    artifact_root = Path(artifact_dir)
+    plan_path = artifact_root / "improvement_plan.json"
+    implementation_log_path = (
+        Path(output_path)
+        if output_path is not None
+        else artifact_root / "implementation_log.json"
+    )
+    loop_state_path = artifact_root / DEFAULT_LOOP_STATE_PATH.name
+
+    plan_payload = _require_artifact(
+        plan_path,
+        ARTIFACT_REQUIRED_KEYS["improvement_plan"],
+        "improvement plan",
+    )
+
+    loop_state = _load_or_init_loop_state(loop_state_path)
+    loop_state["iteration"] = iteration
+    loop_state["phase"] = "IMPLEMENT"
+    loop_state["updated_at"] = _utc_now()
+    _ensure_history_entry(
+        loop_state,
+        iteration=iteration,
+        phase="IMPLEMENT",
+    )
+    _write_json(loop_state_path, loop_state)
+
+    if plan_payload.get("plan_empty"):
+        payload = {
+            "version": "1.0",
+            "created_at": _utc_now(),
+            "iteration": iteration,
+            "inputs": {
+                "improvement_plan": str(plan_path),
+            },
+            "implementer_mode": implementer_mode,
+            "status": "no_changes_required",
+            "plan_empty": True,
+            "changes_implemented": [],
+            "changes_skipped": [],
+            "total_files_modified": 0,
+            "total_lines_changed": 0,
+        }
+        _write_json(implementation_log_path, payload)
+    elif implementer_mode == "noop":
+        payload = {
+            "version": "1.0",
+            "created_at": _utc_now(),
+            "iteration": iteration,
+            "inputs": {
+                "improvement_plan": str(plan_path),
+            },
+            "implementer_mode": implementer_mode,
+            "status": "skipped",
+            "plan_empty": False,
+            "changes_implemented": [],
+            "changes_skipped": [
+                {
+                    "fix_id": change.get("id"),
+                    "description": change.get("description"),
+                    "reason": "No external implementer configured for this run.",
+                }
+                for change in plan_payload.get("changes", [])
+            ],
+            "total_files_modified": 0,
+            "total_lines_changed": 0,
+        }
+        _write_json(implementation_log_path, payload)
+    elif implementer_mode == "manual":
+        payload = _wait_for_artifact(
+            implementation_log_path,
+            ARTIFACT_REQUIRED_KEYS["implementation_log"],
+            "implementation log",
+            timeout_seconds=subagent_timeout_seconds,
+        )
+        payload = dict(payload)
+        artifact_iteration = payload.get("iteration")
+        if artifact_iteration not in (None, iteration):
+            raise ValueError(
+                "Manual implementation log iteration mismatch: "
+                f"expected {iteration}, found {artifact_iteration}"
+            )
+        payload.setdefault("version", "1.0")
+        payload.setdefault("created_at", _utc_now())
+        payload["iteration"] = iteration
+        payload.setdefault(
+            "inputs",
+            {
+                "improvement_plan": str(plan_path),
+            },
+        )
+        payload.setdefault("implementer_mode", implementer_mode)
+        payload.setdefault("plan_empty", False)
+        payload.setdefault(
+            "status",
+            "implemented" if payload.get("changes_implemented") else "skipped",
+        )
+        if "total_files_modified" not in payload:
+            payload["total_files_modified"] = len(
+                {
+                    file_path
+                    for change in payload.get("changes_implemented", [])
+                    for file_path in change.get("files_modified", [])
+                }
+            )
+        payload.setdefault("total_lines_changed", 0)
+        _write_json(implementation_log_path, payload)
+    elif implementer_mode == "command":
+        if not implementer_command:
+            raise ValueError(
+                "implementer_mode='command' requires implementer_command."
+            )
+        _run_external_command(
+            implementer_command,
+            iteration=iteration,
+            artifact_dir=artifact_root,
+            improvement_plan=plan_path,
+            implementation_log=implementation_log_path,
+            loop_state=loop_state_path,
+            timeout_seconds=subagent_timeout_seconds,
+        )
+        payload = _wait_for_artifact(
+            implementation_log_path,
+            ARTIFACT_REQUIRED_KEYS["implementation_log"],
+            "implementation log",
+            timeout_seconds=subagent_timeout_seconds,
+        )
+        payload = dict(payload)
+        artifact_iteration = payload.get("iteration")
+        if artifact_iteration not in (None, iteration):
+            raise ValueError(
+                "Command implementation log iteration mismatch: "
+                f"expected {iteration}, found {artifact_iteration}"
+            )
+        payload.setdefault("version", "1.0")
+        payload.setdefault("created_at", _utc_now())
+        payload["iteration"] = iteration
+        payload.setdefault(
+            "inputs",
+            {
+                "improvement_plan": str(plan_path),
+            },
+        )
+        payload.setdefault("implementer_mode", implementer_mode)
+        payload.setdefault("implementer_command", implementer_command)
+        payload.setdefault(
+            "status",
+            "implemented" if payload.get("changes_implemented") else "skipped",
+        )
+        if "total_files_modified" not in payload:
+            payload["total_files_modified"] = len(
+                {
+                    file_path
+                    for change in payload.get("changes_implemented", [])
+                    for file_path in change.get("files_modified", [])
+                }
+            )
+        payload.setdefault("total_lines_changed", 0)
+        _write_json(implementation_log_path, payload)
+    else:
+        raise ValueError(
+            f"Unsupported implementer mode: {implementer_mode!r}. "
+            "Use 'manual', 'noop', or 'command'."
+        )
+
+    payload = _require_artifact(
+        implementation_log_path,
+        ARTIFACT_REQUIRED_KEYS["implementation_log"],
+        "implementation log",
+    )
+    loop_state = _load_or_init_loop_state(loop_state_path)
+    loop_state["iteration"] = iteration
+    loop_state["phase"] = "IMPLEMENT_COMPLETE"
+    loop_state["updated_at"] = _utc_now()
+    entry = _ensure_history_entry(
+        loop_state,
+        iteration=iteration,
+        phase="IMPLEMENT_COMPLETE",
+    )
+    entry["artifacts"]["implementation_log"] = str(implementation_log_path)
+    entry["changes_implemented"] = payload.get("changes_implemented", [])
+    entry["changes_skipped"] = payload.get("changes_skipped", [])
+    entry["implementer_mode"] = implementer_mode
+    if implementer_command:
+        entry["implementer_command"] = implementer_command
+    _write_json(loop_state_path, loop_state)
+
+    return {
+        "implementation_log": str(implementation_log_path),
+        "loop_state": str(loop_state_path),
+        "status": payload.get("status"),
+        "plan_empty": payload.get("plan_empty", False),
+        "changes_implemented": len(payload.get("changes_implemented", [])),
+        "changes_skipped": len(payload.get("changes_skipped", [])),
+    }
+
+
+def seed_next_iteration(
+    assessment_payload: dict[str, Any],
+    *,
+    loop_state_path: str | Path = DEFAULT_LOOP_STATE_PATH,
+) -> dict[str, Any]:
+    priors = {
+        "seeded_at": _utc_now(),
+        "from_iteration": assessment_payload.get("iteration"),
+        "top_blockers": assessment_payload.get("top_blockers", [])[:5],
+        "next_fixes": assessment_payload.get("next_fixes", [])[:3],
+    }
+    loop_state = _load_or_init_loop_state(loop_state_path)
+    loop_state["next_iteration_priors"] = priors
+    if loop_state.get("history"):
+        loop_state["history"][-1]["next_iteration_priors"] = priors
+    _write_json(loop_state_path, loop_state)
+    return priors
+
+
+def emit_final_report(
+    *,
+    artifact_dir: str | Path = DEFAULT_ARTIFACT_DIR,
+    output_path: str | Path = DEFAULT_FINAL_REPORT_PATH,
+    termination_reason: str | None = None,
+    max_iterations: int | None = None,
+) -> dict[str, Any]:
+    artifact_root = Path(artifact_dir)
+    loop_state_path = artifact_root / DEFAULT_LOOP_STATE_PATH.name
+    assessment_path = artifact_root / "assessment.json"
+    loop_state = _load_or_init_loop_state(loop_state_path)
+    assessment = _read_json(assessment_path) if assessment_path.exists() else None
+
+    history_summary = []
+    seen_iterations: set[int] = set()
+    for entry in loop_state.get("history", []):
+        iteration = entry.get("iteration")
+        if iteration is None or iteration in seen_iterations:
+            continue
+        seen_iterations.add(iteration)
+        history_summary.append(
+            {
+                "iteration": iteration,
+                "labels": entry.get("labels", []),
+                "phase": entry.get("phase"),
+                "assessment": entry.get("assessment"),
+                "planned_changes": len(
+                    entry.get("improvement_plan", {}).get("changes", [])
+                ),
+                "implemented_changes": len(entry.get("changes_implemented", [])),
+                "skipped_changes": len(entry.get("changes_skipped", [])),
+                "artifacts": entry.get("artifacts", {}),
+            }
+        )
+
+    if termination_reason is None:
+        if assessment and assessment.get("verdict") == "READY":
+            termination_reason = "READY"
+        elif assessment and assessment.get("plateau_detected"):
+            termination_reason = "PLATEAU"
+        elif history_summary and loop_state.get("iteration", 0) >= (max_iterations or 0):
+            termination_reason = "CAP"
+        elif history_summary and history_summary[-1].get("planned_changes") == 0:
+            termination_reason = "EXHAUSTED"
+        else:
+            termination_reason = "UNKNOWN"
+
+    payload = {
+        "version": "1.0",
+        "created_at": _utc_now(),
+        "artifact_dir": str(artifact_root),
+        "termination_reason": termination_reason,
+        "iterations_completed": len(history_summary),
+        "latest_iteration": loop_state.get("iteration", 0),
+        "final_phase": loop_state.get("phase"),
+        "final_verdict": (assessment or {}).get("verdict"),
+        "plateau_detected": bool((assessment or {}).get("plateau_detected")),
+        "top_blockers": (assessment or {}).get("top_blockers", []),
+        "next_fixes": (assessment or {}).get("next_fixes", []),
+        "history": history_summary,
+        "latest_artifacts": history_summary[-1]["artifacts"] if history_summary else {},
+        "inputs": {
+            "loop_state": str(loop_state_path),
+            "assessment": str(assessment_path) if assessment_path.exists() else None,
+        },
+    }
+    _write_json(output_path, payload)
+    return payload
+
+
+def orchestrate_loop(
+    *,
+    artifact_dir: str | Path = DEFAULT_ARTIFACT_DIR,
+    max_iterations: int = DEFAULT_MAX_ITERATIONS,
+    limit: int | None = None,
+    parallel_subagents: bool = True,
+    max_concurrent_questions: int = DEFAULT_MAX_CONCURRENT_QUESTIONS,
+    max_concurrent_judge_calls: int = DEFAULT_MAX_CONCURRENT_JUDGE_CALLS,
+    latency_mode: str = "isolated",
+    latency_sla_ms: int = DEFAULT_LATENCY_SLA_MS,
+    implementer_mode: str = "manual",
+    implementer_command: str | None = None,
+    implementation_log_path: str | Path | None = None,
+    subagent_timeout_seconds: int = DEFAULT_SUBAGENT_TIMEOUT_SECONDS,
+    plateau_threshold: float = DEFAULT_PLATEAU_THRESHOLD,
+    plateau_window: int = DEFAULT_PLATEAU_WINDOW,
+    benchmark_refresh_interval: int | None = None,
+) -> dict[str, Any]:
+    artifact_root = Path(artifact_dir)
+    artifact_root.mkdir(parents=True, exist_ok=True)
+    benchmark_path = artifact_root / DEFAULT_BENCHMARK_PATH.name
+    assessment_path = artifact_root / "assessment.json"
+    final_report_path = artifact_root / DEFAULT_FINAL_REPORT_PATH.name
+    loop_state_path = artifact_root / DEFAULT_LOOP_STATE_PATH.name
+
+    latest_payloads: dict[str, Any] = {}
+    termination_reason = "CAP"
+    prior_assessment_path = assessment_path if assessment_path.exists() else None
+
+    for iteration in range(1, max_iterations + 1):
+        if benchmark_refresh_interval is not None:
+            if iteration == 1 or (iteration - 1) % benchmark_refresh_interval == 0:
+                build_benchmark_definition(benchmark_path, limit=limit)
+        elif not benchmark_path.exists():
+            build_benchmark_definition(benchmark_path, limit=limit)
+
+        measure_payload = orchestrate_measure(
+            artifact_dir=artifact_root,
+            iteration=iteration,
+            label="baseline",
+            limit=limit,
+            parallel_subagents=parallel_subagents,
+            max_concurrent_questions=max_concurrent_questions,
+            max_concurrent_judge_calls=max_concurrent_judge_calls,
+            latency_mode=latency_mode,
+            latency_sla_ms=latency_sla_ms,
+            subagent_timeout_seconds=subagent_timeout_seconds,
+        )
+        analyze_payload = orchestrate_analyze(
+            artifact_dir=artifact_root,
+            quality_label="baseline",
+            iteration=iteration,
+            prior_assessment_path=prior_assessment_path,
+        )
+        latest_payloads = {
+            "measure": measure_payload,
+            "analyze": analyze_payload,
+        }
+
+        plan_payload = _require_artifact(
+            artifact_root / "improvement_plan.json",
+            ARTIFACT_REQUIRED_KEYS["improvement_plan"],
+            "improvement plan",
+        )
+
+        if plan_payload.get("plan_empty"):
+            _copy_measurement_artifacts(
+                artifact_root,
+                source_label="baseline",
+                target_label="postchange",
+            )
+            assessment_payload = orchestrate_assess(
+                artifact_dir=artifact_root,
+                iteration=iteration,
+                baseline_label="baseline",
+                postchange_label="postchange",
+                plateau_threshold=plateau_threshold,
+                plateau_window=plateau_window,
+            )
+            archive_payload = _archive_iteration_if_present(
+                iteration,
+                artifact_dir=artifact_root,
+            )
+            latest_payloads.update(
+                {
+                    "assessment": assessment_payload,
+                    "archive": archive_payload,
+                }
+            )
+            termination_reason = "EXHAUSTED"
+            break
+
+        implement_payload = orchestrate_implement(
+            artifact_dir=artifact_root,
+            iteration=iteration,
+            implementer_mode=implementer_mode,
+            implementer_command=implementer_command,
+            output_path=implementation_log_path,
+            subagent_timeout_seconds=subagent_timeout_seconds,
+        )
+        postchange_measure_payload = orchestrate_measure(
+            artifact_dir=artifact_root,
+            iteration=iteration,
+            label="postchange",
+            limit=limit,
+            parallel_subagents=parallel_subagents,
+            max_concurrent_questions=max_concurrent_questions,
+            max_concurrent_judge_calls=max_concurrent_judge_calls,
+            latency_mode=latency_mode,
+            latency_sla_ms=latency_sla_ms,
+            subagent_timeout_seconds=subagent_timeout_seconds,
+        )
+        assessment_payload = orchestrate_assess(
+            artifact_dir=artifact_root,
+            iteration=iteration,
+            baseline_label="baseline",
+            postchange_label="postchange",
+            plateau_threshold=plateau_threshold,
+            plateau_window=plateau_window,
+        )
+        archive_payload = _archive_iteration_if_present(
+            iteration,
+            artifact_dir=artifact_root,
+        )
+        latest_payloads.update(
+            {
+                "implement": implement_payload,
+                "postchange_measure": postchange_measure_payload,
+                "assessment": assessment_payload,
+                "archive": archive_payload,
+            }
+        )
+        prior_assessment_path = assessment_path if assessment_path.exists() else None
+
+        if assessment_payload.get("verdict") == "READY":
+            termination_reason = "READY"
+            break
+        if assessment_payload.get("plateau_detected"):
+            termination_reason = "PLATEAU"
+            break
+
+        seed_next_iteration(
+            assessment_payload,
+            loop_state_path=loop_state_path,
+        )
+    else:
+        termination_reason = "CAP"
+
+    final_report = emit_final_report(
+        artifact_dir=artifact_root,
+        output_path=final_report_path,
+        termination_reason=termination_reason,
+        max_iterations=max_iterations,
+    )
+    return {
+        "artifact_dir": str(artifact_root),
+        "final_report": str(final_report_path),
+        "termination_reason": termination_reason,
+        "iterations_completed": final_report.get("iterations_completed"),
+        "latest_iteration": final_report.get("latest_iteration"),
+        "latest": latest_payloads,
+    }
+
+
 def orchestrate_iteration(
     *,
     artifact_dir: str | Path = DEFAULT_ARTIFACT_DIR,
@@ -2995,6 +3720,7 @@ def orchestrate_iteration(
     latency_mode: str = "isolated",
     latency_sla_ms: int = DEFAULT_LATENCY_SLA_MS,
     skip_measure: bool = False,
+    subagent_timeout_seconds: int = DEFAULT_SUBAGENT_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     artifact_root = Path(artifact_dir)
     artifact_root.mkdir(parents=True, exist_ok=True)
@@ -3016,6 +3742,7 @@ def orchestrate_iteration(
             max_concurrent_judge_calls=max_concurrent_judge_calls,
             latency_mode=latency_mode,
             latency_sla_ms=latency_sla_ms,
+            subagent_timeout_seconds=subagent_timeout_seconds,
         )
 
     analyze_payload = orchestrate_analyze(
@@ -3286,6 +4013,18 @@ def main() -> None:
         default=str(DEFAULT_ARTIFACT_DIR / "assessment.json"),
         help="Output path for the assessment artifact.",
     )
+    assess_parser.add_argument(
+        "--plateau-threshold",
+        type=float,
+        default=DEFAULT_PLATEAU_THRESHOLD,
+        help="Per-iteration improvement threshold used for plateau detection.",
+    )
+    assess_parser.add_argument(
+        "--plateau-window",
+        type=int,
+        default=DEFAULT_PLATEAU_WINDOW,
+        help="How many trailing iterations to inspect for plateau detection.",
+    )
 
     measure_parser = subparsers.add_parser(
         "orchestrate-measure",
@@ -3343,6 +4082,12 @@ def main() -> None:
         action="store_true",
         help="Run quality and latency evaluators sequentially instead of in parallel.",
     )
+    measure_parser.add_argument(
+        "--timeout-per-subagent-seconds",
+        type=int,
+        default=DEFAULT_SUBAGENT_TIMEOUT_SECONDS,
+        help="Timeout for each evaluator subprocess pair.",
+    )
 
     analyze_parser = subparsers.add_parser(
         "orchestrate-analyze",
@@ -3371,6 +4116,48 @@ def main() -> None:
         help="Optional prior assessment artifact path.",
     )
 
+    implement_parser = subparsers.add_parser(
+        "orchestrate-implement",
+        help="Consume an improvement plan and record the implementation stage artifact.",
+    )
+    implement_parser.add_argument(
+        "--artifact-dir",
+        default=str(DEFAULT_ARTIFACT_DIR),
+        help="Artifact directory root.",
+    )
+    implement_parser.add_argument(
+        "--iteration",
+        type=int,
+        default=1,
+        help="Loop iteration number to record in loop_state.json.",
+    )
+    implement_parser.add_argument(
+        "--implementer-mode",
+        choices=["manual", "noop", "command"],
+        default="manual",
+        help="Implementation stage mode.",
+    )
+    implement_parser.add_argument(
+        "--implementer-command",
+        default=None,
+        help=(
+            "External command template to produce implementation_log.json. "
+            "Available placeholders: {iteration}, {artifact_dir}, "
+            "{improvement_plan}, {implementation_log}, {loop_state}."
+        ),
+    )
+    implement_parser.add_argument(
+        "--output",
+        default=str(DEFAULT_ARTIFACT_DIR / "implementation_log.json"),
+        help="Implementation log artifact path.",
+    )
+    implement_parser.add_argument(
+        "--timeout-per-subagent-seconds",
+        type=int,
+        default=DEFAULT_SUBAGENT_TIMEOUT_SECONDS,
+        help="Timeout when waiting for a manual implementation log.",
+    )
+
     orchestrate_assess_parser = subparsers.add_parser(
         "orchestrate-assess",
         help="Run the assessment stage and update loop_state.json.",
@@ -3397,6 +4184,18 @@ def main() -> None:
         choices=["baseline", "postchange"],
         default="postchange",
         help="Post-change artifact label.",
+    )
+    orchestrate_assess_parser.add_argument(
+        "--plateau-threshold",
+        type=float,
+        default=DEFAULT_PLATEAU_THRESHOLD,
+        help="Per-iteration improvement threshold used for plateau detection.",
+    )
+    orchestrate_assess_parser.add_argument(
+        "--plateau-window",
+        type=int,
+        default=DEFAULT_PLATEAU_WINDOW,
+        help="How many trailing iterations to inspect for plateau detection.",
     )
 
     iteration_parser = subparsers.add_parser(
@@ -3460,6 +4259,12 @@ def main() -> None:
         action="store_true",
         help="Skip measure if the current iteration artifacts already exist.",
     )
+    iteration_parser.add_argument(
+        "--timeout-per-subagent-seconds",
+        type=int,
+        default=DEFAULT_SUBAGENT_TIMEOUT_SECONDS,
+        help="Timeout for each evaluator subprocess pair.",
+    )
 
     manifest_parser = subparsers.add_parser(
         "emit-promotion-manifest",
@@ -3480,6 +4285,127 @@ def main() -> None:
         "--output",
         default=str(DEFAULT_PROMOTION_MANIFEST_PATH),
         help="Output path for the promotion manifest.",
+    )
+
+    final_report_parser = subparsers.add_parser(
+        "emit-final-report",
+        help="Aggregate loop history into data/final_report.json.",
+    )
+    final_report_parser.add_argument(
+        "--artifact-dir",
+        default=str(DEFAULT_ARTIFACT_DIR),
+        help="Artifact directory root.",
+    )
+    final_report_parser.add_argument(
+        "--output",
+        default=str(DEFAULT_FINAL_REPORT_PATH),
+        help="Output path for the final report artifact.",
+    )
+    final_report_parser.add_argument(
+        "--termination-reason",
+        default=None,
+        help="Optional explicit termination reason.",
+    )
+    final_report_parser.add_argument(
+        "--max-iterations",
+        type=int,
+        default=None,
+        help="Optional max-iteration cap for report inference.",
+    )
+
+    loop_parser = subparsers.add_parser(
+        "orchestrate-loop",
+        help="Run the full factual hardening loop until READY, PLATEAU, EXHAUSTED, or CAP.",
+    )
+    loop_parser.add_argument(
+        "--artifact-dir",
+        default=str(DEFAULT_ARTIFACT_DIR),
+        help="Artifact directory root.",
+    )
+    loop_parser.add_argument(
+        "--max-iterations",
+        type=int,
+        default=DEFAULT_MAX_ITERATIONS,
+        help="Maximum hardening iterations to run.",
+    )
+    loop_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Limit evaluation to the first N benchmark questions.",
+    )
+    loop_parser.add_argument(
+        "--max-concurrent-questions",
+        type=int,
+        default=DEFAULT_MAX_CONCURRENT_QUESTIONS,
+        help="Maximum concurrent answer-generation workers.",
+    )
+    loop_parser.add_argument(
+        "--max-concurrent-judge-calls",
+        type=int,
+        default=DEFAULT_MAX_CONCURRENT_JUDGE_CALLS,
+        help="Maximum concurrent MLflow/judge scoring threads.",
+    )
+    loop_parser.add_argument(
+        "--latency-mode",
+        choices=["isolated", "throughput"],
+        default="isolated",
+        help="Latency evaluator mode.",
+    )
+    loop_parser.add_argument(
+        "--latency-sla-ms",
+        type=int,
+        default=DEFAULT_LATENCY_SLA_MS,
+        help="Latency SLA threshold in milliseconds.",
+    )
+    loop_parser.add_argument(
+        "--implementer-mode",
+        choices=["manual", "noop", "command"],
+        default="manual",
+        help="Implementation stage mode.",
+    )
+    loop_parser.add_argument(
+        "--implementer-command",
+        default=None,
+        help=(
+            "External command template to produce implementation_log.json. "
+            "Available placeholders: {iteration}, {artifact_dir}, "
+            "{improvement_plan}, {implementation_log}, {loop_state}."
+        ),
+    )
+    loop_parser.add_argument(
+        "--implementation-log",
+        default=None,
+        help="Optional path for the shared implementation log artifact.",
+    )
+    loop_parser.add_argument(
+        "--timeout-per-subagent-seconds",
+        type=int,
+        default=DEFAULT_SUBAGENT_TIMEOUT_SECONDS,
+        help="Timeout for each evaluator/implementer stage.",
+    )
+    loop_parser.add_argument(
+        "--plateau-threshold",
+        type=float,
+        default=DEFAULT_PLATEAU_THRESHOLD,
+        help="Per-iteration improvement threshold used for plateau detection.",
+    )
+    loop_parser.add_argument(
+        "--plateau-window",
+        type=int,
+        default=DEFAULT_PLATEAU_WINDOW,
+        help="How many trailing iterations to inspect for plateau detection.",
+    )
+    loop_parser.add_argument(
+        "--benchmark-refresh-interval",
+        type=int,
+        default=None,
+        help="Rebuild the benchmark every N iterations. Default: reuse unless missing.",
+    )
+    loop_parser.add_argument(
+        "--serial-subagents",
+        action="store_true",
+        help="Run quality and latency evaluators sequentially instead of in parallel.",
     )
 
     archive_parser = subparsers.add_parser(
@@ -3553,6 +4479,8 @@ def main() -> None:
             args.failure_taxonomy,
             args.loop_state,
             args.output,
+            plateau_threshold=args.plateau_threshold,
+            plateau_window=args.plateau_window,
         )
     elif args.command == "orchestrate-measure":
         payload = orchestrate_measure(
@@ -3565,6 +4493,7 @@ def main() -> None:
             max_concurrent_judge_calls=args.max_concurrent_judge_calls,
             latency_mode=args.latency_mode,
             latency_sla_ms=args.latency_sla_ms,
+            subagent_timeout_seconds=args.timeout_per_subagent_seconds,
         )
     elif args.command == "orchestrate-analyze":
         payload = orchestrate_analyze(
@@ -3573,12 +4502,23 @@ def main() -> None:
             iteration=args.iteration,
             prior_assessment_path=args.prior_assessment,
         )
+    elif args.command == "orchestrate-implement":
+        payload = orchestrate_implement(
+            artifact_dir=args.artifact_dir,
+            iteration=args.iteration,
+            implementer_mode=args.implementer_mode,
+            implementer_command=args.implementer_command,
+            output_path=args.output,
+            subagent_timeout_seconds=args.timeout_per_subagent_seconds,
+        )
     elif args.command == "orchestrate-assess":
         payload = orchestrate_assess(
             artifact_dir=args.artifact_dir,
             iteration=args.iteration,
             baseline_label=args.baseline_label,
             postchange_label=args.postchange_label,
+            plateau_threshold=args.plateau_threshold,
+            plateau_window=args.plateau_window,
         )
     elif args.command == "orchestrate-iteration":
         payload = orchestrate_iteration(
@@ -3592,12 +4532,38 @@ def main() -> None:
             latency_mode=args.latency_mode,
             latency_sla_ms=args.latency_sla_ms,
             skip_measure=args.skip_measure,
+            subagent_timeout_seconds=args.timeout_per_subagent_seconds,
         )
     elif args.command == "emit-promotion-manifest":
         payload = emit_promotion_manifest(
             artifact_dir=args.artifact_dir,
             candidate_label=args.candidate_label,
             output_path=args.output,
+        )
+    elif args.command == "emit-final-report":
+        payload = emit_final_report(
+            artifact_dir=args.artifact_dir,
+            output_path=args.output,
+            termination_reason=args.termination_reason,
+            max_iterations=args.max_iterations,
+        )
+    elif args.command == "orchestrate-loop":
+        payload = orchestrate_loop(
+            artifact_dir=args.artifact_dir,
+            max_iterations=args.max_iterations,
+            limit=args.limit,
+            parallel_subagents=not args.serial_subagents,
+            max_concurrent_questions=args.max_concurrent_questions,
+            max_concurrent_judge_calls=args.max_concurrent_judge_calls,
+            latency_mode=args.latency_mode,
+            latency_sla_ms=args.latency_sla_ms,
+            implementer_mode=args.implementer_mode,
+            implementer_command=args.implementer_command,
+            implementation_log_path=args.implementation_log,
+            subagent_timeout_seconds=args.timeout_per_subagent_seconds,
+            plateau_threshold=args.plateau_threshold,
+            plateau_window=args.plateau_window,
+            benchmark_refresh_interval=args.benchmark_refresh_interval,
         )
     elif args.command == "archive-iteration":
         payload = archive_iteration_artifacts(

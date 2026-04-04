@@ -2504,11 +2504,11 @@ ADDITIONAL_CURATED_QUESTIONS = [
         "legacy_category": "ground_truth_quantitative",
         "expected_entities": ["Leonardo Pacheco", "Kenneth Lay", "EnronOnline"],
         "expected_facts": [
-            "The current local export shows 23 emails in the Pacheco/Lay dyad",
+            "The current local export shows 28 emails in the Pacheco/Lay dyad",
             "The traffic direction is Leonardo Pacheco -> Kenneth Lay",
             "The messages are EnronOnline executive-summary or management-report style updates",
         ],
-        "graph_ground_truth": "The local communication_dyads table shows 23 emails in the Pacheco-Lay pair, all flowing from Pacheco to Lay.",
+        "graph_ground_truth": "The local communication_dyads table shows 28 emails in the Pacheco-Lay pair, all flowing from Pacheco to Lay.",
         "historical_ground_truth": "Pacheco sent Lay recurring EnronOnline summaries rather than participating in a balanced back-and-forth correspondence.",
         "forbidden_facts": [],
         "forbidden_inferences": [],
@@ -2521,9 +2521,9 @@ ADDITIONAL_CURATED_QUESTIONS = [
         },
         "domain_primary": "trading_markets_platforms",
         "domain_secondary": [],
-        "reference_answer": "In the current local export, 23 emails were exchanged between Leonardo Pacheco and Kenneth Lay, and the direction is one-way: the messages run from Leonardo Pacheco to Kenneth Lay. The supporting examples are EnronOnline executive summaries and management reports, so this dyad represents reporting flow rather than conversational exchange.",
+        "reference_answer": "In the current local export, 28 emails were exchanged between Leonardo Pacheco and Kenneth Lay, and the direction is one-way: the messages run from Leonardo Pacheco to Kenneth Lay. The supporting examples are EnronOnline executive summaries and management reports, so this dyad represents reporting flow rather than conversational exchange.",
         "ground_truth_sources": [
-            {"type": "communication_dyads", "person_a": "leonardo.pacheco@enron.com", "person_b": "kenneth.lay@enron.com", "total_count": 23, "supports": "Dyad count in the current local export"},
+            {"type": "communication_dyads", "person_a": "leonardo.pacheco@enron.com", "person_b": "kenneth.lay@enron.com", "total_count": 28, "supports": "Dyad count in the current local export"},
             {"type": "email", "date": "2000-12-12", "sender": "leonardo.pacheco@enron.com", "subject": "EnronOnline Executive Summary for December 11, 2000", "supports": "Representative summary email flowing from Pacheco to Lay"},
         ],
         "validation_status": "validated",
@@ -2536,7 +2536,7 @@ ADDITIONAL_CURATED_QUESTIONS = [
             "leakage_risk": 1,
         },
         "split_rationale": "Placed in holdout because it is a precise quantitative check over the current local export and tests whether the system returns both the count and the direction correctly.",
-        "review_notes": "Added to clear the trading_markets_platforms quantitative-analysis missing-holdout gap with a validated Pacheco/Lay dyad count.",
+        "review_notes": "Revalidated against the current local communication_dyads export; the governed Pacheco/Lay dyad count is now 28 one-way messages.",
     },
     {
         "question_id": "enron-curated-pacheco-summary-metrics-holdout",
@@ -8077,9 +8077,9 @@ QUESTION_CURATION_OVERRIDES: dict[str, dict[str, Any]] = {
     },
     "enron-core-5675612b20": {
         "validation_status": "validated",
-        "reference_answer": "In the current local export, 23 emails were exchanged between Leonardo Pacheco and Kenneth Lay, and the traffic is one-way: the messages run from Leonardo Pacheco to Kenneth Lay. The content is EnronOnline executive-summary reporting rather than back-and-forth discussion.",
+        "reference_answer": "In the current local export, 28 emails were exchanged between Leonardo Pacheco and Kenneth Lay, and the traffic is one-way: the messages run from Leonardo Pacheco to Kenneth Lay. The content is EnronOnline executive-summary reporting rather than back-and-forth discussion.",
         "ground_truth_sources": [
-            {"type": "communication_dyads", "person_a": "leonardo.pacheco@enron.com", "person_b": "kenneth.lay@enron.com", "total_count": 23, "supports": "Dyad count in local export"},
+            {"type": "communication_dyads", "person_a": "leonardo.pacheco@enron.com", "person_b": "kenneth.lay@enron.com", "total_count": 28, "supports": "Dyad count in local export"},
             {"type": "email", "date": "2000-12-13", "sender": "leonardo.pacheco@enron.com", "subject": "EnronOnline Executive Summary for December 12, 2000", "supports": "Representative body evidence"},
         ],
         "rubric_assessment": {
@@ -8091,14 +8091,14 @@ QUESTION_CURATION_OVERRIDES: dict[str, dict[str, Any]] = {
             "leakage_risk": 2,
         },
         "split_rationale": "Kept in train: the question is high-value for analytics correctness, but the exact number is export-snapshot dependent and should stay out of frozen holdout.",
-        "review_notes": "Updated stale '~28' expectation to the current validated local-export count of 23 one-way emails.",
+        "review_notes": "Revalidated against the refreshed local export; the current Pacheco/Lay dyad count is 28 one-way emails.",
     },
     "enron-core-b875644912": {
         "validation_status": "validated",
         "eval_split": "test",
-        "reference_answer": "In the current local export, Leonardo Pacheco is Kenneth Lay's most frequent correspondent by email volume with 23 messages to Kenneth Lay. Other notable senders trail well behind, such as Karen Denne with 9 and Brown_Mary_Jo@lilly.com with 7.",
+        "reference_answer": "In the current local export, Leonardo Pacheco is Kenneth Lay's most frequent correspondent by email volume with 28 messages to Kenneth Lay. Other notable senders trail well behind, such as Karen Denne with 12 and Brown Mary Jo with 10.",
         "ground_truth_sources": [
-            {"type": "communication_dyads", "person_b": "kenneth.lay@enron.com", "top_sender": "leonardo.pacheco@enron.com", "total_count": 23, "supports": "Ranked top sender in local export"},
+            {"type": "communication_dyads", "person_b": "kenneth.lay@enron.com", "top_sender": "leonardo.pacheco@enron.com", "total_count": 28, "supports": "Ranked top sender in local export"},
         ],
         "rubric_assessment": {
             "answerability": 5,
@@ -8110,7 +8110,7 @@ QUESTION_CURATION_OVERRIDES: dict[str, dict[str, Any]] = {
         },
         "recommended_eval_split": "test",
         "split_rationale": "Moved from holdout to test because the answer depends on the current corpus snapshot and therefore is too brittle for frozen holdout governance.",
-        "review_notes": "Revalidated against the local dyad table; previous Rosalee-Fleming expectation is stale for the current export.",
+        "review_notes": "Revalidated against the refreshed local dyad export; Leonardo Pacheco now leads Kenneth Lay's ranked contacts with 28 messages, ahead of Karen Denne (12) and Brown Mary Jo (10).",
     },
     "enron-core-8338f3fa30": {
         "status": "candidate",

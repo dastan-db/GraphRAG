@@ -7,18 +7,27 @@ import os
 import re
 import sys
 from dataclasses import dataclass, field
+from typing import Any
 
 from databricks.sdk import WorkspaceClient
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from runtime import RuntimeQuery, SharedRuntimeOrchestrator
-from runtime.config import RuntimeConfig
+RuntimeQuery = None
+SharedRuntimeOrchestrator = None
+RuntimeConfig = None
+_RUNTIME_IMPORT_ERROR: ModuleNotFoundError | None = None
+try:
+    from runtime import RuntimeQuery, SharedRuntimeOrchestrator
+    from runtime.config import RuntimeConfig
+except ModuleNotFoundError as exc:
+    # Databricks Apps deploy only `src/app`, so shared runtime imports can be absent.
+    _RUNTIME_IMPORT_ERROR = exc
 
 _client: WorkspaceClient | None = None
 _client_created: float = 0
 _CLIENT_TTL = 1800  # refresh SDK client every 30 min
-_orchestrators: dict[tuple[str, ...], SharedRuntimeOrchestrator] = {}
+_orchestrators: dict[tuple[str, ...], Any] = {}
 
 
 def _get_client() -> WorkspaceClient:
@@ -38,7 +47,15 @@ def _runtime_transport_for_app() -> str:
     return "direct"
 
 
-def _get_orchestrator(*, transport: str | None = None) -> SharedRuntimeOrchestrator:
+def _runtime_modules_available() -> bool:
+    return all(mod is not None for mod in (RuntimeQuery, SharedRuntimeOrchestrator, RuntimeConfig))
+
+
+def _get_orchestrator(*, transport: str | None = None):
+    if not _runtime_modules_available():
+        raise RuntimeError(
+            "Shared runtime is unavailable in this app environment."
+        ) from _RUNTIME_IMPORT_ERROR
     env = dict(os.environ)
     env["GRAPHRAG_RUNTIME_TRANSPORT"] = transport or _runtime_transport_for_app()
     config = RuntimeConfig.from_env(env)
@@ -65,6 +82,13 @@ def _query_runtime(
     tier: str = "",
     endpoint_name: str = "",
 ):
+    transport = _runtime_transport_for_app()
+    if transport == "endpoint" or not _runtime_modules_available():
+        return _query_endpoint_runtime(
+            corpus=corpus,
+            question=question,
+            endpoint_name=endpoint_name,
+        )
     orchestrator = _get_orchestrator()
     return orchestrator.query(
         RuntimeQuery(
@@ -82,6 +106,19 @@ class ToolCall:
     name: str
     arguments: dict
     output: str = ""
+
+
+@dataclass
+class _ParsedResponse:
+    answer: str
+    provenance_raw: str
+    path: str
+    sources: list[str]
+    grounding: str
+    full_text: str
+    coverage: str = ""
+    entities_mentioned: list[str] = field(default_factory=list)
+    tool_calls: list[ToolCall] = field(default_factory=list)
 
 
 @dataclass
@@ -117,6 +154,58 @@ def _extract_tool_calls(output_items: list[dict]) -> list[ToolCall]:
                 out = item.get("output", "")
                 calls[call_id].output = out[:2000] if len(out) > 2000 else out
     return list(calls.values())
+
+
+def _extract_response_text(output_items: list[dict[str, Any]]) -> str:
+    texts: list[str] = []
+    for item in output_items:
+        if item.get("type") == "message":
+            for part in item.get("content", []):
+                if part.get("type") == "output_text" and part.get("text"):
+                    texts.append(part["text"])
+        elif item.get("text"):
+            texts.append(str(item["text"]))
+    return "\n".join(texts).strip()
+
+
+def _resolve_app_endpoint_name(corpus: str, endpoint_name: str = "") -> str:
+    if endpoint_name.strip():
+        return endpoint_name.strip()
+    env_var = "GRAPHRAG_ENRON_ENDPOINT_NAME" if corpus == "enron" else "GRAPHRAG_ENDPOINT_NAME"
+    resolved = (os.environ.get(env_var) or "").strip()
+    if not resolved:
+        raise RuntimeError(
+            f"No serving endpoint configured for corpus '{corpus}' (expected env {env_var})."
+        )
+    return resolved
+
+
+def _query_endpoint_runtime(
+    *,
+    corpus: str,
+    question: str,
+    endpoint_name: str = "",
+) -> _ParsedResponse:
+    resolved_endpoint = _resolve_app_endpoint_name(corpus, endpoint_name)
+    response = _get_client().api_client.do(
+        "POST",
+        f"/serving-endpoints/{resolved_endpoint}/invocations",
+        body={"input": [{"role": "user", "content": question}]},
+    )
+    output_items = response.get("output") or []
+    full_text = _extract_response_text(output_items)
+    answer, prov_raw, path, sources, grounding, coverage = _parse_provenance(full_text)
+    return _ParsedResponse(
+        answer=answer,
+        provenance_raw=prov_raw,
+        path=path,
+        sources=sources,
+        grounding=grounding,
+        full_text=full_text,
+        coverage=coverage,
+        entities_mentioned=_extract_entities(path or answer),
+        tool_calls=_extract_tool_calls(output_items),
+    )
 
 
 def _split_sources_field(value: str) -> list[str]:
@@ -235,6 +324,7 @@ def query_agent(question: str, permitted_books: list[str] | None = None) -> Agen
         corpus="bible",
         question=question,
         permitted_books=permitted_books,
+        endpoint_name=os.environ.get("GRAPHRAG_ENDPOINT_NAME", ""),
     )
     verse_refs = _extract_verse_refs(parsed.full_text)
 

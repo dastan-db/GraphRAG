@@ -1,0 +1,1750 @@
+{
+  "version": "1.0",
+  "created_at": "2026-04-04T02:48:35Z",
+  "iteration": 0,
+  "executive_summary": {
+    "governed_genie_question_count": 6,
+    "local_wrapper_benchmark_pass_rate": 0.5,
+    "question_bank_snapshot_alignment_rate": 0.5,
+    "question_bank_snapshot_drift_rate": 0.5,
+    "primary_findings": [
+      "The governed Enron quantitative slice is compact and benchmarkable.",
+      "The current local SQL-fallback path passes only part of that slice, so Iteration 1 should stay narrow and reversible.",
+      "The current local DuckDB snapshot already diverges from several governed reference answers, so benchmark goldens must record both the governed bank view and the measured snapshot view."
+    ]
+  },
+  "ssot_manifest": {
+    "created_at": "2026-04-04T02:48:29Z",
+    "source_of_truth": {
+      "question_bank": "src/evaluation/question_bank.py",
+      "question_bank_curation": "src/evaluation/question_bank_curation.py",
+      "runtime_baselines": "src/evaluation/runtime_baselines.py"
+    },
+    "governed_inventory": {
+      "enron_governed_question_count": 93,
+      "genie_iteration0_question_count": 6,
+      "genie_iteration0_question_ids": [
+        "enron-core-5675612b20",
+        "enron-core-b875644912",
+        "enron-curated-pacheco-lay-summary-count",
+        "enron-curated-pacheco-lay-june19-dyad-count",
+        "enron-curated-pacheco-lay-june26-dyad-count",
+        "enron-curated-pacheco-lay-december-dyad-comparison"
+      ]
+    },
+    "scorer_manifest": {
+      "source": "src/evaluation/enron_evaluation.py",
+      "count": 7,
+      "scorers": [
+        "evidence_quality",
+        "participant_verification",
+        "organizational_accuracy",
+        "grounding_integrity",
+        "factual_accuracy",
+        "hallucination_detection",
+        "answer_completeness"
+      ]
+    },
+    "backend_manifest": {
+      "runtime_config_default_backend": {
+        "value": "local",
+        "source": "src/runtime/config.py::resolve_data_backend"
+      },
+      "agent_serving_default_backend": {
+        "value": "lakebase",
+        "source": "src/agent/agent_serving.py::_resolve_backend_type"
+      },
+      "analytics_backend_default": {
+        "value": "databricks_sql",
+        "source": "src/runtime/config.py::RuntimeConfig.from_env"
+      },
+      "local_snapshot_default": {
+        "value": "data/graphrag_enron.duckdb",
+        "source": "src/agent/agent_serving.py::_default_local_db_path"
+      }
+    },
+    "baseline_registry": {
+      "version": "1.0",
+      "enron": {
+        "local_core_eval": {
+          "slice": "balanced_test",
+          "question_count": 9,
+          "judge_endpoint": "databricks-claude-sonnet-4-6",
+          "overall_score_min": 0.64,
+          "elapsed_s_max": 240.0,
+          "score_delta_tolerance": 0.08,
+          "notes": "Frozen from the current Enron factual QA slice before modular cutover."
+        },
+        "deployed_core_eval": {
+          "slice": "balanced_test",
+          "question_count": 9,
+          "judge_endpoint": "databricks-claude-sonnet-4-6",
+          "overall_score_min": 0.58,
+          "elapsed_s_max": 320.0,
+          "score_delta_tolerance": 0.1,
+          "notes": "Deployment parity gate relative to the in-process local runtime."
+        },
+        "genie_quantitative_iteration0": {
+          "slice": "governed_genie_iteration0",
+          "question_count": 6,
+          "artifact_path": "evaluation/baselines/genie_iteration0_baseline.json",
+          "sql_correctness_current": 0.333,
+          "benchmark_pass_rate_current": 0.333,
+          "failure_rate_current": 0.5,
+          "target_sql_correctness": 0.95,
+          "target_benchmark_pass_rate": 0.9,
+          "target_failure_rate_max": 0.02,
+          "target_latency_p95_multiplier_max": 1.1,
+          "notes": "Iteration 0 frozen benchmark and scorecard for the governed Enron quantitative/Genie slice."
+        }
+      },
+      "bible": {
+        "local_quality_gate": {
+          "entity_recall_min": 0.6,
+          "citations_min": 1.0,
+          "success_rate_min": 0.8,
+          "notes": "Existing local validation suite remains the frozen Bible runtime baseline."
+        },
+        "local_databricks_parity": {
+          "recall_parity_min": 0.8,
+          "tool_match_rate_min": 0.6,
+          "notes": "Parity guard between DuckDB local-fast and Databricks-backed local-integration."
+        }
+      }
+    },
+    "warnings": [
+      "Benchmark runs must pin backend and transport explicitly because runtime and agent defaults diverge.",
+      "The governed bank remains authoritative, but benchmark goldens are measured against the current local DuckDB snapshot."
+    ]
+  },
+  "benchmark_subset": {
+    "version": "1.0",
+    "created_at": "2026-04-04T02:48:31Z",
+    "local_snapshot_path": "data/graphrag_enron.duckdb",
+    "question_count": 6,
+    "question_ids": [
+      "enron-core-5675612b20",
+      "enron-core-b875644912",
+      "enron-curated-pacheco-lay-summary-count",
+      "enron-curated-pacheco-lay-june19-dyad-count",
+      "enron-curated-pacheco-lay-june26-dyad-count",
+      "enron-curated-pacheco-lay-december-dyad-comparison"
+    ],
+    "alignment_summary": {
+      "aligned": 3,
+      "drifted": 3,
+      "unknown": 0
+    },
+    "cases": [
+      {
+        "question_id": "enron-core-5675612b20",
+        "question_text": "How many emails were exchanged between Kenneth Lay and Leonardo Pacheco?",
+        "normalized_question": "How many emails were exchanged between Kenneth Lay and Leonardo Pacheco?",
+        "eval_split": "train",
+        "classification": "both",
+        "benchmark_layer": "genie_benchmark",
+        "reusable_in_avl": true,
+        "primitive": "genie_analytics",
+        "architecture_primary": "analytics_sql_genie",
+        "expected_tools": [
+          "query_and_enrich"
+        ],
+        "reference_answer": "In the current local export, 23 emails were exchanged between Leonardo Pacheco and Kenneth Lay, and the traffic is one-way: the messages run from Leonardo Pacheco to Kenneth Lay. The content is EnronOnline executive-summary reporting rather than back-and-forth discussion.",
+        "question_bank_ground_truth_sources": [
+          {
+            "type": "communication_dyads",
+            "person_a": "leonardo.pacheco@enron.com",
+            "person_b": "kenneth.lay@enron.com",
+            "total_count": 23,
+            "supports": "Dyad count in local export"
+          },
+          {
+            "type": "email",
+            "date": "2000-12-13",
+            "sender": "leonardo.pacheco@enron.com",
+            "subject": "EnronOnline Executive Summary for December 12, 2000",
+            "supports": "Representative body evidence"
+          }
+        ],
+        "canonical_sql": "SELECT\n  'leonardo.pacheco@enron.com' AS entity_a,\n  'kenneth.lay@enron.com' AS entity_b,\n  SUM(CASE\n        WHEN LOWER(person_a) = 'leonardo.pacheco@enron.com'\n         AND LOWER(person_b) = 'kenneth.lay@enron.com'\n        THEN total_count ELSE 0 END) AS sent_a_to_b,\n  SUM(CASE\n        WHEN LOWER(person_a) = 'kenneth.lay@enron.com'\n         AND LOWER(person_b) = 'leonardo.pacheco@enron.com'\n        THEN total_count ELSE 0 END) AS sent_b_to_a,\n  SUM(total_count) AS total_emails\nFROM communication_dyads\nWHERE (LOWER(person_a) = 'leonardo.pacheco@enron.com'\n   AND LOWER(person_b) = 'kenneth.lay@enron.com')\n   OR (LOWER(person_a) = 'kenneth.lay@enron.com'\n   AND LOWER(person_b) = 'leonardo.pacheco@enron.com')",
+        "gold_result": [
+          {
+            "entity_a": "leonardo.pacheco@enron.com",
+            "entity_b": "kenneth.lay@enron.com",
+            "sent_a_to_b": 28.0,
+            "sent_b_to_a": 0.0,
+            "total_emails": 28.0
+          }
+        ],
+        "comparison_mode": "pair_summary",
+        "tolerance": {
+          "mode": "exact",
+          "numeric_delta": 0
+        },
+        "required_instructions": [
+          "Honor directionality and avoid saying 'exchanged' when all traffic is one-way.",
+          "Use communication_dyads as the benchmark reference for pair totals."
+        ],
+        "required_sql_capabilities": {
+          "joins": [],
+          "expressions": [
+            "SUM(CASE WHEN ... THEN total_count ELSE 0 END)"
+          ],
+          "functions": []
+        },
+        "likely_failure_modes": [
+          "one_way_vs_bidirectional_mislabel",
+          "snapshot_drift_vs_question_bank_reference",
+          "entity_alias_resolution_failure"
+        ],
+        "question_bank_snapshot_alignment": {
+          "status": "drifted",
+          "details": [
+            {
+              "source": {
+                "type": "communication_dyads",
+                "person_a": "leonardo.pacheco@enron.com",
+                "person_b": "kenneth.lay@enron.com",
+                "total_count": 23,
+                "supports": "Dyad count in local export"
+              },
+              "status": "drifted",
+              "expected_total_count": 23,
+              "actual_total_count": 28
+            }
+          ]
+        }
+      },
+      {
+        "question_id": "enron-core-b875644912",
+        "question_text": "Who communicated most frequently with Kenneth Lay?",
+        "normalized_question": "Who communicated most frequently with Kenneth Lay?",
+        "eval_split": "test",
+        "classification": "both",
+        "benchmark_layer": "genie_benchmark",
+        "reusable_in_avl": true,
+        "primitive": "genie_analytics",
+        "architecture_primary": "analytics_sql_genie",
+        "expected_tools": [
+          "query_and_enrich"
+        ],
+        "reference_answer": "In the current local export, Leonardo Pacheco is Kenneth Lay's most frequent correspondent by email volume with 23 messages to Kenneth Lay. Other notable senders trail well behind, such as Karen Denne with 9 and Brown_Mary_Jo@lilly.com with 7.",
+        "question_bank_ground_truth_sources": [
+          {
+            "type": "communication_dyads",
+            "person_b": "kenneth.lay@enron.com",
+            "top_sender": "leonardo.pacheco@enron.com",
+            "total_count": 23,
+            "supports": "Ranked top sender in local export"
+          }
+        ],
+        "canonical_sql": "SELECT\n  contact_email,\n  SUM(sent_to_contact) AS sent_to_contact,\n  SUM(received_from_contact) AS received_from_contact,\n  SUM(total_emails) AS total_emails\nFROM (\n  SELECT\n    d.person_b AS contact_email,\n    SUM(d.total_count) AS sent_to_contact,\n    0 AS received_from_contact,\n    SUM(d.total_count) AS total_emails\n  FROM communication_dyads d\n  WHERE LOWER(d.person_a) = 'kenneth.lay@enron.com'\n  GROUP BY d.person_b\n\n  UNION ALL\n\n  SELECT\n    d.person_a AS contact_email,\n    0 AS sent_to_contact,\n    SUM(d.total_count) AS received_from_contact,\n    SUM(d.total_count) AS total_emails\n  FROM communication_dyads d\n  WHERE LOWER(d.person_b) = 'kenneth.lay@enron.com'\n  GROUP BY d.person_a\n) combined\nGROUP BY contact_email\nORDER BY total_emails DESC, contact_email ASC\nLIMIT 1",
+        "gold_result": [
+          {
+            "contact_email": "leonardo.pacheco@enron.com",
+            "sent_to_contact": 0.0,
+            "received_from_contact": 28.0,
+            "total_emails": 28.0,
+            "exchange_type": "inbound_only"
+          }
+        ],
+        "comparison_mode": "top_contact",
+        "tolerance": {
+          "mode": "exact",
+          "numeric_delta": 0
+        },
+        "required_instructions": [
+          "Rank by total_emails and preserve inbound/outbound directionality in the answer.",
+          "Treat this as a ranking query over communication_dyads rather than evidence search."
+        ],
+        "required_sql_capabilities": {
+          "joins": [],
+          "expressions": [
+            "UNION ALL",
+            "SUM(total_count)",
+            "ORDER BY total_emails DESC"
+          ],
+          "functions": []
+        },
+        "likely_failure_modes": [
+          "top_contact_snapshot_drift",
+          "directionality_dropped_from_ranking",
+          "wrong_rank_ordering"
+        ],
+        "question_bank_snapshot_alignment": {
+          "status": "drifted",
+          "details": [
+            {
+              "source": {
+                "type": "communication_dyads",
+                "person_b": "kenneth.lay@enron.com",
+                "top_sender": "leonardo.pacheco@enron.com",
+                "total_count": 23,
+                "supports": "Ranked top sender in local export"
+              },
+              "status": "drifted",
+              "expected_total_count": 23,
+              "actual_total_count": 28,
+              "expected_top_sender": "leonardo.pacheco@enron.com",
+              "actual_top_sender": "leonardo.pacheco@enron.com"
+            }
+          ]
+        }
+      },
+      {
+        "question_id": "enron-curated-pacheco-lay-summary-count",
+        "question_text": "How many emails were exchanged between Leonardo Pacheco and Kenneth Lay in the current local export, and what was their direction?",
+        "normalized_question": "How many emails were exchanged between Leonardo Pacheco and Kenneth Lay in the current local export, and what was their direction?",
+        "eval_split": "holdout",
+        "classification": "holdout_only",
+        "benchmark_layer": "holdout_certification",
+        "reusable_in_avl": false,
+        "primitive": "genie_analytics",
+        "architecture_primary": "analytics_sql_genie",
+        "expected_tools": [
+          "query_and_enrich"
+        ],
+        "reference_answer": "In the current local export, 23 emails were exchanged between Leonardo Pacheco and Kenneth Lay, and the direction is one-way: the messages run from Leonardo Pacheco to Kenneth Lay. The supporting examples are EnronOnline executive summaries and management reports, so this dyad represents reporting flow rather than conversational exchange.",
+        "question_bank_ground_truth_sources": [
+          {
+            "type": "communication_dyads",
+            "person_a": "leonardo.pacheco@enron.com",
+            "person_b": "kenneth.lay@enron.com",
+            "total_count": 23,
+            "supports": "Dyad count in the current local export"
+          },
+          {
+            "type": "email",
+            "date": "2000-12-12",
+            "sender": "leonardo.pacheco@enron.com",
+            "subject": "EnronOnline Executive Summary for December 11, 2000",
+            "supports": "Representative summary email flowing from Pacheco to Lay"
+          }
+        ],
+        "canonical_sql": "SELECT\n  'leonardo.pacheco@enron.com' AS entity_a,\n  'kenneth.lay@enron.com' AS entity_b,\n  SUM(CASE\n        WHEN LOWER(person_a) = 'leonardo.pacheco@enron.com'\n         AND LOWER(person_b) = 'kenneth.lay@enron.com'\n        THEN total_count ELSE 0 END) AS sent_a_to_b,\n  SUM(CASE\n        WHEN LOWER(person_a) = 'kenneth.lay@enron.com'\n         AND LOWER(person_b) = 'leonardo.pacheco@enron.com'\n        THEN total_count ELSE 0 END) AS sent_b_to_a,\n  SUM(total_count) AS total_emails\nFROM communication_dyads\nWHERE (LOWER(person_a) = 'leonardo.pacheco@enron.com'\n   AND LOWER(person_b) = 'kenneth.lay@enron.com')\n   OR (LOWER(person_a) = 'kenneth.lay@enron.com'\n   AND LOWER(person_b) = 'leonardo.pacheco@enron.com')",
+        "gold_result": [
+          {
+            "entity_a": "leonardo.pacheco@enron.com",
+            "entity_b": "kenneth.lay@enron.com",
+            "sent_a_to_b": 28.0,
+            "sent_b_to_a": 0.0,
+            "total_emails": 28.0
+          }
+        ],
+        "comparison_mode": "pair_summary",
+        "tolerance": {
+          "mode": "exact",
+          "numeric_delta": 0
+        },
+        "required_instructions": [
+          "Return the total and the traffic direction from the current local export.",
+          "Do not collapse one-way reporting traffic into balanced exchange language."
+        ],
+        "required_sql_capabilities": {
+          "joins": [],
+          "expressions": [
+            "SUM(CASE WHEN ... THEN total_count ELSE 0 END)"
+          ],
+          "functions": []
+        },
+        "likely_failure_modes": [
+          "holdout_overfit_to_prior_snapshot",
+          "one_way_vs_bidirectional_mislabel",
+          "question_bank_snapshot_alignment_regression"
+        ],
+        "question_bank_snapshot_alignment": {
+          "status": "drifted",
+          "details": [
+            {
+              "source": {
+                "type": "communication_dyads",
+                "person_a": "leonardo.pacheco@enron.com",
+                "person_b": "kenneth.lay@enron.com",
+                "total_count": 23,
+                "supports": "Dyad count in the current local export"
+              },
+              "status": "drifted",
+              "expected_total_count": 23,
+              "actual_total_count": 28
+            }
+          ]
+        }
+      },
+      {
+        "question_id": "enron-curated-pacheco-lay-june19-dyad-count",
+        "question_text": "How many direct Pacheco-to-Lay messages are recorded for the week beginning June 19, 2000 in the local communication dyad?",
+        "normalized_question": "How many direct Pacheco-to-Lay messages are recorded for the week beginning June 19, 2000 in the local communication dyad?",
+        "eval_split": "train",
+        "classification": "genie_benchmark_only",
+        "benchmark_layer": "genie_benchmark",
+        "reusable_in_avl": false,
+        "primitive": "genie_analytics",
+        "architecture_primary": "analytics_sql_genie",
+        "expected_tools": [
+          "query_and_enrich"
+        ],
+        "reference_answer": "The local `communication_dyads` table records 2 direct messages in the Leonardo Pacheco -> Kenneth Lay pair for the week beginning June 19, 2000. The row shows `total_count=2` and all of them as direct `to` traffic rather than cc or bcc.",
+        "question_bank_ground_truth_sources": [
+          {
+            "type": "communication_dyads",
+            "person_a": "leonardo.pacheco@enron.com",
+            "person_b": "kenneth.lay@enron.com",
+            "period": "2000-06-19",
+            "total_count": 2,
+            "to_count": 2,
+            "cc_count": 0,
+            "bcc_count": 0,
+            "supports": "Weekly dyad count for the June 19 reporting window"
+          }
+        ],
+        "canonical_sql": "SELECT\n  CAST(period AS DATE) AS period,\n  total_count,\n  to_count,\n  cc_count,\n  bcc_count\nFROM communication_dyads\nWHERE LOWER(person_a) = 'leonardo.pacheco@enron.com'\n  AND LOWER(person_b) = 'kenneth.lay@enron.com'\n  AND CAST(period AS DATE) = DATE '2000-06-19'\nORDER BY period",
+        "gold_result": [
+          {
+            "period": "2000-06-19T00:00:00.000",
+            "total_count": 2,
+            "to_count": 2,
+            "cc_count": 0,
+            "bcc_count": 0
+          }
+        ],
+        "comparison_mode": "weekly_exact",
+        "tolerance": {
+          "mode": "exact",
+          "numeric_delta": 0
+        },
+        "required_instructions": [
+          "Apply the explicit weekly date filter before aggregating the dyad row.",
+          "Preserve to/cc/bcc breakdown in the result set."
+        ],
+        "required_sql_capabilities": {
+          "joins": [],
+          "expressions": [
+            "CAST(period AS DATE)",
+            "exact period filter"
+          ],
+          "functions": []
+        },
+        "likely_failure_modes": [
+          "date_window_ignored",
+          "falls_back_to_all_time_pair_total",
+          "weekly_granularity_missing"
+        ],
+        "question_bank_snapshot_alignment": {
+          "status": "aligned",
+          "details": [
+            {
+              "source": {
+                "type": "communication_dyads",
+                "person_a": "leonardo.pacheco@enron.com",
+                "person_b": "kenneth.lay@enron.com",
+                "period": "2000-06-19",
+                "total_count": 2,
+                "to_count": 2,
+                "cc_count": 0,
+                "bcc_count": 0,
+                "supports": "Weekly dyad count for the June 19 reporting window"
+              },
+              "status": "aligned",
+              "expected_total_count": 2,
+              "actual_total_count": 2
+            }
+          ]
+        }
+      },
+      {
+        "question_id": "enron-curated-pacheco-lay-june26-dyad-count",
+        "question_text": "How many direct Pacheco-to-Lay messages are recorded for the week beginning June 26, 2000 in the local communication dyad?",
+        "normalized_question": "How many direct Pacheco-to-Lay messages are recorded for the week beginning June 26, 2000 in the local communication dyad?",
+        "eval_split": "train",
+        "classification": "genie_benchmark_only",
+        "benchmark_layer": "genie_benchmark",
+        "reusable_in_avl": false,
+        "primitive": "genie_analytics",
+        "architecture_primary": "analytics_sql_genie",
+        "expected_tools": [
+          "query_and_enrich"
+        ],
+        "reference_answer": "The weekly Pacheco-to-Lay dyad row for the period beginning June 26, 2000 shows 3 direct messages. In the local `communication_dyads` table, the pair has `total_count=3`, all of them in the `to_count` column with no cc or bcc traffic.",
+        "question_bank_ground_truth_sources": [
+          {
+            "type": "communication_dyads",
+            "person_a": "leonardo.pacheco@enron.com",
+            "person_b": "kenneth.lay@enron.com",
+            "period": "2000-06-26",
+            "total_count": 3,
+            "to_count": 3,
+            "cc_count": 0,
+            "bcc_count": 0,
+            "supports": "Weekly dyad count for the June 26 reporting window"
+          }
+        ],
+        "canonical_sql": "SELECT\n  CAST(period AS DATE) AS period,\n  total_count,\n  to_count,\n  cc_count,\n  bcc_count\nFROM communication_dyads\nWHERE LOWER(person_a) = 'leonardo.pacheco@enron.com'\n  AND LOWER(person_b) = 'kenneth.lay@enron.com'\n  AND CAST(period AS DATE) = DATE '2000-06-26'\nORDER BY period",
+        "gold_result": [
+          {
+            "period": "2000-06-26T00:00:00.000",
+            "total_count": 3,
+            "to_count": 3,
+            "cc_count": 0,
+            "bcc_count": 0
+          }
+        ],
+        "comparison_mode": "weekly_exact",
+        "tolerance": {
+          "mode": "exact",
+          "numeric_delta": 0
+        },
+        "required_instructions": [
+          "Apply the explicit weekly date filter before aggregating the dyad row.",
+          "Preserve to/cc/bcc breakdown in the result set."
+        ],
+        "required_sql_capabilities": {
+          "joins": [],
+          "expressions": [
+            "CAST(period AS DATE)",
+            "exact period filter"
+          ],
+          "functions": []
+        },
+        "likely_failure_modes": [
+          "date_window_ignored",
+          "falls_back_to_all_time_pair_total",
+          "weekly_granularity_missing"
+        ],
+        "question_bank_snapshot_alignment": {
+          "status": "aligned",
+          "details": [
+            {
+              "source": {
+                "type": "communication_dyads",
+                "person_a": "leonardo.pacheco@enron.com",
+                "person_b": "kenneth.lay@enron.com",
+                "period": "2000-06-26",
+                "total_count": 3,
+                "to_count": 3,
+                "cc_count": 0,
+                "bcc_count": 0,
+                "supports": "Weekly dyad count for the June 26 reporting window"
+              },
+              "status": "aligned",
+              "expected_total_count": 3,
+              "actual_total_count": 3
+            }
+          ]
+        }
+      },
+      {
+        "question_id": "enron-curated-pacheco-lay-december-dyad-comparison",
+        "question_text": "How did the direct Pacheco-to-Lay message count change from the week beginning December 4, 2000 to the week beginning December 11, 2000?",
+        "normalized_question": "How did the direct Pacheco-to-Lay message count change from the week beginning December 4, 2000 to the week beginning December 11, 2000?",
+        "eval_split": "train",
+        "classification": "both",
+        "benchmark_layer": "genie_benchmark",
+        "reusable_in_avl": true,
+        "primitive": "genie_analytics",
+        "architecture_primary": "analytics_sql_genie",
+        "expected_tools": [
+          "query_and_enrich"
+        ],
+        "reference_answer": "The direct Pacheco-to-Lay count rises from 3 messages in the week beginning December 4, 2000 to 8 messages in the week beginning December 11, 2000. Both rows are entirely direct `to` traffic, so the local dyad table shows a 5-message increase in executive reporting volume from the first week to the second.",
+        "question_bank_ground_truth_sources": [
+          {
+            "type": "communication_dyads",
+            "person_a": "leonardo.pacheco@enron.com",
+            "person_b": "kenneth.lay@enron.com",
+            "period": "2000-12-04",
+            "total_count": 3,
+            "to_count": 3,
+            "cc_count": 0,
+            "bcc_count": 0,
+            "supports": "Weekly dyad count for the week beginning December 4, 2000"
+          },
+          {
+            "type": "communication_dyads",
+            "person_a": "leonardo.pacheco@enron.com",
+            "person_b": "kenneth.lay@enron.com",
+            "period": "2000-12-11",
+            "total_count": 8,
+            "to_count": 8,
+            "cc_count": 0,
+            "bcc_count": 0,
+            "supports": "Weekly dyad count for the week beginning December 11, 2000"
+          }
+        ],
+        "canonical_sql": "WITH weekly_counts AS (\n  SELECT\n    CAST(period AS DATE) AS period,\n    total_count,\n    to_count,\n    cc_count,\n    bcc_count\n  FROM communication_dyads\n  WHERE LOWER(person_a) = 'leonardo.pacheco@enron.com'\n    AND LOWER(person_b) = 'kenneth.lay@enron.com'\n    AND CAST(period AS DATE) IN (DATE '2000-12-04', DATE '2000-12-11')\n),\ncomparison AS (\n  SELECT\n    MAX(CASE WHEN period = DATE '2000-12-04' THEN total_count END) AS start_count,\n    MAX(CASE WHEN period = DATE '2000-12-11' THEN total_count END) AS end_count\n  FROM weekly_counts\n)\nSELECT\n  weekly_counts.period,\n  weekly_counts.total_count,\n  weekly_counts.to_count,\n  weekly_counts.cc_count,\n  weekly_counts.bcc_count,\n  comparison.end_count - comparison.start_count AS delta_total_count\nFROM weekly_counts\nCROSS JOIN comparison\nORDER BY weekly_counts.period",
+        "gold_result": [
+          {
+            "period": "2000-12-04T00:00:00.000",
+            "total_count": 3,
+            "to_count": 3,
+            "cc_count": 0,
+            "bcc_count": 0,
+            "delta_total_count": 5
+          },
+          {
+            "period": "2000-12-11T00:00:00.000",
+            "total_count": 8,
+            "to_count": 8,
+            "cc_count": 0,
+            "bcc_count": 0,
+            "delta_total_count": 5
+          }
+        ],
+        "comparison_mode": "period_comparison",
+        "tolerance": {
+          "mode": "exact",
+          "numeric_delta": 0
+        },
+        "required_instructions": [
+          "Return both weekly rows and the delta between them.",
+          "Keep the comparison on the same dyad and the same local export snapshot."
+        ],
+        "required_sql_capabilities": {
+          "joins": [],
+          "expressions": [
+            "WITH",
+            "MAX(CASE WHEN ...)",
+            "delta_total_count"
+          ],
+          "functions": []
+        },
+        "likely_failure_modes": [
+          "date_window_ignored",
+          "comparison_collapsed_to_single_total",
+          "delta_sign_error"
+        ],
+        "question_bank_snapshot_alignment": {
+          "status": "aligned",
+          "details": [
+            {
+              "source": {
+                "type": "communication_dyads",
+                "person_a": "leonardo.pacheco@enron.com",
+                "person_b": "kenneth.lay@enron.com",
+                "period": "2000-12-04",
+                "total_count": 3,
+                "to_count": 3,
+                "cc_count": 0,
+                "bcc_count": 0,
+                "supports": "Weekly dyad count for the week beginning December 4, 2000"
+              },
+              "status": "aligned",
+              "expected_total_count": 3,
+              "actual_total_count": 3
+            },
+            {
+              "source": {
+                "type": "communication_dyads",
+                "person_a": "leonardo.pacheco@enron.com",
+                "person_b": "kenneth.lay@enron.com",
+                "period": "2000-12-11",
+                "total_count": 8,
+                "to_count": 8,
+                "cc_count": 0,
+                "bcc_count": 0,
+                "supports": "Weekly dyad count for the week beginning December 11, 2000"
+              },
+              "status": "aligned",
+              "expected_total_count": 8,
+              "actual_total_count": 8
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "current_local_wrapper_baseline": {
+    "execution_surface": "query_and_enrich_local_sql_fallback",
+    "created_at": "2026-04-04T02:48:35Z",
+    "question_count": 6,
+    "benchmark_pass_rate": 0.5,
+    "sql_correctness": 0.5,
+    "failure_rate": 0.5,
+    "latency_ms": {
+      "p50": 2.837,
+      "p95": 22.51,
+      "max": 27.435
+    },
+    "question_results": [
+      {
+        "question_id": "enron-core-5675612b20",
+        "latency_ms": 27.435,
+        "passed": true,
+        "description": "Email count between Kenneth Lay and Leonardo Pacheco",
+        "observed_sql": "SELECT SUM(CASE WHEN LOWER(person_a) LIKE :a AND LOWER(person_b) LIKE :b THEN total_count ELSE 0 END) AS sent_a_to_b, SUM(CASE WHEN LOWER(person_a) LIKE :b AND LOWER(person_b) LIKE :a THEN total_count ELSE 0 END) AS sent_b_to_a, SUM(total_count) AS total_emails FROM serverless_8e8gyh_catalog.graphrag_enron.communication_dyads WHERE (LOWER(person_a) LIKE :a AND LOWER(person_b) LIKE :b)    OR (LOWER(person_a) LIKE :b AND LOWER(person_b) LIKE :a)",
+        "observed_result": [
+          {
+            "entity_a": "Kenneth Lay",
+            "entity_b": "Leonardo Pacheco",
+            "sent_a_to_b": 0,
+            "sent_b_to_a": 28,
+            "total_emails": 28,
+            "direction_summary": "Leonardo Pacheco \u2192 Kenneth Lay"
+          }
+        ],
+        "comparison": {
+          "passed": true,
+          "expected_summary": {
+            "directional_counts_sorted": [
+              0,
+              28
+            ],
+            "total_emails": 28,
+            "directionality": "one_way"
+          },
+          "observed_summary": {
+            "directional_counts_sorted": [
+              0,
+              28
+            ],
+            "total_emails": 28,
+            "directionality": "one_way"
+          }
+        }
+      },
+      {
+        "question_id": "enron-core-b875644912",
+        "latency_ms": 7.733,
+        "passed": true,
+        "description": "Top contacts for Kenneth Lay",
+        "observed_sql": "SELECT contact_email, SUM(CASE WHEN dir='out' THEN cnt ELSE 0 END) AS sent_to_contact, SUM(CASE WHEN dir='in' THEN cnt ELSE 0 END) AS received_from_contact, SUM(cnt) AS total_emails FROM (  SELECT d.person_b AS contact_email, 'out' AS dir, SUM(d.total_count) AS cnt  FROM serverless_8e8gyh_catalog.graphrag_enron.communication_dyads d WHERE LOWER(d.person_a) LIKE :ep GROUP BY d.person_b  UNION ALL  SELECT d.person_a AS contact_email, 'in' AS dir, SUM(d.total_count) AS cnt  FROM serverless_8e8gyh_catalog.graphrag_enron.communication_dyads d WHERE LOWER(d.person_b) LIKE :ep GROUP BY d.person_a ) combined GROUP BY contact_email ORDER BY total_emails DESC LIMIT 20",
+        "observed_result": [
+          {
+            "contact_email": "leonardo.pacheco@enron.com",
+            "sent_to_contact": 0,
+            "received_from_contact": 28,
+            "total_emails": 28,
+            "exchange_type": "inbound_only"
+          },
+          {
+            "contact_email": "karen.denne@enron.com",
+            "sent_to_contact": 0,
+            "received_from_contact": 12,
+            "total_emails": 12,
+            "exchange_type": "inbound_only"
+          },
+          {
+            "contact_email": "brown_mary_jo@lilly.com",
+            "sent_to_contact": 0,
+            "received_from_contact": 10,
+            "total_emails": 10,
+            "exchange_type": "inbound_only"
+          },
+          {
+            "contact_email": "elizabeth.lay@enron.com",
+            "sent_to_contact": 0,
+            "received_from_contact": 8,
+            "total_emails": 8,
+            "exchange_type": "inbound_only"
+          },
+          {
+            "contact_email": "katherine.brown@enron.com",
+            "sent_to_contact": 0,
+            "received_from_contact": 8,
+            "total_emails": 8,
+            "exchange_type": "inbound_only"
+          },
+          {
+            "contact_email": "kenneth.thibodeaux@enron.com",
+            "sent_to_contact": 0,
+            "received_from_contact": 7,
+            "total_emails": 7,
+            "exchange_type": "inbound_only"
+          },
+          {
+            "contact_email": "rob.bradley@enron.com",
+            "sent_to_contact": 0,
+            "received_from_contact": 7,
+            "total_emails": 7,
+            "exchange_type": "inbound_only"
+          },
+          {
+            "contact_email": "sally.keepers@enron.com",
+            "sent_to_contact": 0,
+            "received_from_contact": 6,
+            "total_emails": 6,
+            "exchange_type": "inbound_only"
+          },
+          {
+            "contact_email": "mmfoss@uh.edu",
+            "sent_to_contact": 0,
+            "received_from_contact": 5,
+            "total_emails": 5,
+            "exchange_type": "inbound_only"
+          },
+          {
+            "contact_email": "outlook.team@enron.com",
+            "sent_to_contact": 0,
+            "received_from_contact": 5,
+            "total_emails": 5,
+            "exchange_type": "inbound_only"
+          },
+          {
+            "contact_email": "shea_dugger@i2.com",
+            "sent_to_contact": 0,
+            "received_from_contact": 5,
+            "total_emails": 5,
+            "exchange_type": "inbound_only"
+          },
+          {
+            "contact_email": "david.delainey@enron.com",
+            "sent_to_contact": 0,
+            "received_from_contact": 4,
+            "total_emails": 4,
+            "exchange_type": "inbound_only"
+          },
+          {
+            "contact_email": "cindy.stark@enron.com",
+            "sent_to_contact": 0,
+            "received_from_contact": 4,
+            "total_emails": 4,
+            "exchange_type": "inbound_only"
+          },
+          {
+            "contact_email": "simone.la@enron.com",
+            "sent_to_contact": 0,
+            "received_from_contact": 4,
+            "total_emails": 4,
+            "exchange_type": "inbound_only"
+          },
+          {
+            "contact_email": "michael.mann@enron.com",
+            "sent_to_contact": 0,
+            "received_from_contact": 4,
+            "total_emails": 4,
+            "exchange_type": "inbound_only"
+          },
+          {
+            "contact_email": "joe.hillings@enron.com",
+            "sent_to_contact": 0,
+            "received_from_contact": 4,
+            "total_emails": 4,
+            "exchange_type": "inbound_only"
+          },
+          {
+            "contact_email": "terrie.james@enron.com",
+            "sent_to_contact": 0,
+            "received_from_contact": 3,
+            "total_emails": 3,
+            "exchange_type": "inbound_only"
+          },
+          {
+            "contact_email": "mtelle@velaw.com",
+            "sent_to_contact": 0,
+            "received_from_contact": 3,
+            "total_emails": 3,
+            "exchange_type": "inbound_only"
+          },
+          {
+            "contact_email": "scott.vonderheide@enron.com",
+            "sent_to_contact": 0,
+            "received_from_contact": 3,
+            "total_emails": 3,
+            "exchange_type": "inbound_only"
+          },
+          {
+            "contact_email": "christie.patrick@enron.com",
+            "sent_to_contact": 0,
+            "received_from_contact": 3,
+            "total_emails": 3,
+            "exchange_type": "inbound_only"
+          }
+        ],
+        "comparison": {
+          "passed": true,
+          "expected_summary": {
+            "contact_email": "leonardo.pacheco@enron.com",
+            "total_emails": 28,
+            "exchange_type": "inbound_only"
+          },
+          "observed_summary": {
+            "contact_email": "leonardo.pacheco@enron.com",
+            "total_emails": 28,
+            "exchange_type": "inbound_only"
+          }
+        }
+      },
+      {
+        "question_id": "enron-curated-pacheco-lay-summary-count",
+        "latency_ms": 5.646,
+        "passed": true,
+        "description": "Email count between Leonardo Pacheco and Kenneth Lay",
+        "observed_sql": "SELECT SUM(CASE WHEN LOWER(person_a) LIKE :a AND LOWER(person_b) LIKE :b THEN total_count ELSE 0 END) AS sent_a_to_b, SUM(CASE WHEN LOWER(person_a) LIKE :b AND LOWER(person_b) LIKE :a THEN total_count ELSE 0 END) AS sent_b_to_a, SUM(total_count) AS total_emails FROM serverless_8e8gyh_catalog.graphrag_enron.communication_dyads WHERE (LOWER(person_a) LIKE :a AND LOWER(person_b) LIKE :b)    OR (LOWER(person_a) LIKE :b AND LOWER(person_b) LIKE :a)",
+        "observed_result": [
+          {
+            "entity_a": "Leonardo Pacheco",
+            "entity_b": "Kenneth Lay",
+            "sent_a_to_b": 28,
+            "sent_b_to_a": 0,
+            "total_emails": 28,
+            "direction_summary": "Leonardo Pacheco \u2192 Kenneth Lay"
+          }
+        ],
+        "comparison": {
+          "passed": true,
+          "expected_summary": {
+            "directional_counts_sorted": [
+              0,
+              28
+            ],
+            "total_emails": 28,
+            "directionality": "one_way"
+          },
+          "observed_summary": {
+            "directional_counts_sorted": [
+              0,
+              28
+            ],
+            "total_emails": 28,
+            "directionality": "one_way"
+          }
+        }
+      },
+      {
+        "question_id": "enron-curated-pacheco-lay-june19-dyad-count",
+        "latency_ms": 0.028,
+        "passed": false,
+        "description": null,
+        "observed_sql": null,
+        "observed_result": null,
+        "comparison": {
+          "passed": false,
+          "expected_summary": {
+            "period": "2000-06-19T00:00:00.000",
+            "total_count": 2,
+            "to_count": 2,
+            "cc_count": 0,
+            "bcc_count": 0
+          },
+          "observed_summary": {}
+        }
+      },
+      {
+        "question_id": "enron-curated-pacheco-lay-june26-dyad-count",
+        "latency_ms": 0.018,
+        "passed": false,
+        "description": null,
+        "observed_sql": null,
+        "observed_result": null,
+        "comparison": {
+          "passed": false,
+          "expected_summary": {
+            "period": "2000-06-26T00:00:00.000",
+            "total_count": 3,
+            "to_count": 3,
+            "cc_count": 0,
+            "bcc_count": 0
+          },
+          "observed_summary": {}
+        }
+      },
+      {
+        "question_id": "enron-curated-pacheco-lay-december-dyad-comparison",
+        "latency_ms": 0.015,
+        "passed": false,
+        "description": null,
+        "observed_sql": null,
+        "observed_result": null,
+        "comparison": {
+          "passed": false,
+          "expected_summary": {
+            "2000-12-04": {
+              "period": "2000-12-04T00:00:00.000",
+              "total_count": 3,
+              "to_count": 3,
+              "cc_count": 0,
+              "bcc_count": 0,
+              "delta_total_count": 5
+            },
+            "2000-12-11": {
+              "period": "2000-12-11T00:00:00.000",
+              "total_count": 8,
+              "to_count": 8,
+              "cc_count": 0,
+              "bcc_count": 0,
+              "delta_total_count": 5
+            }
+          },
+          "observed_summary": {}
+        }
+      }
+    ],
+    "notes": [
+      "This baseline measures the current local SQL-fallback wrapper, not the full routed agent.",
+      "Route-level metrics still require MLflow-evaluated end-to-end runs over the frozen benchmark subset."
+    ]
+  },
+  "wave1_migration": {
+    "title": "Iteration 1 - low-risk/high-value Genie moves",
+    "scope": {
+      "tools": [
+        "get_top_email_pairs",
+        "get_top_individuals",
+        "detect_self_emails"
+      ],
+      "classification": "migrate_to_genie_now"
+    },
+    "wrapper_contract": {
+      "surface": "preserve current tool names while moving analytical SQL behind governed semantic-layer execution",
+      "fallback_order": [
+        "local_duckdb_sql",
+        "databricks_sql_semantic_layer",
+        "lakebase_sql_parity_check",
+        "explicit_abstention_on_unexplained_drift"
+      ]
+    },
+    "success_metrics": {
+      "sql_correctness_min": 0.95,
+      "tool_selection_correctness_min": 0.95,
+      "targeted_slice_accuracy_lift_pp": 5,
+      "canonical_regression_max_drop_pp": 1
+    },
+    "rollback_triggers": [
+      "unexplained_count_drift_vs_duckdb_or_lakebase",
+      "two_consecutive_red_scorecards_on_quantitative_slice",
+      "p95_latency_regression_gt_20pct_without_quality_gain"
+    ],
+    "dependencies": [
+      "stable metric-view definitions in src/runtime/analytics_sql.py",
+      "exact-answer benchmark goldens in the generated Genie baseline bundle",
+      "route-level tests before expanding beyond the first wave"
+    ]
+  },
+  "hybrid_wrapper_contract": {
+    "title": "Hybrid analytics wrapper contract",
+    "scope": {
+      "tools": [
+        "query_and_enrich",
+        "find_top_contacts",
+        "get_dyad_topics",
+        "get_external_contacts",
+        "get_communication_stats",
+        "get_topic_distribution",
+        "get_communication_timeline",
+        "find_emails",
+        "get_emails_between",
+        "browse_topics"
+      ],
+      "classification": "hybridize"
+    },
+    "required_sequence": [
+      "local_entity_resolution",
+      "local_duckdb_or_lakebase_sql",
+      "genie_or_databricks_sql_semantic_layer",
+      "duckdb_or_lakebase_evidence_enrichment",
+      "deterministic_abstention_on_missing_or_conflicting_evidence"
+    ],
+    "contract": {
+      "request_shape": {
+        "question": "string",
+        "resolved_entities": [
+          "canonical names and email patterns"
+        ],
+        "time_window": "optional normalized range",
+        "analytics_intent": "count|ranking|distribution|timeline|listing"
+      },
+      "response_shape": {
+        "analytics_result": "deterministic SQL or Genie payload",
+        "enrichment": "role, entity, data quality, and coverage annotations",
+        "fallback_used": "bool",
+        "fallback_reason": "string|null",
+        "evidence_ready": "bool"
+      },
+      "non_goals": [
+        "Genie-driven vector retrieval",
+        "Genie-driven entity resolution",
+        "Genie-driven provenance synthesis"
+      ]
+    },
+    "success_metrics": {
+      "sql_correctness_min": 0.9,
+      "tool_selection_correctness_lift_pp": 5,
+      "p95_latency_budget_multiplier": 1.15,
+      "wrong_entity_rate_max": 0.05
+    },
+    "rollback_triggers": [
+      "wrong_entity_rate_gt_0.05",
+      "date_window_failures_persist_for_two_iterations",
+      "hybrid_complexity_increases_without_benchmark_lift"
+    ]
+  },
+  "adr_log": [
+    {
+      "id": "ADR-01",
+      "title": "Keep governed question bank as the single evaluation SSOT",
+      "status": "adopted",
+      "context": "The repo already centralizes question curation and governed exports in src/evaluation/question_bank.py.",
+      "options_considered": [
+        "Create a separate Genie-only benchmark store",
+        "Extend the governed question bank with Genie benchmark metadata"
+      ],
+      "decision": "Extend the governed question bank and freeze a derived Genie benchmark subset from it.",
+      "rationale": "Avoids dataset drift and preserves one promotion path across regression, AVL, benchmark, and holdout layers.",
+      "trade_offs": [
+        "Question metadata grows richer",
+        "Some benchmark-specific fields live outside the core bank as derived artifacts"
+      ],
+      "risks": [
+        "Metadata sprawl",
+        "Snapshot drift between reference answers and current local exports"
+      ],
+      "mitigations": [
+        "Keep the benchmark as a generated derivative",
+        "Track question-bank vs snapshot alignment explicitly"
+      ],
+      "validation_metrics": [
+        "coverage_cell_completeness",
+        "promotion_latency",
+        "regression_stability"
+      ],
+      "rollback_conditions": [
+        "The governed bank cannot express benchmark metadata without repeated manual duplication"
+      ],
+      "superseding_evidence_trigger": "Repeated evidence that a separate benchmark registry is materially simpler without introducing drift."
+    },
+    {
+      "id": "ADR-02",
+      "title": "Migrate only the analytics_sql_genie slice first",
+      "status": "adopted",
+      "context": "Genie is strongest for benchmarkable analytical SQL and weakest for graph, evidence, and vector-heavy flows.",
+      "options_considered": [
+        "Broad Genie migration across graph and evidence tools",
+        "No Genie migration",
+        "Narrow quantitative migration first"
+      ],
+      "decision": "Advance the governed quantitative slice first, then require benchmark evidence before expanding.",
+      "rationale": "This is the smallest valuable, reversible migration boundary already represented in the question bank.",
+      "trade_offs": [
+        "The architecture stays hybrid longer",
+        "Some analytics remain on DuckDB/Lakebase while Genie matures"
+      ],
+      "risks": [
+        "Partial complexity",
+        "Benchmark vanity wins without broader trust improvements"
+      ],
+      "mitigations": [
+        "Layered evaluation gates",
+        "Holdout protection",
+        "Rollback thresholds"
+      ],
+      "validation_metrics": [
+        "sql_correctness",
+        "benchmark_pass_rate",
+        "canonical_regression_delta"
+      ],
+      "rollback_conditions": [
+        "Quantitative slice fails to improve or preserve trust metrics"
+      ],
+      "superseding_evidence_trigger": "A shadow benchmark shows another tool family clearly outperforms the quantitative slice as the first migration target."
+    },
+    {
+      "id": "ADR-03",
+      "title": "Use hybrid wrappers for entity-resolved analytics",
+      "status": "adopted",
+      "context": "Several analytical tools are SQL-native but depend on entity resolution, directional semantics, and evidence packaging.",
+      "options_considered": [
+        "Pure Genie rewrite",
+        "Keep the full path on DuckDB/Lakebase",
+        "Use a hybrid wrapper with local resolution and governed SQL execution"
+      ],
+      "decision": "Keep entity resolution and evidence packaging outside Genie while letting Genie or Databricks SQL handle the analytical core.",
+      "rationale": "Separates deterministic correctness work from SQL natural-language generation.",
+      "trade_offs": [
+        "One extra orchestration layer",
+        "Wrapper behavior must stay stable across backends"
+      ],
+      "risks": [
+        "Wrapper sprawl",
+        "Latency creep"
+      ],
+      "mitigations": [
+        "Standardized wrapper contract",
+        "Exact benchmark rows with failure-mode tags"
+      ],
+      "validation_metrics": [
+        "wrong_entity_rate",
+        "tool_selection_correctness",
+        "latency_p95"
+      ],
+      "rollback_conditions": [
+        "Wrapper complexity grows without measurable benchmark lift"
+      ],
+      "superseding_evidence_trigger": "Genie reliably absorbs entity resolution without regressions on benchmark or adversarial slices."
+    },
+    {
+      "id": "ADR-04",
+      "title": "Preserve DuckDB as local-fast reference and Lakebase as governed remote reference",
+      "status": "adopted",
+      "context": "The project already depends on local-fast iteration and governed production-style SQL access.",
+      "options_considered": [
+        "Genie-first development loop",
+        "DuckDB and Lakebase as reference layers"
+      ],
+      "decision": "Use local DuckDB for benchmark authoring and Lakebase/Databricks SQL for governed parity and remote validation.",
+      "rationale": "Maintains fast iteration while keeping production-style SQL as a stable reference.",
+      "trade_offs": [
+        "Multiple backends stay active",
+        "Parity work remains necessary"
+      ],
+      "risks": [
+        "Snapshot drift",
+        "Default-env ambiguity"
+      ],
+      "mitigations": [
+        "Explicit backend manifests",
+        "Pinned envs for every benchmark run"
+      ],
+      "validation_metrics": [
+        "duckdb_lakebase_parity",
+        "local_iteration_latency",
+        "benchmark_reproducibility"
+      ],
+      "rollback_conditions": [
+        "Parity becomes operationally unmanageable"
+      ],
+      "superseding_evidence_trigger": "A unified local semantic-layer emulator proves reliable enough to replace the current dual-reference model."
+    },
+    {
+      "id": "ADR-05",
+      "title": "Keep graph, vector, evidence, and provenance tools off Genie until evidence says otherwise",
+      "status": "adopted",
+      "context": "Current graph, evidence, and provenance tools are specialized and governed by deterministic retrieval quality.",
+      "options_considered": [
+        "Expand Genie into graph and evidence lanes now",
+        "Keep specialized lanes separate"
+      ],
+      "decision": "Keep those lanes on DuckDB/Lakebase or their specialized backends until a dedicated pilot proves a win.",
+      "rationale": "Protects graph semantics and evidence-grounding quality.",
+      "trade_offs": [
+        "The target state is intentionally not fully uniform"
+      ],
+      "risks": [
+        "Architecture may look less pure"
+      ],
+      "mitigations": [
+        "Document clear layer boundaries",
+        "Use targeted scorecards per lane"
+      ],
+      "validation_metrics": [
+        "path_fidelity",
+        "retrieval_grounding",
+        "provenance_honesty"
+      ],
+      "rollback_conditions": [
+        "Not applicable until a dedicated pilot exists"
+      ],
+      "superseding_evidence_trigger": "A controlled shadow benchmark shows a clear gain with zero trust loss."
+    },
+    {
+      "id": "ADR-06",
+      "title": "Certify every migration with layered evaluation and holdout gates",
+      "status": "adopted",
+      "context": "The repo already has regression, adversarial, SQL-first, and improvement-loop assets.",
+      "options_considered": [
+        "Benchmark-only gating",
+        "Layered gating across regression, adversarial, Genie benchmark, and holdout"
+      ],
+      "decision": "Use all four evaluation layers for promotion, pause, and rollback decisions.",
+      "rationale": "Prevents benchmark overfitting and protects non-Genie behavior.",
+      "trade_offs": [
+        "More evaluation work per iteration"
+      ],
+      "risks": [
+        "Longer promotion cycles"
+      ],
+      "mitigations": [
+        "Start with a small governed Genie subset",
+        "Automate artifact generation"
+      ],
+      "validation_metrics": [
+        "green_scorecard_across_all_layers"
+      ],
+      "rollback_conditions": [
+        "Holdout or AVL turns red while benchmark stays green"
+      ],
+      "superseding_evidence_trigger": "None expected."
+    },
+    {
+      "id": "ADR-07",
+      "title": "Normalize backend defaults before comparing architectures",
+      "status": "adopted",
+      "context": "Runtime config defaults to local while agent_serving defaults to lakebase.",
+      "options_considered": [
+        "Ignore the mismatch",
+        "Document and pin benchmark envs",
+        "Unify defaults immediately before baselineing"
+      ],
+      "decision": "Record the mismatch in the SSOT manifest and pin benchmark environments explicitly in every run.",
+      "rationale": "Avoids false wins or losses caused by implicit backend selection.",
+      "trade_offs": [
+        "Slightly more setup per run"
+      ],
+      "risks": [
+        "Silent drift if env pinning is skipped"
+      ],
+      "mitigations": [
+        "Freeze the backend manifest",
+        "Make env pinning part of the baseline artifact"
+      ],
+      "validation_metrics": [
+        "benchmark_reproducibility",
+        "backend_manifest_consistency"
+      ],
+      "rollback_conditions": [
+        "Not applicable until defaults are unified in code"
+      ],
+      "superseding_evidence_trigger": "The backend defaults are unified across runtime and agent surfaces."
+    }
+  ],
+  "iteration_scorecard": {
+    "title": "Genie migration iteration scorecard",
+    "gating_policy": {
+      "continue": "two consecutive green iterations",
+      "expand": "green on benchmark, regression, AVL, and holdout layers",
+      "pause": "plateau below 2pp over two iterations or maintainability worsens",
+      "rollback": "any red trust metric, >2pp canonical regression, >5% hard-failure rate, or >20% latency regression without compensating gains"
+    },
+    "metrics": [
+      {
+        "name": "answer_accuracy",
+        "baseline": "iteration0_measurement_pending",
+        "target": "+3pp overall or +5pp on the targeted slice with no non-target regression >1pp",
+        "measurement_method": "MLflow correctness-family scorer means on the promoted slice and canonical regression set",
+        "data_source": "mlflow.genai.evaluate results for canonical regression and benchmark slices",
+        "green": "meets target",
+        "yellow": "within 1pp of baseline",
+        "red": "below baseline or cross-slice regression >1pp"
+      },
+      {
+        "name": "evidence_grounding",
+        "baseline": "iteration0_measurement_pending",
+        "target": "+5pp on migrated slice with zero fabricated evidence",
+        "measurement_method": "grounding, citation, and provenance scorer means",
+        "data_source": "enron evaluation scorers and factual quality metrics",
+        "green": "target met with zero critical fabrications",
+        "yellow": "flat to +4pp",
+        "red": "any trust regression or evidence fabrication"
+      },
+      {
+        "name": "tool_selection_correctness",
+        "baseline": "iteration0_measurement_pending",
+        "target": ">=0.95 on benchmark and +5pp on migrated routes",
+        "measurement_method": "actual tool calls vs expected_tools",
+        "data_source": "runtime traces and governed question metadata",
+        "green": ">=0.95",
+        "yellow": "0.90-0.949",
+        "red": "<0.90"
+      },
+      {
+        "name": "sql_correctness",
+        "baseline": "measured_on_local_query_and_enrich",
+        "target": ">=0.95 for Genie-native tools and >=0.90 for hybrid tools",
+        "measurement_method": "exact result or tolerance match against local DuckDB benchmark goldens",
+        "data_source": "generated Genie benchmark bundle",
+        "green": "meets target",
+        "yellow": "0.90-0.949 for Genie-native tools",
+        "red": "<0.90 for Genie-native tools"
+      },
+      {
+        "name": "benchmark_pass_rate",
+        "baseline": "measured_on_local_query_and_enrich",
+        "target": ">=0.90",
+        "measurement_method": "fraction of benchmark questions passing route/result checks",
+        "data_source": "generated Genie benchmark bundle",
+        "green": ">=0.90",
+        "yellow": "0.80-0.899",
+        "red": "<0.80"
+      },
+      {
+        "name": "latency",
+        "baseline": "measured_on_local_query_and_enrich",
+        "target": "p95 not worse than baseline for pure Genie and not worse than +10-15% for hybrid",
+        "measurement_method": "wall-clock latency per benchmark case",
+        "data_source": "generated Genie benchmark bundle",
+        "green": "within target",
+        "yellow": "+10-20%",
+        "red": ">20%"
+      },
+      {
+        "name": "failure_rate",
+        "baseline": "measured_on_local_query_and_enrich",
+        "target": "<0.02 and no increase vs baseline",
+        "measurement_method": "failed or empty responses divided by total benchmark questions",
+        "data_source": "generated Genie benchmark bundle",
+        "green": "<0.02",
+        "yellow": "0.02-0.05",
+        "red": ">0.05"
+      },
+      {
+        "name": "cost",
+        "baseline": "iteration0_measurement_pending",
+        "target": "<=+10% unless quality improves materially",
+        "measurement_method": "token and SQL execution cost per question",
+        "data_source": "MLflow traces and Databricks query metrics",
+        "green": "<=+10%",
+        "yellow": "+10-20%",
+        "red": ">20% without quality gain"
+      },
+      {
+        "name": "maintainability",
+        "baseline": "iteration0_snapshot",
+        "target": "20% reduction in duplicate analytics logic and smaller change surface",
+        "measurement_method": "code inventory and files touched per analytics change",
+        "data_source": "repo source and review stats",
+        "green": "improved",
+        "yellow": "flat",
+        "red": "worse by >10%"
+      },
+      {
+        "name": "developer_effort",
+        "baseline": "iteration0_measurement_pending",
+        "target": "25% reduction in median time to passing validation",
+        "measurement_method": "cycle time and rework count",
+        "data_source": "session logs and benchmark history",
+        "green": "target met",
+        "yellow": "flat",
+        "red": "slower by >10%"
+      },
+      {
+        "name": "governance_trust_fit",
+        "baseline": "iteration0_measurement_pending",
+        "target": "no regression and zero policy leaks",
+        "measurement_method": "weighted trust composite over grounding, citation, provenance, and access control",
+        "data_source": "enron evaluation, bible governance, and ABAC slices",
+        "green": "flat or better with zero critical violations",
+        "yellow": "minor non-critical dip <=1pp",
+        "red": "any policy leak or trust regression >1pp"
+      },
+      {
+        "name": "adversarial_robustness",
+        "baseline": "iteration0_measurement_pending",
+        "target": "+5pp on escalated slices and zero critical fabrication failures",
+        "measurement_method": "adversarial scorer means and critical fail counts",
+        "data_source": "adversarial evaluation pipeline",
+        "green": "target met",
+        "yellow": "partial improvement",
+        "red": "any critical fail or no improvement over two iterations"
+      }
+    ],
+    "baseline_measurements": {
+      "execution_surface": "query_and_enrich_local_sql_fallback",
+      "created_at": "2026-04-04T02:48:35Z",
+      "question_count": 6,
+      "benchmark_pass_rate": 0.5,
+      "sql_correctness": 0.5,
+      "failure_rate": 0.5,
+      "latency_ms": {
+        "p50": 2.837,
+        "p95": 22.51,
+        "max": 27.435
+      },
+      "question_results": [
+        {
+          "question_id": "enron-core-5675612b20",
+          "latency_ms": 27.435,
+          "passed": true,
+          "description": "Email count between Kenneth Lay and Leonardo Pacheco",
+          "observed_sql": "SELECT SUM(CASE WHEN LOWER(person_a) LIKE :a AND LOWER(person_b) LIKE :b THEN total_count ELSE 0 END) AS sent_a_to_b, SUM(CASE WHEN LOWER(person_a) LIKE :b AND LOWER(person_b) LIKE :a THEN total_count ELSE 0 END) AS sent_b_to_a, SUM(total_count) AS total_emails FROM serverless_8e8gyh_catalog.graphrag_enron.communication_dyads WHERE (LOWER(person_a) LIKE :a AND LOWER(person_b) LIKE :b)    OR (LOWER(person_a) LIKE :b AND LOWER(person_b) LIKE :a)",
+          "observed_result": [
+            {
+              "entity_a": "Kenneth Lay",
+              "entity_b": "Leonardo Pacheco",
+              "sent_a_to_b": 0,
+              "sent_b_to_a": 28,
+              "total_emails": 28,
+              "direction_summary": "Leonardo Pacheco \u2192 Kenneth Lay"
+            }
+          ],
+          "comparison": {
+            "passed": true,
+            "expected_summary": {
+              "directional_counts_sorted": [
+                0,
+                28
+              ],
+              "total_emails": 28,
+              "directionality": "one_way"
+            },
+            "observed_summary": {
+              "directional_counts_sorted": [
+                0,
+                28
+              ],
+              "total_emails": 28,
+              "directionality": "one_way"
+            }
+          }
+        },
+        {
+          "question_id": "enron-core-b875644912",
+          "latency_ms": 7.733,
+          "passed": true,
+          "description": "Top contacts for Kenneth Lay",
+          "observed_sql": "SELECT contact_email, SUM(CASE WHEN dir='out' THEN cnt ELSE 0 END) AS sent_to_contact, SUM(CASE WHEN dir='in' THEN cnt ELSE 0 END) AS received_from_contact, SUM(cnt) AS total_emails FROM (  SELECT d.person_b AS contact_email, 'out' AS dir, SUM(d.total_count) AS cnt  FROM serverless_8e8gyh_catalog.graphrag_enron.communication_dyads d WHERE LOWER(d.person_a) LIKE :ep GROUP BY d.person_b  UNION ALL  SELECT d.person_a AS contact_email, 'in' AS dir, SUM(d.total_count) AS cnt  FROM serverless_8e8gyh_catalog.graphrag_enron.communication_dyads d WHERE LOWER(d.person_b) LIKE :ep GROUP BY d.person_a ) combined GROUP BY contact_email ORDER BY total_emails DESC LIMIT 20",
+          "observed_result": [
+            {
+              "contact_email": "leonardo.pacheco@enron.com",
+              "sent_to_contact": 0,
+              "received_from_contact": 28,
+              "total_emails": 28,
+              "exchange_type": "inbound_only"
+            },
+            {
+              "contact_email": "karen.denne@enron.com",
+              "sent_to_contact": 0,
+              "received_from_contact": 12,
+              "total_emails": 12,
+              "exchange_type": "inbound_only"
+            },
+            {
+              "contact_email": "brown_mary_jo@lilly.com",
+              "sent_to_contact": 0,
+              "received_from_contact": 10,
+              "total_emails": 10,
+              "exchange_type": "inbound_only"
+            },
+            {
+              "contact_email": "elizabeth.lay@enron.com",
+              "sent_to_contact": 0,
+              "received_from_contact": 8,
+              "total_emails": 8,
+              "exchange_type": "inbound_only"
+            },
+            {
+              "contact_email": "katherine.brown@enron.com",
+              "sent_to_contact": 0,
+              "received_from_contact": 8,
+              "total_emails": 8,
+              "exchange_type": "inbound_only"
+            },
+            {
+              "contact_email": "kenneth.thibodeaux@enron.com",
+              "sent_to_contact": 0,
+              "received_from_contact": 7,
+              "total_emails": 7,
+              "exchange_type": "inbound_only"
+            },
+            {
+              "contact_email": "rob.bradley@enron.com",
+              "sent_to_contact": 0,
+              "received_from_contact": 7,
+              "total_emails": 7,
+              "exchange_type": "inbound_only"
+            },
+            {
+              "contact_email": "sally.keepers@enron.com",
+              "sent_to_contact": 0,
+              "received_from_contact": 6,
+              "total_emails": 6,
+              "exchange_type": "inbound_only"
+            },
+            {
+              "contact_email": "mmfoss@uh.edu",
+              "sent_to_contact": 0,
+              "received_from_contact": 5,
+              "total_emails": 5,
+              "exchange_type": "inbound_only"
+            },
+            {
+              "contact_email": "outlook.team@enron.com",
+              "sent_to_contact": 0,
+              "received_from_contact": 5,
+              "total_emails": 5,
+              "exchange_type": "inbound_only"
+            },
+            {
+              "contact_email": "shea_dugger@i2.com",
+              "sent_to_contact": 0,
+              "received_from_contact": 5,
+              "total_emails": 5,
+              "exchange_type": "inbound_only"
+            },
+            {
+              "contact_email": "david.delainey@enron.com",
+              "sent_to_contact": 0,
+              "received_from_contact": 4,
+              "total_emails": 4,
+              "exchange_type": "inbound_only"
+            },
+            {
+              "contact_email": "cindy.stark@enron.com",
+              "sent_to_contact": 0,
+              "received_from_contact": 4,
+              "total_emails": 4,
+              "exchange_type": "inbound_only"
+            },
+            {
+              "contact_email": "simone.la@enron.com",
+              "sent_to_contact": 0,
+              "received_from_contact": 4,
+              "total_emails": 4,
+              "exchange_type": "inbound_only"
+            },
+            {
+              "contact_email": "michael.mann@enron.com",
+              "sent_to_contact": 0,
+              "received_from_contact": 4,
+              "total_emails": 4,
+              "exchange_type": "inbound_only"
+            },
+            {
+              "contact_email": "joe.hillings@enron.com",
+              "sent_to_contact": 0,
+              "received_from_contact": 4,
+              "total_emails": 4,
+              "exchange_type": "inbound_only"
+            },
+            {
+              "contact_email": "terrie.james@enron.com",
+              "sent_to_contact": 0,
+              "received_from_contact": 3,
+              "total_emails": 3,
+              "exchange_type": "inbound_only"
+            },
+            {
+              "contact_email": "mtelle@velaw.com",
+              "sent_to_contact": 0,
+              "received_from_contact": 3,
+              "total_emails": 3,
+              "exchange_type": "inbound_only"
+            },
+            {
+              "contact_email": "scott.vonderheide@enron.com",
+              "sent_to_contact": 0,
+              "received_from_contact": 3,
+              "total_emails": 3,
+              "exchange_type": "inbound_only"
+            },
+            {
+              "contact_email": "christie.patrick@enron.com",
+              "sent_to_contact": 0,
+              "received_from_contact": 3,
+              "total_emails": 3,
+              "exchange_type": "inbound_only"
+            }
+          ],
+          "comparison": {
+            "passed": true,
+            "expected_summary": {
+              "contact_email": "leonardo.pacheco@enron.com",
+              "total_emails": 28,
+              "exchange_type": "inbound_only"
+            },
+            "observed_summary": {
+              "contact_email": "leonardo.pacheco@enron.com",
+              "total_emails": 28,
+              "exchange_type": "inbound_only"
+            }
+          }
+        },
+        {
+          "question_id": "enron-curated-pacheco-lay-summary-count",
+          "latency_ms": 5.646,
+          "passed": true,
+          "description": "Email count between Leonardo Pacheco and Kenneth Lay",
+          "observed_sql": "SELECT SUM(CASE WHEN LOWER(person_a) LIKE :a AND LOWER(person_b) LIKE :b THEN total_count ELSE 0 END) AS sent_a_to_b, SUM(CASE WHEN LOWER(person_a) LIKE :b AND LOWER(person_b) LIKE :a THEN total_count ELSE 0 END) AS sent_b_to_a, SUM(total_count) AS total_emails FROM serverless_8e8gyh_catalog.graphrag_enron.communication_dyads WHERE (LOWER(person_a) LIKE :a AND LOWER(person_b) LIKE :b)    OR (LOWER(person_a) LIKE :b AND LOWER(person_b) LIKE :a)",
+          "observed_result": [
+            {
+              "entity_a": "Leonardo Pacheco",
+              "entity_b": "Kenneth Lay",
+              "sent_a_to_b": 28,
+              "sent_b_to_a": 0,
+              "total_emails": 28,
+              "direction_summary": "Leonardo Pacheco \u2192 Kenneth Lay"
+            }
+          ],
+          "comparison": {
+            "passed": true,
+            "expected_summary": {
+              "directional_counts_sorted": [
+                0,
+                28
+              ],
+              "total_emails": 28,
+              "directionality": "one_way"
+            },
+            "observed_summary": {
+              "directional_counts_sorted": [
+                0,
+                28
+              ],
+              "total_emails": 28,
+              "directionality": "one_way"
+            }
+          }
+        },
+        {
+          "question_id": "enron-curated-pacheco-lay-june19-dyad-count",
+          "latency_ms": 0.028,
+          "passed": false,
+          "description": null,
+          "observed_sql": null,
+          "observed_result": null,
+          "comparison": {
+            "passed": false,
+            "expected_summary": {
+              "period": "2000-06-19T00:00:00.000",
+              "total_count": 2,
+              "to_count": 2,
+              "cc_count": 0,
+              "bcc_count": 0
+            },
+            "observed_summary": {}
+          }
+        },
+        {
+          "question_id": "enron-curated-pacheco-lay-june26-dyad-count",
+          "latency_ms": 0.018,
+          "passed": false,
+          "description": null,
+          "observed_sql": null,
+          "observed_result": null,
+          "comparison": {
+            "passed": false,
+            "expected_summary": {
+              "period": "2000-06-26T00:00:00.000",
+              "total_count": 3,
+              "to_count": 3,
+              "cc_count": 0,
+              "bcc_count": 0
+            },
+            "observed_summary": {}
+          }
+        },
+        {
+          "question_id": "enron-curated-pacheco-lay-december-dyad-comparison",
+          "latency_ms": 0.015,
+          "passed": false,
+          "description": null,
+          "observed_sql": null,
+          "observed_result": null,
+          "comparison": {
+            "passed": false,
+            "expected_summary": {
+              "2000-12-04": {
+                "period": "2000-12-04T00:00:00.000",
+                "total_count": 3,
+                "to_count": 3,
+                "cc_count": 0,
+                "bcc_count": 0,
+                "delta_total_count": 5
+              },
+              "2000-12-11": {
+                "period": "2000-12-11T00:00:00.000",
+                "total_count": 8,
+                "to_count": 8,
+                "cc_count": 0,
+                "bcc_count": 0,
+                "delta_total_count": 5
+              }
+            },
+            "observed_summary": {}
+          }
+        }
+      ],
+      "notes": [
+        "This baseline measures the current local SQL-fallback wrapper, not the full routed agent.",
+        "Route-level metrics still require MLflow-evaluated end-to-end runs over the frozen benchmark subset."
+      ]
+    }
+  }
+}
