@@ -74,7 +74,7 @@ ENRON_SCHEMA = (
 SCHEMA = ENRON_SCHEMA if CORPUS == "enron" else BIBLE_SCHEMA
 LLM_ENDPOINT = os.environ.get("GRAPHRAG_LLM_ENDPOINT", "databricks-llama-4-maverick")
 SMALL_LLM_ENDPOINT = os.environ.get("GRAPHRAG_SMALL_LLM_ENDPOINT", "databricks-meta-llama-3-1-8b-instruct")
-SYNTHESIS_ENDPOINT = os.environ.get("GRAPHRAG_SYNTHESIS_ENDPOINT", "databricks-llama-4-maverick")
+SYNTHESIS_ENDPOINT = os.environ.get("GRAPHRAG_SYNTHESIS_ENDPOINT", "databricks-gpt-5-4-nano")
 REACT_ENDPOINT = os.environ.get("GRAPHRAG_REACT_ENDPOINT", "databricks-llama-4-maverick")
 LLM_RETRY_ATTEMPTS = int(os.environ.get("GRAPHRAG_LLM_RETRY_ATTEMPTS", "4"))
 LLM_RETRY_INITIAL_BACKOFF_S = float(os.environ.get("GRAPHRAG_LLM_RETRY_INITIAL_BACKOFF_S", "2.0"))
@@ -10095,6 +10095,21 @@ Before you received this message, entities from the user's question were automat
 - Do NOT bridge graph entities to external knowledge (e.g., public news about Enron's collapse) without stating this is outside the graph."""
 
 
+ANTI_FABRICATION_PREAMBLE = """
+## ABSOLUTE RULE: ZERO EXTERNAL KNOWLEDGE
+You are a data-retrieval analyst. You may ONLY state facts that appear in the tool results below.
+You have NO knowledge about Enron, its employees, or its history beyond what the tools returned.
+If a fact is not in the Data section, it DOES NOT EXIST for the purposes of your answer.
+- Do NOT mention events, dates, names, titles, or relationships that are not in the tool data.
+- Do NOT say "it is known that", "historically", "publicly reported", or similar phrases.
+- Do NOT invent or guess email subjects, dates, or senders. Only cite emails that appear in the data.
+- You MUST use ALL relevant data from the tool results. Present every person, date, and relationship returned.
+- NEVER start with "I can't answer" or "I cannot confidently answer." ALWAYS present what the data shows first.
+- If the data is partial, present what you found, then note specific gaps: "The data does not cover [X]."
+Violating this rule by introducing external facts will make the answer INCORRECT.
+"""
+
+
 PROVENANCE_FORMAT = """
 
 ## Response Format (MANDATORY)
@@ -11987,6 +12002,14 @@ def _clean_supporting_evidence_section(text: str, supported: list[dict]) -> str:
     return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
 
 
+_VAGUE_GROUNDING_PATTERNS = [
+    (re.compile(r"as (?:indicated|shown|suggested|evidenced) by (?:various|multiple|numerous) (?:historical |)records", re.IGNORECASE), "based on the retrieved graph data"),
+    (re.compile(r"(?:historical|public|external|widely known) records? (?:show|indicate|suggest|confirm)", re.IGNORECASE), "the retrieved data shows"),
+    (re.compile(r"it is (?:widely |well |commonly )?known that\b", re.IGNORECASE), "the retrieved data indicates that"),
+    (re.compile(r"(?:although|while) not (?:directly )?(?:evidenced|shown|found) in the (?:provided |retrieved )?(?:records|data|evidence),?\s*(?:it is known|we know|historically)", re.IGNORECASE), "Note: the following is not directly supported by the retrieved evidence. "),
+]
+
+
 def _soften_overclaiming_language(text: str, assessment: dict) -> str:
     features = assessment.get("features", {})
     if (
@@ -12005,7 +12028,86 @@ def _soften_overclaiming_language(text: str, assessment: dict) -> str:
     }
     for pattern, replacement in replacements.items():
         softened = re.sub(pattern, replacement, softened, flags=re.IGNORECASE)
+    for compiled_pattern, replacement in _VAGUE_GROUNDING_PATTERNS:
+        softened = compiled_pattern.sub(replacement, softened)
     return softened
+
+
+def _build_tool_entity_whitelist(
+    tool_entries: list[tuple[str, str]],
+) -> set[str]:
+    """Extract all verifiable entity names from tool results for fabrication detection."""
+    names: set[str] = set()
+    for _call, result in tool_entries:
+        try:
+            data = json.loads(result)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+        _extract_names_recursive(data, names)
+    return {n.lower() for n in names if len(n) >= 3}
+
+
+def _extract_names_recursive(obj, names: set[str], depth: int = 0) -> None:
+    if depth > 5:
+        return
+    if isinstance(obj, dict):
+        for key in ("name", "sender", "recipient", "from", "to", "title",
+                     "reports_to", "reports_to_id", "manager", "subject"):
+            val = obj.get(key)
+            if isinstance(val, str) and val.strip():
+                for part in re.split(r"[;,]", val):
+                    part = part.strip().strip("'\"<>")
+                    if part and "@" not in part and len(part) >= 3:
+                        names.add(part)
+                    elif "@" in part:
+                        local = part.split("@")[0].replace(".", " ").strip()
+                        if local and len(local) >= 3:
+                            names.add(local)
+        for v in obj.values():
+            _extract_names_recursive(v, names, depth + 1)
+    elif isinstance(obj, list):
+        for item in obj[:200]:
+            _extract_names_recursive(item, names, depth + 1)
+
+
+def _build_tool_date_whitelist(
+    tool_entries: list[tuple[str, str]],
+) -> set[str]:
+    """Extract all dates from tool results for fabrication detection."""
+    dates: set[str] = set()
+    date_re = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
+    year_re = re.compile(r"\b((?:19|20)\d{2})\b")
+    for _call, result in tool_entries:
+        for m in date_re.finditer(result):
+            dates.add(m.group(1))
+        for m in year_re.finditer(result):
+            dates.add(m.group(1))
+    return dates
+
+
+_FABRICATION_HEDGE = " (note: this detail could not be verified against the retrieved graph data)"
+
+
+def _flag_ungrounded_date_claims(
+    text: str,
+    tool_dates: set[str],
+) -> str:
+    """Flag specific date claims in the response that don't appear in tool results."""
+    if not tool_dates:
+        return text
+    specific_date_re = re.compile(
+        r"(?:on |in |by |from |since |until |before |after )"
+        r"(\d{4}-\d{2}-\d{2})\b"
+    )
+    known_years = {d[:4] for d in tool_dates if len(d) >= 4}
+
+    def _check_date(m: re.Match[str]) -> str:
+        date = m.group(1)
+        if date in tool_dates or date[:4] in known_years:
+            return m.group(0)
+        return m.group(0) + _FABRICATION_HEDGE
+
+    return specific_date_re.sub(_check_date, text)
 
 
 def _apply_claim_verification(
@@ -12050,6 +12152,10 @@ def _apply_claim_verification(
         if support_block:
             verified = _insert_section_before_provenance(verified, support_block)
     verified = _soften_overclaiming_language(verified, assessment)
+
+    tool_dates = _build_tool_date_whitelist(tool_entries)
+    verified = _flag_ungrounded_date_claims(verified, tool_dates)
+
     return _ensure_answer_header(verified)
 
 
@@ -12118,6 +12224,197 @@ def _build_provenance_guardrail_block(
         "Use the following provenance metadata exactly. Do not add tool calls that were not actually run.\n\n"
         f"{canonical}\n"
     )
+
+
+def _extract_hierarchy_from_tool_entries(
+    tool_entries: list[tuple[str, str]],
+) -> tuple[list[dict], list[dict]]:
+    """Extract curated roles and direct_reports from query_org_hierarchy results."""
+    roles: list[dict] = []
+    reports: list[dict] = []
+    for call, result in tool_entries:
+        if _tool_name_from_call(call) != "query_org_hierarchy":
+            continue
+        try:
+            data = json.loads(result)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        for r in data.get("roles", []):
+            if isinstance(r, dict) and r.get("name"):
+                roles.append(r)
+        for r in data.get("direct_reports", []):
+            if isinstance(r, dict) and r.get("name"):
+                reports.append(r)
+    return roles, reports
+
+
+def _extract_relationship_paths_from_tool_entries(
+    tool_entries: list[tuple[str, str]],
+) -> list[dict]:
+    """Extract relationship path data from trace_path results."""
+    paths: list[dict] = []
+    for call, result in tool_entries:
+        tool = _tool_name_from_call(call)
+        if tool not in ("trace_path", "get_relationship_evidence"):
+            continue
+        try:
+            data = json.loads(result)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+        if isinstance(data, dict):
+            if data.get("path") or data.get("paths"):
+                paths.append(data)
+            elif data.get("relationships"):
+                paths.append(data)
+        elif isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict):
+                    paths.append(item)
+    return paths
+
+
+def _extract_timeline_from_tool_entries(
+    tool_entries: list[tuple[str, str]],
+) -> list[dict]:
+    """Extract timeline events from query_timeline or get_communication_timeline results."""
+    events: list[dict] = []
+    for call, result in tool_entries:
+        tool = _tool_name_from_call(call)
+        if tool not in ("query_timeline", "get_communication_timeline"):
+            continue
+        try:
+            data = json.loads(result)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict) and (item.get("date") or item.get("event_date")):
+                    events.append(item)
+        elif isinstance(data, dict):
+            for item in data.get("events", data.get("timeline", [])):
+                if isinstance(item, dict) and (item.get("date") or item.get("event_date")):
+                    events.append(item)
+    events.sort(key=lambda e: str(e.get("date", e.get("event_date", ""))))
+    return events
+
+
+def _extract_entity_summary_from_tool_entries(
+    tool_entries: list[tuple[str, str]],
+) -> dict[str, str]:
+    """Extract entity summary/profile data from get_entity_summary results."""
+    summaries: dict[str, str] = {}
+    for call, result in tool_entries:
+        tool = _tool_name_from_call(call)
+        if tool not in ("get_entity_summary", "get_source_evidence"):
+            continue
+        try:
+            data = json.loads(result)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+        if isinstance(data, dict):
+            name = str(data.get("name", data.get("entity_name", "")))
+            if name:
+                parts = []
+                for key in ("title", "department", "role", "type", "description"):
+                    val = data.get(key)
+                    if val:
+                        parts.append(f"{key}: {val}")
+                if parts:
+                    summaries[name] = ", ".join(parts)
+    return summaries
+
+
+def _build_evidence_predigest_block(
+    tool_entries: list[tuple[str, str]],
+    *,
+    question: str = "",
+    contract: dict | None = None,
+    limit: int = 6,
+) -> str:
+    """Pre-rank evidence records and present them to the LLM before synthesis.
+
+    Gives the LLM a curated, ranked list of the strongest evidence records so it
+    grounds every claim in concrete citations rather than cherry-picking from raw
+    JSON tool outputs. Works for ANY question type — no per-question specialization.
+    Includes both email evidence and curated hierarchy data when available.
+    """
+    contract = contract or {}
+    sections: list[str] = []
+
+    hierarchy_roles, hierarchy_reports = _extract_hierarchy_from_tool_entries(tool_entries)
+    if hierarchy_roles or hierarchy_reports:
+        h_lines = [
+            "\n\n## CURATED HIERARCHY DATA (PRIMARY SOURCE OF TRUTH)",
+            "The following roles and reports come from verified SEC filings, DOJ records, "
+            "and congressional testimony. These are MORE authoritative than email evidence.",
+            "You MUST present ALL of these roles/reports in your answer.",
+            "Do NOT omit any person or role listed below.\n",
+        ]
+        for r in hierarchy_roles:
+            eff = f"{r.get('effective_from', '')} to {r.get('effective_to', '')}"
+            h_lines.append(
+                f"- **Role**: {r.get('name', '')} — {r.get('title', '')} "
+                f"(dept: {r.get('department', 'N/A')}, reports to: {r.get('reports_to_id', 'N/A')}, "
+                f"period: {eff}, source: {r.get('source', 'curated')})"
+            )
+        for r in hierarchy_reports:
+            eff = f"{r.get('effective_from', '')} to {r.get('effective_to', '')}"
+            h_lines.append(
+                f"- **Direct report**: {r.get('name', '')} — {r.get('title', '')} "
+                f"(dept: {r.get('department', 'N/A')}, period: {eff})"
+            )
+        sections.append("\n".join(h_lines))
+
+    records = _rank_email_records_for_question(tool_entries, question)
+    if records:
+        top = records[:limit]
+        e_lines = [
+            "\n\n## PRE-RANKED EMAIL EVIDENCE",
+            "The following email records are the strongest evidence for this question, "
+            "ranked by relevance. Ground your answer in these records.",
+            "Every factual claim MUST reference at least one record below using inline "
+            "citations in the format [YYYY-MM-DD, From: sender, Subject: topic].",
+            "Do NOT make claims unsupported by this evidence.\n",
+        ]
+        for idx, record in enumerate(top, 1):
+            citation = _format_email_citation(record)
+            body_text = str(record.get("text", "") or "")
+            excerpt = re.sub(r"\s+", " ", body_text).strip()
+            excerpt = _truncate_support_excerpt(excerpt, limit=200)
+            line = f"**[Record {idx}]** {citation}"
+            if excerpt:
+                line += f"\n   > {excerpt}"
+            e_lines.append(line)
+            e_lines.append("")
+        sections.append("\n".join(e_lines))
+
+    timeline_events = _extract_timeline_from_tool_entries(tool_entries)
+    if timeline_events:
+        t_lines = [
+            "\n\n## CURATED TIMELINE EVENTS",
+            "The following events were returned by timeline tools. Present them in chronological order.",
+            "Include ALL events — do NOT omit any.\n",
+        ]
+        for evt in timeline_events[:15]:
+            date = str(evt.get("date", evt.get("event_date", "")))[:10]
+            desc = str(evt.get("description", evt.get("event", evt.get("summary", ""))))
+            source = str(evt.get("source", ""))
+            t_lines.append(f"- **{date}**: {desc}" + (f" (source: {source})" if source else ""))
+        sections.append("\n".join(t_lines))
+
+    entity_summary = _extract_entity_summary_from_tool_entries(tool_entries)
+    if entity_summary:
+        s_lines = [
+            "\n\n## ENTITY SUMMARY DATA",
+            "Key entity information from the graph. Use this to ground identity claims.\n",
+        ]
+        for name, info in entity_summary.items():
+            s_lines.append(f"- **{name}**: {info}")
+        sections.append("\n".join(s_lines))
+
+    return "\n".join(sections)
 
 
 def _apply_provenance_guardrails(
@@ -13161,7 +13458,7 @@ def _tool_entries_to_stream_events(
 
 class GraphRAGAgent(ResponsesAgent):
     def __init__(self, endpoint=None, tools=None):
-        self.llm = _get_llm(endpoint=endpoint or SYNTHESIS_ENDPOINT)
+        self.llm = _get_llm(endpoint=endpoint or SYNTHESIS_ENDPOINT, temperature=0.0)
         self.react_llm = _get_llm(endpoint=REACT_ENDPOINT)
         configured_tools = list(tools or GRAPH_TOOLS)
         if _MODEL_LOGGING_TOOL_LIMIT:
@@ -13677,11 +13974,18 @@ class GraphRAGAgent(ResponsesAgent):
             question=question,
             contract=contract,
         )
+        evidence_predigest = _build_evidence_predigest_block(
+            tool_entries,
+            question=question,
+            contract=contract,
+        )
         synthesis_system = (
-            pattern.synthesis_prompt
+            ANTI_FABRICATION_PREAMBLE
+            + pattern.synthesis_prompt
             + consistency_block
             + fp_evidence_block
             + sufficiency_block
+            + evidence_predigest
             + PROVENANCE_FORMAT
             + provenance_guardrail
             + f"\n\nData:\n{context}"
@@ -14277,25 +14581,34 @@ class GraphRAGAgent(ResponsesAgent):
             question=plan.resolved_question,
             contract=plan_contract,
         )
+        pdes_evidence_predigest = _build_evidence_predigest_block(
+            tool_entries,
+            question=plan.resolved_question,
+            contract=plan_contract,
+        )
         unique_patterns = list({sq.pattern for sq in plan.sub_questions})
         if len(unique_patterns) == 1:
             sole_pattern = PATTERN_REGISTRY.get(unique_patterns[0])
             if sole_pattern and sole_pattern.synthesis_prompt:
                 synthesis_prompt = (
-                    sole_pattern.synthesis_prompt
+                    ANTI_FABRICATION_PREAMBLE
+                    + sole_pattern.synthesis_prompt
                     + pdes_consistency_block
                     + evidence_block
                     + sufficiency_block
+                    + pdes_evidence_predigest
                     + PROVENANCE_FORMAT
                     + provenance_guardrail
                     + f"\n\n## Data Retrieved\n\n{sub_answers_block}"
                 )
             else:
                 synthesis_prompt = (
-                    "You are a corporate communications analyst synthesizing answers from data queries about Enron.\n\n"
+                    ANTI_FABRICATION_PREAMBLE
+                    + "You are a corporate communications analyst synthesizing answers from data queries about Enron.\n\n"
                     + pdes_consistency_block
                     + evidence_block
                     + sufficiency_block
+                    + pdes_evidence_predigest
                     + PROVENANCE_FORMAT
                     + provenance_guardrail
                     + f"\n\n## Data Retrieved\n\n{sub_answers_block}"
@@ -14312,12 +14625,14 @@ class GraphRAGAgent(ResponsesAgent):
                         pattern_hints.append(f"- **{sq.pattern}**: {first_line}")
             hints_block = "\n".join(pattern_hints) if pattern_hints else ""
             synthesis_prompt = (
-                "You are a corporate communications analyst synthesizing answers from multiple data queries about Enron.\n\n"
+                ANTI_FABRICATION_PREAMBLE
+                + "You are a corporate communications analyst synthesizing answers from multiple data queries about Enron.\n\n"
                 "Below are the results from specialized sub-queries. Combine them into a single, coherent answer.\n\n"
                 + (f"## Pattern-specific guidance\n{hints_block}\n\n" if hints_block else "")
                 + pdes_consistency_block
                 + evidence_block
                 + sufficiency_block
+                + pdes_evidence_predigest
                 + "Guidelines:\n"
                 "- Integrate information from all sub-queries into a unified narrative.\n"
                 "- Prioritize curated data (source: curated_org_hierarchy) over LLM-extracted relationships.\n"
@@ -14325,6 +14640,8 @@ class GraphRAGAgent(ResponsesAgent):
                 "- Only cite emails that DIRECTLY support a specific claim.\n"
                 "- If sub-queries returned conflicting information, note the discrepancy.\n"
                 "- Do NOT fabricate information not present in any sub-query result.\n"
+                "- Address EVERY aspect of the question. If you cannot find data for some part, explicitly state what is missing.\n"
+                "- For multi-part questions, use sub-headings or numbered points for each part.\n"
                 + PROVENANCE_FORMAT
                 + provenance_guardrail
                 + f"\n\n## Sub-Query Results\n\n{sub_answers_block}"

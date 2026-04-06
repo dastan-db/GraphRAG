@@ -66,6 +66,19 @@ EVIDENCE_CITATION_RULE = """
 - If get_emails_between returns empty, check the resolution.correction field for typos. Try get_relationship_evidence as a bridge. If still no evidence, report honestly that no direct emails were found.
 - NEVER fabricate email citations. Every citation must correspond to a specific email returned by a tool.
 
+## CRITICAL: Grounding Discipline
+- You MUST NOT introduce facts, names, titles, or events from your training knowledge that do not appear in the tool results.
+- If you know something about Enron from general knowledge but no tool returned it, do NOT include it. Say "The retrieved data does not cover..." instead.
+- Phrases like "it is well known that", "historically", "as widely reported" are BANNED. Every claim must trace to a specific tool result.
+- If you are uncertain whether a claim is in the data, omit it rather than risk an ungrounded assertion.
+
+## CRITICAL: Answer Completeness
+- Address EVERY aspect of the question. If the question mentions multiple topics, people, or time periods, cover each one.
+- If you cannot find evidence for some aspect, explicitly state what you could not find: "The retrieved data does not include [specific aspect]."
+- For multi-part questions, use numbered points or sub-headings to ensure every part is addressed.
+- For questions asking "how did X, Y, and Z combine", discuss X separately, Y separately, Z separately, THEN how they interacted.
+- Completeness matters: a shorter answer that covers all aspects is better than a long answer covering only some.
+
 ## CRITICAL: Email Body Evidence (get_email_full_body results)
 - If get_email_full_body results are present in the tool data, you MUST quote relevant body passages that support your claims.
 - Format body quotes as: > "...[relevant excerpt from email body]..." — [YYYY-MM-DD, From: sender]

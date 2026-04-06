@@ -19,6 +19,28 @@
       "score_delta_tolerance": 0.1,
       "notes": "Deployment parity gate relative to the in-process local runtime."
     },
+    "governed_full_eval": {
+      "slice": "full_governed",
+      "question_count": 93,
+      "judge_endpoint": "databricks-claude-sonnet-4-6",
+      "overall_score_min": 0.7192,
+      "overall_score_current": 0.7397,
+      "synthesis_endpoint": "databricks-gpt-5-4-nano",
+      "synthesis_temperature": 0.0,
+      "per_metric": {
+        "evidence_quality": 0.5501,
+        "participant_verification": 0.9486,
+        "organizational_accuracy": 0.6183,
+        "grounding_integrity": 0.807,
+        "factual_accuracy": 0.9376,
+        "hallucination_detection": 0.8381,
+        "answer_completeness": 0.4784
+      },
+      "cell_regressions_from_control": 5,
+      "cell_improvements_from_control": 19,
+      "run_name": "v11_gpt54_nano_synthesis",
+      "notes": "V11: GPT-5.4-nano synthesis + temperature=0 + anti-fabrication preamble + evidence pre-digest (email+hierarchy+timeline+entity). Overall +7.6% vs control baseline (0.6875). Fabrication rate reduced by structural grounding. 5/40 cell regressions (quant GI -0.09, person AC -0.05, rel GI -0.05, doc AC -0.03, rel EQ -0.02) far outweighed by 19 major improvements."
+    },
     "genie_quantitative_iteration0": {
       "slice": "governed_genie_iteration0",
       "question_count": 6,
