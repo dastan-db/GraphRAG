@@ -1,0 +1,1334 @@
+{
+  "score_columns": [
+    "evidence_quality",
+    "participant_verification",
+    "organizational_accuracy",
+    "grounding_integrity",
+    "factual_accuracy",
+    "hallucination_detection",
+    "answer_completeness"
+  ],
+  "overall_metrics": {
+    "evidence_quality": 0.6183,
+    "participant_verification": 1.0,
+    "organizational_accuracy": 0.4083,
+    "grounding_integrity": 0.6583,
+    "factual_accuracy": 1.0,
+    "hallucination_detection": 0.7642,
+    "answer_completeness": 0.3792
+  },
+  "overall_score": 0.6898,
+  "score_matrix_by_category": {
+    "timeline_reconstruction": {
+      "evidence_quality": 0.62,
+      "participant_verification": 1.0,
+      "organizational_accuracy": 0.41,
+      "grounding_integrity": 0.66,
+      "factual_accuracy": 1.0,
+      "hallucination_detection": 0.76,
+      "answer_completeness": 0.38
+    }
+  },
+  "worst_questions": [
+    {
+      "category": "timeline_reconstruction",
+      "question": "What short EnronOnline reporting cadence is visible in Pacheco's December 8 through December 12, 2000 messages to Kenneth Lay?",
+      "avg_score": 0.5143
+    },
+    {
+      "category": "timeline_reconstruction",
+      "question": "What sequence of finance-crisis events takes Enron from valuation concerns and SEC scrutiny to restatement, merger collapse, and bankruptcy?",
+      "avg_score": 0.5143
+    },
+    {
+      "category": "timeline_reconstruction",
+      "question": "What sequence of finance-crisis events led from the first SEC inquiry to Enron's November 8 earnings restatement?",
+      "avg_score": 0.55
+    },
+    {
+      "category": "timeline_reconstruction",
+      "question": "What late-2001 finance-crisis sequence took Enron from the restatement announcement to the failed Dynegy rescue and bankruptcy?",
+      "avg_score": 0.6429
+    },
+    {
+      "category": "timeline_reconstruction",
+      "question": "What sequence of employee-facing communications shows Enron moving into internal crisis operations between November 30 and December 7, 2001?",
+      "avg_score": 0.6714
+    }
+  ],
+  "slice_question_count": 12,
+  "successful_question_count": 12,
+  "error_question_count": 0,
+  "elapsed_s": 119.6,
+  "version": "1.0",
+  "created_at": "2026-04-05T00:03:09Z",
+  "run_name": "timeline_slice_timelinefix_v4",
+  "run_id": "d61ac72c24444cbfa1e8545a49351591",
+  "judge_endpoint": "databricks-claude-sonnet-4-6",
+  "category": null,
+  "attorney_category": "timeline_reconstruction",
+  "split": null,
+  "baseline_registry": {
+    "version": "1.0",
+    "enron": {
+      "local_core_eval": {
+        "slice": "balanced_test",
+        "question_count": 9,
+        "judge_endpoint": "databricks-claude-sonnet-4-6",
+        "overall_score_min": 0.64,
+        "elapsed_s_max": 240.0,
+        "score_delta_tolerance": 0.08,
+        "notes": "Frozen from the current Enron factual QA slice before modular cutover."
+      },
+      "deployed_core_eval": {
+        "slice": "balanced_test",
+        "question_count": 9,
+        "judge_endpoint": "databricks-claude-sonnet-4-6",
+        "overall_score_min": 0.58,
+        "elapsed_s_max": 320.0,
+        "score_delta_tolerance": 0.1,
+        "notes": "Deployment parity gate relative to the in-process local runtime."
+      },
+      "genie_quantitative_iteration0": {
+        "slice": "governed_genie_iteration0",
+        "question_count": 6,
+        "artifact_path": "src/evaluation/baselines/genie_iteration0_baseline.json",
+        "sql_correctness_current": 0.5,
+        "benchmark_pass_rate_current": 0.5,
+        "failure_rate_current": 0.5,
+        "target_sql_correctness": 0.95,
+        "target_benchmark_pass_rate": 0.9,
+        "target_failure_rate_max": 0.02,
+        "target_latency_p95_multiplier_max": 1.1,
+        "notes": "Iteration 0 frozen benchmark and scorecard for the governed Enron quantitative/Genie slice."
+      }
+    },
+    "bible": {
+      "local_quality_gate": {
+        "entity_recall_min": 0.6,
+        "citations_min": 1.0,
+        "success_rate_min": 0.8,
+        "notes": "Existing local validation suite remains the frozen Bible runtime baseline."
+      },
+      "local_databricks_parity": {
+        "recall_parity_min": 0.8,
+        "tool_match_rate_min": 0.6,
+        "notes": "Parity guard between DuckDB local-fast and Databricks-backed local-integration."
+      }
+    }
+  },
+  "max_concurrent_questions": 6,
+  "max_concurrent_judge_calls": 4,
+  "question_count": 12,
+  "summary": {
+    "score_columns": [
+      "evidence_quality",
+      "participant_verification",
+      "organizational_accuracy",
+      "grounding_integrity",
+      "factual_accuracy",
+      "hallucination_detection",
+      "answer_completeness"
+    ],
+    "overall_metrics": {
+      "evidence_quality": 0.6183,
+      "participant_verification": 1.0,
+      "organizational_accuracy": 0.4083,
+      "grounding_integrity": 0.6583,
+      "factual_accuracy": 1.0,
+      "hallucination_detection": 0.7642,
+      "answer_completeness": 0.3792
+    },
+    "overall_score": 0.6898,
+    "score_matrix_by_category": {
+      "timeline_reconstruction": {
+        "evidence_quality": 0.62,
+        "participant_verification": 1.0,
+        "organizational_accuracy": 0.41,
+        "grounding_integrity": 0.66,
+        "factual_accuracy": 1.0,
+        "hallucination_detection": 0.76,
+        "answer_completeness": 0.38
+      }
+    },
+    "worst_questions": [
+      {
+        "category": "timeline_reconstruction",
+        "question": "What short EnronOnline reporting cadence is visible in Pacheco's December 8 through December 12, 2000 messages to Kenneth Lay?",
+        "avg_score": 0.5143
+      },
+      {
+        "category": "timeline_reconstruction",
+        "question": "What sequence of finance-crisis events takes Enron from valuation concerns and SEC scrutiny to restatement, merger collapse, and bankruptcy?",
+        "avg_score": 0.5143
+      },
+      {
+        "category": "timeline_reconstruction",
+        "question": "What sequence of finance-crisis events led from the first SEC inquiry to Enron's November 8 earnings restatement?",
+        "avg_score": 0.55
+      },
+      {
+        "category": "timeline_reconstruction",
+        "question": "What late-2001 finance-crisis sequence took Enron from the restatement announcement to the failed Dynegy rescue and bankruptcy?",
+        "avg_score": 0.6429
+      },
+      {
+        "category": "timeline_reconstruction",
+        "question": "What sequence of employee-facing communications shows Enron moving into internal crisis operations between November 30 and December 7, 2001?",
+        "avg_score": 0.6714
+      }
+    ]
+  },
+  "rows": [
+    {
+      "question_id": "enron-curated-pacheco-summary-timeline",
+      "question_text": "What sequence of EnronOnline executive summaries did Leonardo Pacheco send Kenneth Lay in mid-December 2000?",
+      "corpus": "enron",
+      "eval_split": "holdout",
+      "attorney_category": "timeline_reconstruction",
+      "architecture_primary": "timeline_retrieval",
+      "architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "domain_primary": "trading_markets_platforms",
+      "domain_secondary": [
+        "communications_dynamics_temporal"
+      ],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "rubric_seed",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [
+        "Leonardo Pacheco",
+        "Kenneth Lay",
+        "EnronOnline"
+      ],
+      "category": "timeline_reconstruction",
+      "inputs/question": "What sequence of EnronOnline executive summaries did Leonardo Pacheco send Kenneth Lay in mid-December 2000?",
+      "expectations/question_id": "enron-curated-pacheco-summary-timeline",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "holdout",
+      "expectations/attorney_category": "timeline_reconstruction",
+      "expectations/architecture_primary": "timeline_retrieval",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "expectations/domain_primary": "trading_markets_platforms",
+      "expectations/domain_secondary": [
+        "communications_dynamics_temporal"
+      ],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "rubric_seed",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [
+        "Leonardo Pacheco",
+        "Kenneth Lay",
+        "EnronOnline"
+      ],
+      "inputs": {
+        "question": "What sequence of EnronOnline executive summaries did Leonardo Pacheco send Kenneth Lay in mid-December 2000?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-pacheco-summary-timeline",
+        "corpus": "enron",
+        "eval_split": "holdout",
+        "attorney_category": "timeline_reconstruction",
+        "architecture_primary": "timeline_retrieval",
+        "architecture_secondary": [
+          "evidence_drilldown"
+        ],
+        "domain_primary": "trading_markets_platforms",
+        "domain_secondary": [
+          "communications_dynamics_temporal"
+        ],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "rubric_seed",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [
+          "Leonardo Pacheco",
+          "Kenneth Lay",
+          "EnronOnline"
+        ],
+        "graph_ground_truth": "The local email export shows consecutive EnronOnline executive summary messages from Leonardo Pacheco to Kenneth Lay on December 12 and 13, 2000, covering the prior day's trading metrics.",
+        "historical_ground_truth": "Pacheco sent recurring daily EnronOnline executive summaries to Kenneth Lay during this period.",
+        "evidence_required": true,
+        "category": "timeline_reconstruction"
+      },
+      "response_text": "### Answer\nThe dated EnronOnline packet shows the following sequence from Leonardo Pacheco:\n\n1. **2000-12-11**: [2000-12-11, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for December 8, 2000] \u2014 EnronOnline Management Report for December 8, 2000 Following please find the Weekly Management Report and the Daily Executive Summary. En...\n2. **2000-12-12**: [2000-12-12, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for December 11, 2000] \u2014 EnronOnline Executive Summary for December 11, 2000 Following please find the Daily EnronOnline Executive Summary. EnronOnline Executive ...\n3. **2000-12-13**: [2000-12-13, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for December 12, 2000] \u2014 EnronOnline Executive Summary for December 12, 2000 Following please find the Daily EnronOnline Executive Summary. EnronOnline Executive ...\n\n#### Evidence\n- [2000-12-11, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for December 8, 2000] \u2014 EnronOnline Management Report for December 8, 2000 Following please find the Weekly Management Report and the Daily Executive Summary. EnronOnline Executive Summary for 12/08/00...\n- [2000-12-12, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for December 11, 2000] \u2014 EnronOnline Executive Summary for December 11, 2000 Following please find the Daily EnronOnline Executive Summary. EnronOnline Executive Summary for 12/11/00 Transaction Summary...\n- [2000-12-13, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for December 12, 2000] \u2014 EnronOnline Executive Summary for December 12, 2000 Following please find the Daily EnronOnline Executive Summary. EnronOnline Executive Summary for 12/12/00 Transaction Summary...\n\n#### Conclusion\nSo the timeline is a concrete dated sequence of EnronOnline management reports and executive summaries rather than an undifferentiated reporting period.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"EnronOnline, executive summaries, Leonardo Pacheco, Kenneth Lay, mid-December 2000\", \"date_from\": \"2000-12-11\", \"date_to\": \"2000-12-20\", \"sender\": \"Leonardo Pacheco\", \"recipient\": \"Kenneth Lay\"}) \u2192 3 emails; search_emails({\"keywords\": \"EnronOnline Executive Summary\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-12-12\", \"date_to\": \"2000-12-14\", \"limit\": 6}) \u2192 2 emails; search_emails({\"keywords\": \"EnronOnline Management Report for June 22, 2000\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-06-22\", \"date_to\": \"2000-06-24\", \"limit\": 6}) \u2192 1 emails; search_emails({\"keywords\": \"EnronOnline Management Report for June 28, 2000\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-06-28\", \"date_to\": \"2000-06-30\", \"limit\": 6}) \u2192 2 emails; search_emails({\"keywords\": \"EnronOnline, executive summaries, Leonardo Pacheco, Kenneth Lay, mid-December 2000\", \"date_from\": \"2000-12-11\", \"date_to\": \"2000-12-20\"}) \u2192 5 emails; get_source_evidence({\"entity_name\": \"Leonardo Pacheco\"}) \u2192 2 emails; semantic_search_emails({\"query\": \"What sequence of EnronOnline executive summaries did Leonardo Pacheco send Kenneth Lay in mid-December 2000?\"}) \u2192 10 emails; get_email_full_body({\"message_id\": \"<22140261.1075855882502.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<25136751.1075855865692.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<14051109.1075840228887.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<4221705.1075840085621.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_communication_timeline({\"entity_name\": \"Leonardo Pacheco\", \"entity_b\": \"Kenneth Lay\", \"date_from\": \"2000-12-11\", \"date_to\": \"2000-12-20\"}) \u2192 1 time periods; query_timeline({\"person_name\": \"\", \"date_from\": \"2000-12-11\", \"date_to\": \"2000-12-20\"}) \u2192 no matching records; query_timeline({\"person_name\": \"Leonardo Pacheco\", \"date_from\": \"2000-12-11\", \"date_to\": \"2000-12-20\"}) \u2192 no matching records; get_communication_stats({\"entity_name\": \"Leonardo Pacheco\", \"group_by\": \"month\"}) \u2192 text result",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 6856.9,
+      "evidence_quality/value": 0.7,
+      "evidence_quality/rationale": "The response provides reasonably strong evidence for its core claims: three specific emails are cited with dates (2000-12-11, 2000-12-12, 2000-12-13), sender (leonardo.pacheco@enron.com), and subject lines. The provenance section lists actual tool calls with result counts, which adds credibility. However, the response has some weaknesses: the evidence section largely repeats the same citations already listed in the main answer without adding new supporting detail; recipient information is not confirmed in the email citations (the tool searched for Kenneth Lay as recipient but the results don't explicitly confirm he received these); and the conclusion is somewhat thin, merely restating that the emails form a 'dated sequence' without deeper analytical support. The truncated final tool call in the provenance section is a minor issue. Overall, key claims are grounded in specific email data with dates and subject lines, but the redundancy and missing recipient confirmation prevent a higher score.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "Found 3/3: ['Leonardo Pacheco', 'Kenneth Lay', 'EnronOnline']. Missing: []",
+      "organizational_accuracy/value": 0.9,
+      "organizational_accuracy/rationale": "The agent correctly identifies the two consecutive EnronOnline executive summary emails from Leonardo Pacheco on December 12 and 13, 2000, covering prior day trading metrics (December 11 and December 12 respectively), which directly matches the graph ground truth. The emails are accurately cited with correct dates, sender, and subject lines. The agent also surfaces an additional December 11 management report, which is consistent with the corpus and adds legitimate context without fabrication. The recipient (Kenneth Lay) is confirmed via the search parameters used. No contradictions or fabricated relationships are present. A minor deduction is warranted because the response does not explicitly state the SENDS_TO or reporting relationship type between Pacheco and Lay in structured form, and the organizational relationship context (Pacheco reporting to or communicating with Lay) is implied rather than formally articulated with relationship types as the rubric expects.",
+      "grounding_integrity/value": 0.85,
+      "grounding_integrity/rationale": "The response has a well-structured Provenance section with explicit tool call citations (search_emails with parameters), states 'All claims grounded in graph data,' and provides specific email metadata (dates, sender, subject lines) that are directly attributed to graph retrieval results. The grounding level is clearly stated and sources are enumerated with query parameters. Minor deductions: the tool call list appears truncated at the end (cut off mid-query), and the 'Path' description ('question -> active retrieval tools -> answer') is somewhat vague. Additionally, the conclusion draws an interpretive inference ('concrete dated sequence rather than an undifferentiated reporting period') that goes slightly beyond what the raw citations strictly establish, though this is a minor analytical leap rather than fabrication. Overall, the response demonstrates systematic grounding with proper attribution throughout.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "The agent correctly identified the consecutive EnronOnline executive summary messages from Leonardo Pacheco on December 12 and 13, 2000 (covering December 11 and December 12 trading metrics respectively), which directly matches the graph ground truth. The agent also found an additional adjacent email from December 11 (a weekly management report), which is consistent with the graph data and not a fabrication. All email citations include specific dates, senders, and subject lines that align with the described pattern of daily reporting to Kenneth Lay. The agent made no claims contradicting the graph data, did not fabricate entities or relationships, and correctly grounded all findings in retrieved email data. The response accurately reflects what the knowledge graph contains without importing external historical facts as graph-derived evidence.",
+      "hallucination_detection/value": 0.9,
+      "hallucination_detection/rationale": "The agent's response accurately identifies the two key emails on December 12 and 13, 2000 from Leonardo Pacheco to Kenneth Lay containing EnronOnline Executive Summaries for December 11 and December 12 respectively, which aligns with the graph ground truth. The additional December 11 email (a Weekly Management Report) is a plausible retrieval result consistent with the corpus. The email citations include realistic metadata (dates, sender addresses, subject lines, partial body text) that are consistent with the known pattern of daily executive summaries. The agent does not fabricate relationships or present external knowledge as graph-derived. The minor uncertainty is around the December 11 Management Report entry, which wasn't specifically mentioned in the ground truth but is not contradicted by it either, and the agent's tool provenance claims are internally consistent. No outright fabrications are detected.",
+      "answer_completeness/value": 0.85,
+      "answer_completeness/rationale": "The agent correctly identifies the two consecutive EnronOnline executive summary emails from Leonardo Pacheco to Kenneth Lay on December 12 and 13, 2000 (covering December 11 and December 12 trading metrics respectively), which directly matches the ground truth. The agent also includes an additional December 11 management report that provides useful context. The answer is well-structured, cites specific email subjects and dates, and demonstrates comprehensive use of available search tools. Minor deductions: the agent includes a December 11 management report that wasn't specifically asked about (slightly dilutes focus), and the provenance section contains some irrelevant search queries (June 2000 dates) that suggest some unnecessary exploration. However, the core question about the mid-December 2000 sequence is fully and accurately answered with the two consecutive executive summaries confirmed by the graph."
+    },
+    {
+      "question_id": "enron-curated-crisis-monitoring-to-bankruptcy-week-timeline",
+      "question_text": "What sequence of communications shows Enron moving from late-October crisis monitoring to bankruptcy-week employee crisis notices?",
+      "corpus": "enron",
+      "eval_split": "test",
+      "attorney_category": "timeline_reconstruction",
+      "architecture_primary": "timeline_retrieval",
+      "architecture_secondary": [
+        "evidence_drilldown",
+        "synthesis_provenance"
+      ],
+      "domain_primary": "communications_dynamics_temporal",
+      "domain_secondary": [],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "timeline_reconstruction",
+      "inputs/question": "What sequence of communications shows Enron moving from late-October crisis monitoring to bankruptcy-week employee crisis notices?",
+      "expectations/question_id": "enron-curated-crisis-monitoring-to-bankruptcy-week-timeline",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "test",
+      "expectations/attorney_category": "timeline_reconstruction",
+      "expectations/architecture_primary": "timeline_retrieval",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown",
+        "synthesis_provenance"
+      ],
+      "expectations/domain_primary": "communications_dynamics_temporal",
+      "expectations/domain_secondary": [],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "What sequence of communications shows Enron moving from late-October crisis monitoring to bankruptcy-week employee crisis notices?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-crisis-monitoring-to-bankruptcy-week-timeline",
+        "corpus": "enron",
+        "eval_split": "test",
+        "attorney_category": "timeline_reconstruction",
+        "architecture_primary": "timeline_retrieval",
+        "architecture_secondary": [
+          "evidence_drilldown",
+          "synthesis_provenance"
+        ],
+        "domain_primary": "communications_dynamics_temporal",
+        "domain_secondary": [],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "timeline_reconstruction"
+      },
+      "response_text": "### Answer\nThe employee-facing crisis packet becomes more operational across bankruptcy week, moving from benefits disruption to emergency contact logistics, severance planning, and formal legal structuring.\n\n1. **2001-11-29**: Layoff and severance planning becomes explicit. [2001-11-29, From: olalekan.oladeji@enron.com, Subject: Just a suggestion]\n2. **2001-11-30**: Employee benefits and savings-plan disruption become an immediate crisis notice. [2001-11-30, From: no.address@enron.com, Subject: PLEASE READ - IMPORTANT INFORMATION FOR PARTICIPANTS IN THE ENRON\n SAVINGS PLAN]\n3. **2001-12-03**: The company pivots to home-contact logistics so it can reach employees with critical materials. [2001-12-03, From: robert.jones@mailman.enron.com, Subject: Home Contact Information]\n4. **2001-12-07**: Legal and structuring issues show bankruptcy operations moving into formal process mode. [2001-12-07, From: sara.shackleton@enron.com, Subject: Enron Credit Inc.]\n\n#### Evidence\n- [2001-11-29, From: olalekan.oladeji@enron.com, Subject: Just a suggestion] \u2014 Just a suggestion Dear Ken, I am a second year associate with RAC underwriting group. In the past few days, I have been watching fellow staff packing their personal items in an ...\n- [2001-11-30, From: no.address@enron.com, Subject: PLEASE READ - IMPORTANT INFORMATION FOR PARTICIPANTS IN THE ENRON\n SAVINGS PLAN] \u2014 PLEASE READ - IMPORTANT INFORMATION FOR PARTICIPANTS IN THE ENRON SAVINGS PLAN Due to current business circumstances, on November 28, 2001, Enron's Board of Directors adopted an...\n- [2001-12-03, From: robert.jones@mailman.enron.com, Subject: Home Contact Information] \u2014 Home Contact Information Please review the home addresss and phone number shown on this eMail. DO NOT RESPOND if the information is correct. However, if incorrect then reply to ...\n- [2001-12-07, From: sara.shackleton@enron.com, Subject: Enron Credit Inc.] \u2014 Enron Credit Inc. Edmund: I have not received anything from anyone in London or anywhere else regarding positions, etc. I did speak with a Weil bankruptcy lawyer and there were ...\n\n#### Conclusion\nSo the dated notices show Enron moving from employee-benefit disruption into full internal crisis operations during bankruptcy week.\n\n### Provenance\n- **Path**: question -> evidence retrieval -> claim-supporting records -> grounded answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"savings plan, current business circumstances\", \"date_from\": \"2001-11-29\", \"date_to\": \"2001-12-01\", \"limit\": 3}) \u2192 1 emails; search_emails({\"keywords\": \"Home Contact Information, critical company information\", \"sender\": \"robert.jones@mailman.enron.com\", \"date_from\": \"2001-12-03\", \"date_to\": \"2001-12-04\", \"limit\": 3}) \u2192 1 emails; search_emails({\"keywords\": \"Just a suggestion, massive layoff, bankruptcy\", \"sender\": \"olalekan.oladeji@enron.com\", \"date_from\": \"2001-11-29\", \"date_to\": \"2001-11-30\", \"limit\": 3}) \u2192 1 emails; search_emails({\"keywords\": \"Enron Credit Inc., Weil bankruptcy lawyer, structuring issues\", \"sender\": \"sara.shackleton@enron.com\", \"date_from\": \"2001-12-07\", \"date_to\": \"2001-12-08\", \"limit\": 3}) \u2192 1 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 6629.1,
+      "evidence_quality/value": 0.72,
+      "evidence_quality/rationale": "The response provides reasonable evidence for its claims, with specific email dates, sender addresses, and subject lines cited for each of the four key points. The evidence section includes brief content snippets that corroborate the claims (e.g., the savings plan email explicitly mentions 'current business circumstances' and the Board of Directors action on November 28, 2001). The provenance section includes actual tool call syntax with parameters, which adds credibility. However, there are weaknesses: the connection between the Sara Shackleton email about 'Enron Credit Inc.' and 'formal legal structuring in bankruptcy operations' is tenuous and not well-supported by the snippet provided. The Oladeji email appears to be an employee suggestion letter to Ken Lay rather than an official crisis communication, making it a weak fit for an 'employee-facing crisis packet.' The provenance section is cut off mid-citation, reducing confidence in full tool coverage. The narrative framing ('employee-facing crisis packet') is somewhat asserted rather than fully demonstrated by the evidence. Overall, key claims have specific email-level support but some interpretive leaps lack adequate grounding.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.5,
+      "organizational_accuracy/rationale": "The response does not address organizational structure, reporting lines, titles, or relationship types (REPORTS_TO, MANAGES, etc.) at all. The question appears to have been about organizational structure and relationships, but the agent instead provided a chronological narrative about bankruptcy-week communications. The email citations appear plausible and grounded in the corpus, and there are no fabricated relationships or contradictions within the response itself. However, since the evaluation criteria specifically asks about organizational claims, reporting lines, accurate titles, and relationship types, and the response contains none of these elements, it cannot score highly. The response is internally consistent and the emails cited seem legitimate, but it fundamentally fails to address the organizational structure domain being evaluated. A middle score of 0.5 reflects that the response is coherent and grounded without fabrication, but misses the core organizational structure requirements entirely.",
+      "grounding_integrity/value": 0.85,
+      "grounding_integrity/rationale": "The response has a clear Provenance section with tool call citations, grounding level stated as 'All claims grounded in graph data,' and specific email citations with dates, senders, and subjects for each claim. The evidence section includes actual email snippet content, which strongly supports grounding. Tool calls are partially cited (search_emails with parameters shown, though one is truncated). Minor deductions: one tool call citation is cut off mid-string, and the narrative framing ('employee-facing crisis packet becomes more operational') is interpretive synthesis that slightly exceeds what the individual emails strictly demonstrate, but this is reasonable inference from grounded data rather than fabrication. The provenance path description is somewhat generic but the specific email citations compensate. Overall, this is a well-grounded response with systematic attribution.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.75,
+      "hallucination_detection/rationale": "The response cites four specific emails with dates, senders, and subjects, and provides snippet content that appears consistent with what would be found in the Enron corpus. The citations are plausible and internally consistent \u2014 the savings plan notice, home contact information request, and Sara Shackleton's bankruptcy-related email are all credible Enron corpus entries. The olalekan.oladeji email as a 'layoff and severance planning' document is a slight interpretive stretch (it appears to be an employee suggestion letter to Ken Lay, not an official severance document), which could be considered a minor mischaracterization rather than outright fabrication. No external knowledge is presented as graph-derived, no invented statistics are used, and the provenance section honestly describes tool calls. The main concern is the framing of the oladeji email as representing 'layoff and severance planning becoming explicit' when the snippet suggests it's an employee's personal suggestion letter \u2014 this is a mild analytical hallucination in characterization. Overall, the response is reasonably well-grounded with minor unsupported interpretive claims but no outright fabrication of entities, relationships, or citations.",
+      "answer_completeness/value": 0.3,
+      "answer_completeness/rationale": "The response only partially addresses the question. The user asked for a sequence showing Enron moving FROM late-October crisis monitoring TO bankruptcy-week employee crisis notices \u2014 this requires a temporal arc starting in late October 2001. The agent's response skips the late-October phase entirely, jumping straight to November 29 - December 7. There is no evidence of the agent searching for late-October communications (e.g., around the Dynegy merger announcement, credit downgrades, or early crisis monitoring emails from ~Oct 22-31, 2001). The bankruptcy-week portion is partially covered with 4 emails, but the sequence is thin and the framing is weak \u2014 the 'Just a suggestion' email from an associate is not really a crisis notice, and the Sara Shackleton email about Enron Credit Inc. is a legal operational email rather than an employee crisis notice. The agent also fails to use the investigation timeline (which contains curated events from this period) or org hierarchy data to contextualize the communications. The narrative arc requested by the user \u2014 a progression from monitoring to formal crisis notices \u2014 is not convincingly demonstrated with the evidence provided."
+    },
+    {
+      "question_id": "enron-curated-finance-crisis-escalation-timeline",
+      "question_text": "What sequence of finance-crisis events takes Enron from valuation concerns and SEC scrutiny to restatement, merger collapse, and bankruptcy?",
+      "corpus": "enron",
+      "eval_split": "test",
+      "attorney_category": "timeline_reconstruction",
+      "architecture_primary": "timeline_retrieval",
+      "architecture_secondary": [
+        "synthesis_provenance",
+        "evidence_drilldown"
+      ],
+      "domain_primary": "financial_structures_risk",
+      "domain_secondary": [
+        "communications_dynamics_temporal"
+      ],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "timeline_reconstruction",
+      "inputs/question": "What sequence of finance-crisis events takes Enron from valuation concerns and SEC scrutiny to restatement, merger collapse, and bankruptcy?",
+      "expectations/question_id": "enron-curated-finance-crisis-escalation-timeline",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "test",
+      "expectations/attorney_category": "timeline_reconstruction",
+      "expectations/architecture_primary": "timeline_retrieval",
+      "expectations/architecture_secondary": [
+        "synthesis_provenance",
+        "evidence_drilldown"
+      ],
+      "expectations/domain_primary": "financial_structures_risk",
+      "expectations/domain_secondary": [
+        "communications_dynamics_temporal"
+      ],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "What sequence of finance-crisis events takes Enron from valuation concerns and SEC scrutiny to restatement, merger collapse, and bankruptcy?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-finance-crisis-escalation-timeline",
+        "corpus": "enron",
+        "eval_split": "test",
+        "attorney_category": "timeline_reconstruction",
+        "architecture_primary": "timeline_retrieval",
+        "architecture_secondary": [
+          "synthesis_provenance",
+          "evidence_drilldown"
+        ],
+        "domain_primary": "financial_structures_risk",
+        "domain_secondary": [
+          "communications_dynamics_temporal"
+        ],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "timeline_reconstruction"
+      },
+      "response_text": "### Answer\nThe retrieved data supports the following chronology in strict date order:\n\n1. **2001-12-02**: Curated timeline \u2014 Enron files Chapter 11 bankruptcy\n2. **2002-06-05**: [2002-06-05, From: chris.germany@enron.com, Subject: RE: Ponderosa Sales to TXU for May 2002] \u2014 RE: Ponderosa Sales to TXU for May 2002 Karen, I thought you guys were creating a manual invoice and sending it out the door. We can put all of this activity...\n3. **2002-06-17**: [2002-06-17, From: robin.barbe@enron.com, Subject: RE: bridgeline gas] \u2014 RE: bridgeline gas what is the status of the bridgeline gas? i am pursuing the contract with legal. also, they are good for approximately $3.5 MM of credit w...\n4. **2002-06-18**: [2002-06-18, From: phil.polsky@enron.com, Subject: centana] \u2014 centana I'm not sure what the attached means, but it has the $416,000 amount in it. I think Joe Parks put this together.\n\n#### Evidence\n- Timeline event `2001-12-02` \u2014 Enron files Chapter 11 bankruptcy\n- [2002-06-05, From: chris.germany@enron.com, Subject: RE: Ponderosa Sales to TXU for May 2002] \u2014 RE: Ponderosa Sales to TXU for May 2002 Karen, I thought you guys were creating a manual invoice and sending it out the door. We can put all of this activity in our gas system f...\n- [2002-06-17, From: robin.barbe@enron.com, Subject: RE: bridgeline gas] \u2014 RE: bridgeline gas what is the status of the bridgeline gas? i am pursuing the contract with legal. also, they are good for approximately $3.5 MM of credit without a parental gu...\n- [2002-06-18, From: phil.polsky@enron.com, Subject: centana] \u2014 centana I'm not sure what the attached means, but it has the $416,000 amount in it. I think Joe Parks put this together.\n\n#### Conclusion\nSo the answer is anchored to the dated timeline rows and supporting emails returned for this question, not to a generic narrative summary.\n\n### Caveats\n- Evidence strength was moderate; unsupported details should be treated as unverified.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians. Evidence strength was moderate; unsupported details should be treated as unverified.\n- **Sources**: search_emails({\"keywords\": \"valuation concerns,SEC scrutiny,restatement,merger collapse,bankruptcy,finance-crisis, Chapter 11, Dynegy, creditors, fraud, SEC investigation\", \"date_from\": \"2001-12-02\", \"date_to\": \"2001-12-02\"}) \u2192 no matching records; semantic_search_emails({\"query\": \"What sequence of finance-crisis events takes Enron from valuation concerns and SEC scrutiny to restatement, merger collapse, and bankruptcy?\"}) \u2192 5 emails; search_emails({\"keywords\": \"valuation concerns,SEC scrutiny,restatement,merger collapse,bankruptcy,finance-crisis, Chapter 11, Dynegy, creditors, fraud, SEC investigation\", \"date_from\": \"2001-12-02\", \"date_to\": \"2001-12-02\", \"sender\": \"phil.polsky@enron.com\", \"recipient\": \"robin.barbe@enron.com\"}) \u2192 no matching records; get_source_evidence({\"entity_name\": \"phil.polsky@enron.com\"}) \u2192 no matching records; query_timeline({\"person_name\": \"\", \"date_from\": \"2001-12-02\", \"date_to\": \"2001-12-02\"}) \u2192 structured result; get_communication_timeline({\"entity_name\": \"phil.polsky@enron.com\", \"entity_b\": \"robin.barbe@enron.com\", \"date_from\": \"2001-12-02\", \"date_to\": \"2001-12-02\"}) \u2192 no matching records; get_communication_stats({\"entity_name\": \"phil.polsky@enron.com\", \"group_by\": \"month\"}) \u2192 text result",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 6890.9,
+      "evidence_quality/value": 0.3,
+      "evidence_quality/rationale": "The response has a provenance section and cites specific email dates, senders, and subject lines, which provides some structural evidence. However, the evidence presented is largely irrelevant to the question being asked (the sequence of finance-crisis events leading to Enron's bankruptcy). The emails cited (Ponderosa Sales to TXU, bridgeline gas, centana) are routine operational emails from mid-2002 that have no apparent connection to valuation concerns, SEC scrutiny, restatements, or the Dynegy merger collapse. The only genuinely relevant piece of evidence is the curated timeline entry for the 2001-12-02 bankruptcy filing. The response fails to surface any emails or graph relationships actually pertaining to the crisis sequence (e.g., restatement announcements, SEC investigation communications, Dynegy merger discussions), and the conclusion acknowledges only 'moderate' evidence strength. The answer appears to be padding with irrelevant email citations rather than finding substantive evidence for the actual question, which is a significant quality failure even if the individual citations are technically grounded in the graph.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.0,
+      "organizational_accuracy/rationale": "The agent response contains no organizational structure information whatsoever. The question asks to evaluate organizational claims, reporting lines, titles, and relationship types (REPORTS_TO, MANAGES, etc.), but the response instead provides a chronological list of emails about post-bankruptcy operational matters (gas sales, bridgeline gas, centana) with no mention of any org hierarchy, reporting relationships, titles, or organizational structure. The response is entirely off-topic relative to the evaluation criteria. There are no org claims to evaluate as accurate or inaccurate \u2014 the agent simply failed to address organizational structure entirely.",
+      "grounding_integrity/value": 0.5,
+      "grounding_integrity/rationale": "The response has a Provenance section that lists tool calls and states 'All claims grounded in graph data,' which is a positive indicator. However, the grounding is only partially systematic. The tool call citations are truncated and incomplete (the last source entry is cut off mid-string), making it impossible to fully verify what was retrieved. More critically, the response presents a chronology that mixes a curated timeline event (bankruptcy filing) with emails that appear largely irrelevant to the question about the sequence of finance-crisis events \u2014 the emails about Ponderosa gas sales, bridgeline gas, and centana do not obviously support a narrative about valuation concerns, SEC scrutiny, restatements, or merger collapse. The response acknowledges 'evidence strength was moderate' but does not clearly flag that the email evidence is tangential rather than directly responsive. The grounding level is stated but the connection between the cited emails and the claimed answer is weak and unexplained, suggesting the agent is padding with available data rather than genuinely grounding the answer. The provenance section exists and tool calls are cited, but the overall attribution is inconsistent and the relevance of cited sources to the claims is questionable.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.7,
+      "hallucination_detection/rationale": "The response does not fabricate entity names, invent relationships, or manufacture statistics. The curated timeline event (2001-12-02 bankruptcy filing) is a legitimate entry from the curated investigation timeline. The three email citations (chris.germany, robin.barbe, phil.polsky) are presented as retrieved from the graph via semantic search, and their content snippets are plausible and internally consistent with no obvious fabrication markers. However, the response has notable issues: (1) The emails cited (June 2002, about gas sales, bridgeline gas, and 'centana') are largely irrelevant to the question about the sequence of finance-crisis events leading to bankruptcy, suggesting the agent may be presenting loosely related search results as meaningful evidence without proper qualification. (2) The connection between these emails and the finance-crisis narrative is not established \u2014 the agent presents them as supporting a chronology without explaining how they relate. (3) The provenance section is cut off mid-sentence, suggesting incomplete tool output handling. These are presentation and relevance issues rather than outright fabrication, so the score is reduced moderately but not severely.",
+      "answer_completeness/value": 0.1,
+      "answer_completeness/rationale": "The response almost completely fails to answer the question. The user asked for a chronological sequence of finance-crisis events covering valuation concerns, SEC scrutiny, restatement, merger collapse, and bankruptcy. The agent's response provides only a single relevant timeline entry (the 2001-12-02 bankruptcy filing) and then appends three completely irrelevant post-bankruptcy emails about gas sales, bridgeline gas contracts, and a centana attachment. The curated investigation timeline contains 28 events that would directly address this question (SEC investigation, restatement announcements, Dynegy merger collapse, etc.), but the agent failed to retrieve or present them. The agent also failed to use the org hierarchy or communication statistics in any meaningful way. The response is structured as if it answered the question but contains almost none of the required content. The provenance shows the agent searched only a single date (2001-12-02) rather than the full relevant period, which explains why it missed the bulk of the timeline. This is a near-complete failure to address a question that the graph clearly contains data to answer."
+    },
+    {
+      "question_id": "enron-curated-pacheco-management-report-june-timeline",
+      "question_text": "What sequence of EnronOnline management reports did Leonardo Pacheco send from June 22 through June 30, 2000?",
+      "corpus": "enron",
+      "eval_split": "test",
+      "attorney_category": "timeline_reconstruction",
+      "architecture_primary": "timeline_retrieval",
+      "architecture_secondary": [
+        "evidence_drilldown",
+        "synthesis_provenance"
+      ],
+      "domain_primary": "trading_markets_platforms",
+      "domain_secondary": [],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "timeline_reconstruction",
+      "inputs/question": "What sequence of EnronOnline management reports did Leonardo Pacheco send from June 22 through June 30, 2000?",
+      "expectations/question_id": "enron-curated-pacheco-management-report-june-timeline",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "test",
+      "expectations/attorney_category": "timeline_reconstruction",
+      "expectations/architecture_primary": "timeline_retrieval",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown",
+        "synthesis_provenance"
+      ],
+      "expectations/domain_primary": "trading_markets_platforms",
+      "expectations/domain_secondary": [],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "What sequence of EnronOnline management reports did Leonardo Pacheco send from June 22 through June 30, 2000?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-pacheco-management-report-june-timeline",
+        "corpus": "enron",
+        "eval_split": "test",
+        "attorney_category": "timeline_reconstruction",
+        "architecture_primary": "timeline_retrieval",
+        "architecture_secondary": [
+          "evidence_drilldown",
+          "synthesis_provenance"
+        ],
+        "domain_primary": "trading_markets_platforms",
+        "domain_secondary": [],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "timeline_reconstruction"
+      },
+      "response_text": "### Answer\nThe dated EnronOnline packet shows the following sequence from Leonardo Pacheco:\n\n1. **2000-06-23**: [2000-06-23, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 22, 2000] \u2014 EnronOnline Management Report for June 22, 2000 Please see the attached Management Report for June 22, 2000: Total Today Year To Date Lif...\n2. **2000-06-28**: [2000-06-28, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 27, 2000] \u2014 EnronOnline Management Report for June 27, 2000 Please see the attached Management Report for June 27, 2000: Total Today Year To Date Lif...\n3. **2000-06-29**: [2000-06-29, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 28, 2000] \u2014 EnronOnline Management Report for June 28, 2000 Please see the attached Management Report for June 28, 2000: Total Today Year To Date Lif...\n4. **2000-12-12**: [2000-12-12, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for December 11, 2000] \u2014 EnronOnline Executive Summary for December 11, 2000 Following please find the Daily EnronOnline Executive Summary. EnronOnline Executive ...\n5. **2000-12-13**: [2000-12-13, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for December 12, 2000] \u2014 EnronOnline Executive Summary for December 12, 2000 Following please find the Daily EnronOnline Executive Summary. EnronOnline Executive ...\n\n#### Evidence\n- [2000-06-23, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 22, 2000] \u2014 EnronOnline Management Report for June 22, 2000 Please see the attached Management Report for June 22, 2000: Total Today Year To Date Life To Date Number of Transactions 2,412 1...\n- [2000-06-28, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 27, 2000] \u2014 EnronOnline Management Report for June 27, 2000 Please see the attached Management Report for June 27, 2000: Total Today Year To Date Life To Date Number of Transactions 2,820 1...\n- [2000-06-29, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 28, 2000] \u2014 EnronOnline Management Report for June 28, 2000 Please see the attached Management Report for June 28, 2000: Total Today Year To Date Life To Date Number of Transactions 2,529 1...\n- [2000-12-12, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for December 11, 2000] \u2014 EnronOnline Executive Summary for December 11, 2000 Following please find the Daily EnronOnline Executive Summary. EnronOnline Executive Summary for 12/11/00 Transaction Summary...\n- [2000-12-13, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for December 12, 2000] \u2014 EnronOnline Executive Summary for December 12, 2000 Following please find the Daily EnronOnline Executive Summary. EnronOnline Executive Summary for 12/12/00 Transaction Summary...\n\n#### Conclusion\nSo the timeline is a concrete dated sequence of EnronOnline management reports and executive summaries rather than an undifferentiated reporting period.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"EnronOnline, management reports, June 22, June 30, 2000\", \"date_from\": \"2000-06-30\", \"date_to\": \"2000-06-30\", \"sender\": \"Leonardo Pacheco\", \"recipient\": \"EnronOnline\"}) \u2192 no matching records; search_emails({\"keywords\": \"EnronOnline Executive Summary\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-12-12\", \"date_to\": \"2000-12-14\", \"limit\": 6}) \u2192 2 emails; search_emails({\"keywords\": \"EnronOnline Management Report for June 22, 2000\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-06-22\", \"date_to\": \"2000-06-24\", \"limit\": 6}) \u2192 1 emails; search_emails({\"keywords\": \"EnronOnline Management Report for June 28, 2000\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-06-28\", \"date_to\": \"2000-06-30\", \"limit\": 6}) \u2192 2 emails; search_emails({\"keywords\": \"EnronOnline, management reports, June 22, June 30, 2000\", \"date_from\": \"2000-06-30\", \"date_to\": \"2000-06-30\"}) \u2192 no matching records; get_source_evidence({\"entity_name\": \"Leonardo Pacheco\"}) \u2192 2 emails; semantic_search_emails({\"query\": \"What sequence of EnronOnline management reports did Leonardo Pacheco send from June 22 through June 30, 2000?\"}) \u2192 10 emails; get_email_full_body({\"message_id\": \"<22140261.1075855882502.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<25136751.1075855865692.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<4221705.1075840085621.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<20747567.1075840071853.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_communication_timeline({\"entity_name\": \"Leonardo Pacheco\", \"entity_b\": \"EnronOnline\", \"date_from\": \"2000-06-30\", \"date_to\": \"2000-06-30\"}) \u2192 no matching records; query_timeline({\"person_name\": \"\", \"date_from\": \"2000-06-30\", \"date_to\": \"2000-06-30\"}) \u2192 no matching records; query_timeline({\"person_name\": \"Leonardo Pacheco\", \"date_from\": \"2000-06-30\", \"date_to\": \"2000-06-30\"}) \u2192 no matching records; get_communication_stats({\"entity_name\": \"Leonardo Pacheco\", \"group_by\": \"month\"}) \u2192 text result",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 6922.1,
+      "evidence_quality/value": 0.9,
+      "evidence_quality/rationale": "The response provides strong, specific evidence for all its claims. Each item in the sequence includes exact dates, sender email addresses, and subject lines. The evidence section reinforces the claims by repeating the citations with additional content snippets (e.g., transaction counts like 2,412, 2,820, 2,529). The response demonstrates a clear provenance trail linking specific emails to the named sender (leonardo.pacheco@enron.com) with consistent metadata. The only minor deductions are that recipients are not listed, the conclusion is truncated, and there is no explicit provenance/tool-citation section labeling which tool or query produced these results. However, the core claims are thoroughly supported by specific email metadata.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.5,
+      "organizational_accuracy/rationale": "The response provides email citations that appear to be grounded in the corpus (specific dates, senders, subjects, and content snippets from Leonardo Pacheco's EnronOnline reports). The citations are internally consistent and do not contradict each other. However, the response contains no organizational structure information whatsoever \u2014 no reporting lines, no titles, no REPORTS_TO or MANAGES relationships, no hierarchy claims. The evaluation criteria specifically asks to assess organizational structure and relationships. Since the response is entirely about a chronological sequence of emails rather than org structure, it neither fabricates nor confirms any organizational claims. The email citations themselves seem plausible and consistent, but the complete absence of org structure content means the response fails to address what is being evaluated. A score of 0.5 reflects that the response is internally consistent and not fabricating relationships, but is largely irrelevant to the organizational structure evaluation criteria.",
+      "grounding_integrity/value": 0.3,
+      "grounding_integrity/rationale": "The response provides specific email citations with dates, senders, and subjects that appear to be grounded in graph data, and the evidence section reinforces these citations. However, there is no formal Provenance section with Sources, Grounding level, and Confidence fields as required. There is no mention of which tool calls were made (e.g., 'search_emails returned...'), no explicit statement of grounding level, and no confidence rating. The response also appears to be cut off mid-sentence in the Conclusion. While the email citations themselves look plausible and internally consistent (suggesting actual graph retrieval rather than fabrication), the systematic provenance documentation required for a higher score is entirely absent.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.85,
+      "hallucination_detection/rationale": "The response presents specific email citations with dates, senders, and subjects that are internally consistent and plausible given the Enron corpus context. The emails attributed to leonardo.pacheco@enron.com describing EnronOnline Management Reports and Executive Summaries are the type of routine operational emails that would exist in the corpus. The response does not fabricate relationships, invent entity names, or claim external sources as graph-derived. The citations include partial body text snippets that appear consistent with daily operational reporting formats. No ground truth was provided to verify or contradict these specific citations, so they cannot be confirmed as genuine retrievals versus fabrications. The minor deduction reflects the inability to verify the specific email citations against confirmed ground truth, leaving a small residual risk that some details (exact dates, subject line wording, or body snippets) could be hallucinated. However, no outright fabrication patterns are detected, and the response is appropriately scoped to email evidence without overclaiming.",
+      "answer_completeness/value": 0.5,
+      "answer_completeness/rationale": "The agent finds some relevant emails from Leonardo Pacheco but provides an incomplete and somewhat inconsistent answer. The question asks specifically about June 22 through June 30, 2000. The agent finds reports for June 22, June 27, and June 28 (sent on June 23, 28, and 29 respectively), but is missing reports for other days in that range (June 23, 24, 25, 26, 29, 30). The agent also inexplicably includes December 2000 emails which are completely outside the requested date range, which suggests either poor filtering or the agent is padding results. The agent does correctly identify the sequence format (reports sent the day after the reporting date) and provides actual email content snippets. However, the inclusion of out-of-range emails and the apparent gaps in the June 22-30 sequence (whether due to missing data or incomplete retrieval) make this only a partial answer. The agent should have either confirmed these are all the emails in that range or noted that some days appear to be missing from the corpus."
+    },
+    {
+      "question_id": "enron-curated-sec-to-restatement-finance-timeline",
+      "question_text": "What sequence of finance-crisis events led from the first SEC inquiry to Enron's November 8 earnings restatement?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "timeline_reconstruction",
+      "architecture_primary": "timeline_retrieval",
+      "architecture_secondary": [
+        "synthesis_provenance",
+        "evidence_drilldown"
+      ],
+      "domain_primary": "financial_structures_risk",
+      "domain_secondary": [
+        "governance_leadership"
+      ],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "timeline_reconstruction",
+      "inputs/question": "What sequence of finance-crisis events led from the first SEC inquiry to Enron's November 8 earnings restatement?",
+      "expectations/question_id": "enron-curated-sec-to-restatement-finance-timeline",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "timeline_reconstruction",
+      "expectations/architecture_primary": "timeline_retrieval",
+      "expectations/architecture_secondary": [
+        "synthesis_provenance",
+        "evidence_drilldown"
+      ],
+      "expectations/domain_primary": "financial_structures_risk",
+      "expectations/domain_secondary": [
+        "governance_leadership"
+      ],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "What sequence of finance-crisis events led from the first SEC inquiry to Enron's November 8 earnings restatement?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-sec-to-restatement-finance-timeline",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "timeline_reconstruction",
+        "architecture_primary": "timeline_retrieval",
+        "architecture_secondary": [
+          "synthesis_provenance",
+          "evidence_drilldown"
+        ],
+        "domain_primary": "financial_structures_risk",
+        "domain_secondary": [
+          "governance_leadership"
+        ],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "timeline_reconstruction"
+      },
+      "response_text": "### Answer\nThe retrieved data supports the following chronology in strict date order:\n\n1. **2001-11-08**: Curated timeline \u2014 Enron restates earnings for 1997-2001 (reduces by $586M)\n2. **2002-03-20**: [2002-03-20, From: chris.germany@enron.com, Subject: FW: Changed Punchline] \u2014 FW: Changed Punchline It's the first day of school in Houston and the teacher thought she'd get to know the kids by asking them their name and what their fat...\n3. **2002-04-03**: [2002-04-03, From: l..dinari@enron.com, Subject: RE: Lone Star activity] \u2014 RE: Lone Star activity yes, I am basically handling any \"old\" wholesale business which for now includes the FGT/Citrus, Lonestar and some Enron Compressor st...\n4. **2002-06-07**: [2002-06-07, From: mike.mazowita@enron.com, Subject: RE: Ponderosa Pine Energy Partners, Ltd (\"PPEP\")] \u2014 RE: Ponderosa Pine Energy Partners, Ltd (\"PPEP\") Robin, Chris & Ed: There are actually two agreements in place. The first is an Agency agreemen= t (the one y...\n\n#### Evidence\n- Timeline event `2001-11-08` \u2014 Enron restates earnings for 1997-2001 (reduces by $586M)\n- [2002-03-20, From: chris.germany@enron.com, Subject: FW: Changed Punchline] \u2014 FW: Changed Punchline It's the first day of school in Houston and the teacher thought she'd get to know the kids by asking them their name and what their father does for a livin...\n- [2002-04-03, From: l..dinari@enron.com, Subject: RE: Lone Star activity] \u2014 RE: Lone Star activity yes, I am basically handling any \"old\" wholesale business which for now includes the FGT/Citrus, Lonestar and some Enron Compressor stuff on TW. I do have...\n- [2002-06-07, From: mike.mazowita@enron.com, Subject: RE: Ponderosa Pine Energy Partners, Ltd (\"PPEP\")] \u2014 RE: Ponderosa Pine Energy Partners, Ltd (\"PPEP\") Robin, Chris & Ed: There are actually two agreements in place. The first is an Agency agreemen= t (the one you have) with PPEP a...\n\n#### Conclusion\nSo the answer is anchored to the dated timeline rows and supporting emails returned for this question, not to a generic narrative summary.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"finance-crisis,SEC inquiry,earnings restatement,November 8, bankruptcy, collapse, SEC investigation, California energy\", \"date_from\": \"2001-11-08\", \"date_to\": \"2001-11-08\"}) \u2192 no matching records; get_source_evidence({\"entity_name\": \"Enron\"}) \u2192 20 emails; semantic_search_emails({\"query\": \"What sequence of finance-crisis events led from the first SEC inquiry to Enron's November 8 earnings restatement?\"}) \u2192 3 emails; get_email_full_body({\"message_id\": \"<12750121.1075840510246.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<1893801.1075840492626.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<15094689.1075840512154.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<9149938.1075840506654.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; query_timeline({\"person_name\": \"\", \"date_from\": \"2001-11-08\", \"date_to\": \"2001-11-08\"}) \u2192 structured result; query_timeline({\"person_name\": \"Enron\", \"date_from\": \"2001-11-08\", \"date_to\": \"2001-11-08\"}) \u2192 no matching records; get_communication_stats({\"entity_name\": \"Enron\", \"group_by\": \"month\"}) \u2192 text result",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 6652.6,
+      "evidence_quality/value": 0.3,
+      "evidence_quality/rationale": "The response has a provenance section and cites specific tool calls, dates, senders, and subject lines, which provides some structural evidence. However, the evidence is largely irrelevant to what appears to be a question about the sequence of financial crisis events leading to Enron's earnings restatement. The three emails cited (a joke email from chris.germany, a Lone Star activity operational email, and a Ponderosa Pine Energy Partners agreement email) have no apparent connection to SEC inquiries, earnings restatements, or financial crisis chronology. The only genuinely relevant item is the curated timeline entry for 2001-11-08. The response essentially presents a chronological list of unrelated emails as if they constitute an answer, which is misleading. The tool citations in the provenance section show the agent tried relevant searches but found no matching records for the core query, yet the response presents tangential emails as supporting evidence without acknowledging this mismatch. This constitutes a form of unsupported assertion \u2014 the emails cited do not back the claims about financial crisis chronology.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.0,
+      "organizational_accuracy/rationale": "The agent response contains no organizational structure information whatsoever. The question asks about organizational structure, reporting lines, titles, and relationship types (REPORTS_TO, MANAGES, etc.), but the response instead provides a chronological list of events related to Enron's financial crisis and earnings restatement. There are no org hierarchy claims, no reporting relationships, no titles, and no relationship types presented. The response is entirely off-topic relative to the evaluation criteria for organizational structure accuracy.",
+      "grounding_integrity/value": 0.7,
+      "grounding_integrity/rationale": "The response includes a Provenance section with tool call citations, states 'All claims grounded in graph data,' and identifies sources including specific tool calls with parameters and result counts. The timeline event is properly attributed to the curated timeline table, and email citations include sender, date, and subject. However, there are notable weaknesses: the three emails retrieved (a joke forward, a Lone Star activity update, and a Ponderosa Pine agreement) are clearly irrelevant to the question about the sequence of events leading to the earnings restatement, yet they are presented as supporting evidence without acknowledging this mismatch. The response does not flag that the graph data failed to surface relevant emails about the SEC inquiry or financial crisis sequence, which would be an honest grounding statement. The provenance section is cut off mid-citation. Despite these issues, the structural grounding requirements are mostly met \u2014 tool calls are cited, claims are attributed to specific sources, and the grounding level is explicitly stated \u2014 warranting a score above 0.5 but below full marks due to the misleading presentation of irrelevant emails as supporting evidence.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.75,
+      "hallucination_detection/rationale": "The response does not fabricate email citations outright \u2014 the emails cited (chris.germany@enron.com, l..dinari@enron.com, mike.mazowita@enron.com) appear to be real retrieved results with plausible metadata. The curated timeline event (2001-11-08 earnings restatement of $586M) is consistent with known public record and is attributed to the curated timeline table, not fabricated as email evidence. However, there are some concerns: (1) The three emails retrieved (a joke email, a Lone Star activity email, and a Ponderosa Pine Partners email) are entirely irrelevant to the question about the sequence of finance-crisis events leading to the earnings restatement, yet they are presented as 'supporting' evidence without acknowledging their irrelevance \u2014 this is misleading but not outright fabrication. (2) The response presents a 'chronology' that mixes an unrelated joke email and business emails with a major financial event, implying a narrative connection that doesn't exist. (3) The provenance section lists tool calls with specific message IDs, which appear plausible and consistent with the described methodology. No entity names are invented, no relationships are fabricated, and no external knowledge is falsely attributed to graph data. The main issue is misleading framing rather than hallucination per se.",
+      "answer_completeness/value": 0.1,
+      "answer_completeness/rationale": "The response almost completely fails to answer the question. The user asked for the sequence of finance-crisis events between the first SEC inquiry and the November 8 earnings restatement. The agent's answer is essentially incoherent for this purpose: it lists the November 8 restatement event (correctly from the curated timeline), but then appends three completely irrelevant emails from 2002 (months after the restatement) about a joke, Lone Star pipeline activity, and a pine energy partnership. These emails have no bearing on the SEC inquiry or the crisis sequence. The agent failed to use the investigation timeline data (which contains 28 curated events that would include the SEC inquiry initiation and intervening events), failed to construct any meaningful chronological narrative, and failed to identify the SEC inquiry start date. The 'conclusion' section is a non-answer. The only credit given is for correctly citing the November 8 restatement event from the curated timeline, but even that is presented without context. The response demonstrates a fundamental failure to synthesize available curated timeline data into a coherent answer."
+    },
+    {
+      "question_id": "enron-curated-restatement-to-bankruptcy-finance-timeline",
+      "question_text": "What late-2001 finance-crisis sequence took Enron from the restatement announcement to the failed Dynegy rescue and bankruptcy?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "timeline_reconstruction",
+      "architecture_primary": "timeline_retrieval",
+      "architecture_secondary": [
+        "synthesis_provenance",
+        "evidence_drilldown"
+      ],
+      "domain_primary": "financial_structures_risk",
+      "domain_secondary": [
+        "communications_dynamics_temporal"
+      ],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "timeline_reconstruction",
+      "inputs/question": "What late-2001 finance-crisis sequence took Enron from the restatement announcement to the failed Dynegy rescue and bankruptcy?",
+      "expectations/question_id": "enron-curated-restatement-to-bankruptcy-finance-timeline",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "timeline_reconstruction",
+      "expectations/architecture_primary": "timeline_retrieval",
+      "expectations/architecture_secondary": [
+        "synthesis_provenance",
+        "evidence_drilldown"
+      ],
+      "expectations/domain_primary": "financial_structures_risk",
+      "expectations/domain_secondary": [
+        "communications_dynamics_temporal"
+      ],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "What late-2001 finance-crisis sequence took Enron from the restatement announcement to the failed Dynegy rescue and bankruptcy?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-restatement-to-bankruptcy-finance-timeline",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "timeline_reconstruction",
+        "architecture_primary": "timeline_retrieval",
+        "architecture_secondary": [
+          "synthesis_provenance",
+          "evidence_drilldown"
+        ],
+        "domain_primary": "financial_structures_risk",
+        "domain_secondary": [
+          "communications_dynamics_temporal"
+        ],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "timeline_reconstruction"
+      },
+      "response_text": "### Answer\nThe retrieved data supports the following chronology in strict date order:\n\n1. **2001-02-12**: Curated timeline \u2014 Skilling promoted to CEO; Lay remains Chairman\n2. **2001-03-01**: Curated timeline \u2014 Jeff McMahon moved from Treasurer (after complaining about Fastow conflicts)\n3. **2001-04-17**: Curated timeline \u2014 Skilling on earnings call: Enron stock is 'an incredible bargain'\n4. **2001-05-02**: Curated timeline \u2014 Cliff Baxter resigns as Vice Chairman\n5. **2001-06-01**: Curated timeline \u2014 Lou Pai leaves Enron Energy Services; David Delainey replaces\n6. **2001-08-14**: Curated timeline \u2014 Skilling resigns as CEO citing 'personal reasons'; Lay reinstated\n\n#### Evidence\n- Timeline event `2001-02-12` \u2014 Skilling promoted to CEO; Lay remains Chairman\n- Timeline event `2001-03-01` \u2014 Jeff McMahon moved from Treasurer (after complaining about Fastow conflicts)\n- Timeline event `2001-04-17` \u2014 Skilling on earnings call: Enron stock is 'an incredible bargain'\n- Timeline event `2001-05-02` \u2014 Cliff Baxter resigns as Vice Chairman\n- [2001-12-17, From: announcements.enron@enron.com, Subject: FROM RAYMOND BOWEN, JR., EVP, FINANCE & TREASURER] \u2014 FROM RAYMOND BOWEN, JR., EVP, FINANCE & TREASURER To: All Enron Employees From: Raymond Bowen, Jr. EVP, Finance & Treasurer Subject: Update on Employee Expense Reimbursement Pos...\n- [2001-12-19, From: r..shepperd@enron.com, Subject: remote offices] \u2014 remote offices We have asked EPSC to pay the following leases for the month of January based on feedback from ENA commercial leadership. My understanding is that we may still re...\n- [2001-12-21, From: douglass@earthlink.net, Subject: Enron Statement of Services] \u2014 Enron Statement of Services Hi Jeff, attached is the statement of services for Enron for November. These have previously been sent to Sue Mara. However, with her departure, it s...\n\n#### Conclusion\nSo the answer is anchored to the dated timeline rows and supporting emails returned for this question, not to a generic narrative summary.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"finance-crisis, restatement announcement, failed Dynegy rescue, bankruptcy, Chapter 11, creditors, fraud, accounting, collapse\", \"date_from\": \"2001-01-01\", \"date_to\": \"2001-12-31\", \"sender\": \"Enron\", \"recipient\": \"Dynegy\"}) \u2192 no matching records; search_emails({\"keywords\": \"finance-crisis, restatement announcement, failed Dynegy rescue, bankruptcy, Chapter 11, creditors, fraud, accounting, collapse\", \"date_from\": \"2001-01-01\", \"date_to\": \"2001-12-31\"}) \u2192 15 emails; get_source_evidence({\"entity_name\": \"Enron\"}) \u2192 20 emails; semantic_search_emails({\"query\": \"What late-2001 finance-crisis sequence took Enron from the restatement announcement to the failed Dynegy rescue and bankruptcy?\"}) \u2192 3 emails; get_email_full_body({\"message_id\": \"<24755991.1075840775229.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<12750121.1075840510246.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<1893801.1075840492626.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<15094689.1075840512154.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_communication_timeline({\"entity_name\": \"Enron\", \"entity_b\": \"Dynegy\", \"date_from\": \"2001-01-01\", \"date_to\": \"2001-12-31\"}) \u2192 2 time periods; query_timeline({\"person_name\": \"\", \"date_from\": \"2001-01-01\", \"date_to\": \"2001-12-31\"}) \u2192 structured result; query_timeline({\"person_name\": \"Enron\", \"date_from\": \"2001-01-01\", \"date_to\": \"2001-12-31\"}) \u2192 no matching records; get_communication_stats({\"entity_name\": \"Enron\", \"group_by\": \"month\"}) \u2192 text result",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 7727.9,
+      "evidence_quality/value": 0.5,
+      "evidence_quality/rationale": "The response has a mixed evidence profile. The six timeline events (2001-02-12 through 2001-08-14) are clearly sourced from the curated investigation timeline and are properly cited with dates and descriptions \u2014 this is solid grounding. However, the three email citations at the bottom (Dec 17, 19, 21) are from late December 2001 and appear largely irrelevant to the chronology being presented (which ends in August 2001), and their connection to the answer is unexplained. The provenance section lists tool calls with some specificity, which is a positive signal, but the actual question appears to be about the late-2001 finance crisis sequence (restatement \u2192 Dynegy rescue \u2192 bankruptcy), and the response notably stops at August 14 (Skilling's resignation) without addressing the October restatement, November Dynegy merger attempt, or December bankruptcy \u2014 the core of what was asked. The agent acknowledges finding 15 emails via keyword search but doesn't surface any of their content to support the missing late-2001 events. The response is partially grounded but incomplete relative to the apparent question scope, and the appended emails add noise rather than evidence. No relationship-type citations (REPORTS_TO, MANAGES, etc.) or email counts are used meaningfully.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.5,
+      "organizational_accuracy/rationale": "The response presents a chronological timeline of events rather than directly addressing organizational structure and relationships. The timeline entries that are present (Skilling as CEO, Lay as Chairman, Baxter as Vice Chairman, McMahon as Treasurer, Bowen as EVP Finance & Treasurer) are consistent with the curated org hierarchy and investigation timeline data, and no contradictions are introduced. However, the response largely sidesteps the organizational structure question \u2014 it does not explicitly enumerate reporting lines, use relationship types (REPORTS_TO, MANAGES, etc.), or present a structured org hierarchy. The email citations are used loosely and the connection between the cited emails and organizational claims is weak. The core facts present are accurate, but the response is missing significant organizational detail and structure that would be expected for a proper org hierarchy answer.",
+      "grounding_integrity/value": 0.7,
+      "grounding_integrity/rationale": "The response includes a Provenance section with tool call citations, states 'All claims grounded in graph data,' and identifies sources as curated timeline entries and email corpus. The timeline claims are clearly attributed to curated timeline rows. However, there are notable issues: (1) The email citations included (Dec 2001 emails about expense reimbursement, remote offices, and a statement of services) are not clearly connected to the chronology being presented and appear to be padding rather than genuine supporting evidence for the listed events. (2) The grounding claim 'All claims grounded in graph data' is slightly overstated since the curated timeline is described as being from public record, not purely graph data, though the system prompt indicates this is acceptable. (3) The tool call list is cut off mid-sentence ('get_email_ful...'), suggesting incomplete provenance documentation. (4) Some claims in the chronology (e.g., Lou Pai leaving, Cliff Baxter resigning) are attributed only to timeline events without any corroborating email evidence, which is fine, but the irrelevant December emails included as 'Evidence' weaken the overall grounding quality. The response demonstrates systematic provenance tracking but the evidence section contains citations that don't clearly support the specific claims made.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.6,
+      "hallucination_detection/rationale": "The response contains several issues. The curated timeline entries (Skilling promotion, McMahon move, Baxter resignation, Lou Pai departure, Skilling resignation) appear to be drawn from the curated investigation timeline table and are plausible. However, the three email citations at the end (2001-12-17 from announcements.enron@enron.com, 2001-12-19 from r..shepperd@enron.com, 2001-12-21 from douglass@earthlink.net) are presented as supporting evidence for the chronology question but are clearly irrelevant to the question about the finance-crisis sequence \u2014 they appear to be fabricated or misattributed citations inserted to pad the response. The subjects (employee expense reimbursement, remote offices, statement of services) have no bearing on the Skilling/Lay leadership transitions or the collapse narrative. Additionally, the response claims 'All claims grounded in graph data' in the provenance section, which is misleading given the irrelevant email citations. The timeline entries themselves appear consistent with the curated table and are not hallucinated, but the email evidence section introduces suspicious citations that don't support the stated conclusion, suggesting fabrication or severe misattribution.",
+      "answer_completeness/value": 0.2,
+      "answer_completeness/rationale": "The response almost entirely fails to answer the question. The user asked specifically about the late-2001 sequence from the restatement announcement through the failed Dynegy merger to bankruptcy. The agent's response instead lists events from February through August 2001 (Skilling's promotion, McMahon's move, Baxter's resignation, etc.) \u2014 none of which are the events asked about. The critical late-2001 events that ARE in the curated investigation timeline (the October 2001 restatement announcement, the Dynegy merger announcement in November, the credit downgrades, the merger collapse, and the December 2 bankruptcy filing) are completely absent from the answer. The curated timeline contains 28 events and almost certainly includes these key milestones, yet the agent failed to retrieve or present them. The three emails cited from December 2001 are tangential (expense reimbursement, remote offices, a billing statement) and add no meaningful content. The agent's conclusion that the answer is 'anchored to dated timeline rows' is misleading since the wrong timeline rows were selected. This represents a significant failure to find information that IS available in the knowledge graph."
+    },
+    {
+      "question_id": "enron-curated-skilling-resignation-to-watkins-warning-timeline",
+      "question_text": "What sequence of crisis communications took Enron from Skilling's resignation to Watkins's warning reaching Kenneth Lay in August 2001?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "timeline_reconstruction",
+      "architecture_primary": "timeline_retrieval",
+      "architecture_secondary": [
+        "synthesis_provenance",
+        "relationship_path_retrieval"
+      ],
+      "domain_primary": "communications_dynamics_temporal",
+      "domain_secondary": [
+        "governance_leadership"
+      ],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "timeline_reconstruction",
+      "inputs/question": "What sequence of crisis communications took Enron from Skilling's resignation to Watkins's warning reaching Kenneth Lay in August 2001?",
+      "expectations/question_id": "enron-curated-skilling-resignation-to-watkins-warning-timeline",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "timeline_reconstruction",
+      "expectations/architecture_primary": "timeline_retrieval",
+      "expectations/architecture_secondary": [
+        "synthesis_provenance",
+        "relationship_path_retrieval"
+      ],
+      "expectations/domain_primary": "communications_dynamics_temporal",
+      "expectations/domain_secondary": [
+        "governance_leadership"
+      ],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "What sequence of crisis communications took Enron from Skilling's resignation to Watkins's warning reaching Kenneth Lay in August 2001?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-skilling-resignation-to-watkins-warning-timeline",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "timeline_reconstruction",
+        "architecture_primary": "timeline_retrieval",
+        "architecture_secondary": [
+          "synthesis_provenance",
+          "relationship_path_retrieval"
+        ],
+        "domain_primary": "communications_dynamics_temporal",
+        "domain_secondary": [
+          "governance_leadership"
+        ],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "timeline_reconstruction"
+      },
+      "response_text": "### Answer\nThe retrieved data supports the following chronology in strict date order:\n\n1. **2001-08-14**: Curated timeline \u2014 Skilling resigns as CEO citing 'personal reasons'; Lay reinstated\n2. **2001-08-14**: [2001-08-14, From: wes.carberry@enron.com, Subject: Hope all is well...] \u2014 Hope all is well... Jeff: I was actually on the phone with my Dad when I received Kenneth Lay's email about your departure, we both wish you luck and hope th...\n3. **2001-08-14**: [2001-08-14, From: no.address@enron.com, Subject: Organizational Announcement] \u2014 Organizational Announcement It is with regret that I have to announce that Jeff Skilling is leaving Enron. Today, the Board of Directors accepted his resigna...\n4. **2001-08-15**: Curated timeline \u2014 Sherron Watkins sends anonymous warning letter to Kenneth Lay\n5. **2001-08-16**: [2001-08-16, From: rahil.jafry@enron.com, Subject: FW: WSJ Skilling Interview] \u2014 FW: WSJ Skilling Interview Enron's Skilling Cites Stock-Price Plunge As Main Reason for Leaving CEO Po= st By John R. Emshwiller 08/16/2001 The Wall Street J...\n6. **2001-08-22**: Curated timeline \u2014 Watkins meets with Lay in person about accounting concerns\n\n#### Evidence\n- Timeline event `2001-08-14` \u2014 Skilling resigns as CEO citing 'personal reasons'; Lay reinstated\n- Timeline event `2001-08-15` \u2014 Sherron Watkins sends anonymous warning letter to Kenneth Lay\n- Timeline event `2001-08-22` \u2014 Watkins meets with Lay in person about accounting concerns\n- [2001-08-14, From: wes.carberry@enron.com, Subject: Hope all is well...] \u2014 Hope all is well... Jeff: I was actually on the phone with my Dad when I received Kenneth Lay's email about your departure, we both wish you luck and hope that everything is ok....\n- [2001-08-14, From: no.address@enron.com, Subject: Organizational Announcement] \u2014 Organizational Announcement It is with regret that I have to announce that Jeff Skilling is leaving Enron. Today, the Board of Directors accepted his resignation as President an...\n- [2001-08-16, From: rahil.jafry@enron.com, Subject: FW: WSJ Skilling Interview] \u2014 FW: WSJ Skilling Interview Enron's Skilling Cites Stock-Price Plunge As Main Reason for Leaving CEO Po= st By John R. Emshwiller 08/16/2001 The Wall Street Journal Page A2 (Co= ...\n\n#### Conclusion\nSo the answer is anchored to the dated timeline rows and supporting emails returned for this question, not to a generic narrative summary.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"Skilling resignation, Watkins warning, Kenneth Lay, August 2001, crisis communications, departure, left, stepped down, resigned, bankruptcy\", \"date_from\": \"2001-08-01\", \"date_to\": \"2001-09-01\", \"sender\": \"Jeff Skilling\", \"recipient\": \"Andrew Watkins\"}) \u2192 no matching records; search_emails({\"keywords\": \"Skilling resignation, Watkins warning, Kenneth Lay, August 2001, crisis communications, departure, left, stepped down, resigned, bankruptcy\", \"date_from\": \"2001-08-01\", \"date_to\": \"2001-09-01\"}) \u2192 15 emails; get_source_evidence({\"entity_name\": \"Jeff Skilling\"}) \u2192 15 emails; semantic_search_emails({\"query\": \"What sequence of crisis communications took Enron from Skilling's resignation to Watkins's warning reaching Kenneth Lay in August 2001?\"}) \u2192 5 emails; get_email_full_body({\"message_id\": \"<3308296.1075852669757.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<17255772.1075852648569.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<7527614.1075852683038.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<29789811.1075840157524.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_communication_timeline({\"entity_name\": \"Jeff Skilling\", \"entity_b\": \"Andrew Watkins\", \"date_from\": \"2001-08-01\", \"date_to\": \"2001-09-01\"}) \u2192 no matching records; query_timeline({\"person_name\": \"\", \"date_from\": \"2001-08-01\", \"date_to\": \"2001-09-01\"}) \u2192 structured result; query_timeline({\"person_name\": \"Jeff Skilling\", \"date_from\": \"2001-08-01\", \"date_to\": \"2001-09-01\"}) \u2192 structured result; get_communication_stats({\"entity_name\": \"Jeff Skilling\", \"group_by\": \"month\"}) \u2192 no matching records",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 1482.3,
+      "evidence_quality/value": 0.85,
+      "evidence_quality/rationale": "The response provides strong evidence for most claims. It includes specific email dates, sender/recipient pairs, and subject lines for three emails (2001-08-14 from wes.carberry, 2001-08-14 organizational announcement, 2001-08-16 WSJ Skilling Interview). Curated timeline events are cited with specific dates for Skilling's resignation, Watkins' anonymous letter, and the Watkins-Lay meeting. The provenance section includes actual tool call syntax showing search parameters used. Content snippets from emails are provided, adding further grounding. Minor deductions: the provenance section is partially truncated (the second search_emails call is cut off), and some claims in the conclusion are general assertions rather than data-backed. The organizational announcement email lacks a clear sender name (no.address@enron.com), which slightly weakens that citation. Overall, the response demonstrates good evidentiary discipline with specific dates, named entities, and tool citations supporting the chronology.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.5,
+      "organizational_accuracy/rationale": "The response presents a chronological timeline of events around Skilling's resignation rather than directly addressing organizational structure and relationships. It does not explicitly describe reporting lines, titles, or relationship types (REPORTS_TO, MANAGES, etc.) as the rubric requires. However, the response does implicitly convey some organizational facts: Skilling held the role of President and CEO, Lay was reinstated as CEO after Skilling's departure, and the Board of Directors accepted Skilling's resignation. These are consistent with the curated timeline and email evidence cited. There are no fabricated entities or contradictions with known graph data. The core leadership structure is inferable but not explicitly structured with relationship types, and significant organizational detail (titles, reporting lines, hierarchy) is absent. The response appears to be answering a different question (chronology of events) rather than an org structure question, which limits its score on this rubric.",
+      "grounding_integrity/value": 1.0,
+      "grounding_integrity/rationale": "The response has a complete and well-structured Provenance section that includes: (1) explicit tool call citations with parameters shown, (2) a clear grounding level statement ('All claims grounded in graph data'), (3) distinct labeling of curated timeline events vs. email corpus evidence, (4) specific email metadata (date, sender, subject, snippet) for each cited email, and (5) coverage context. Every claim in the answer is traceable to either a named curated timeline entry or a specific email record with full attribution. The response does not present any external knowledge as graph evidence, and it correctly distinguishes between the two data sources (curated investigation timeline vs. email content). The tool call citations, while truncated, are present and demonstrate actual retrieval attempts.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.9,
+      "hallucination_detection/rationale": "The response is well-grounded with minimal hallucination risk. Email citations include plausible metadata (dates, senders, subjects, partial content) consistent with the Enron corpus context. Curated timeline events are presented as such and not fabricated. The three emails cited (wes.carberry, no.address organizational announcement, rahil.jafry WSJ forward) are plausible and internally consistent with the dates and events described. No invented relationships, fabricated statistics, or external knowledge presented as graph-derived data are detected. The minor deduction is because the ground truth fields are empty, making it impossible to fully verify the email citations against confirmed records \u2014 there is a small residual risk that the email details could be slightly embellished, but nothing in the response constitutes clear fabrication or contradiction of known facts.",
+      "answer_completeness/value": 0.5,
+      "answer_completeness/rationale": "The response provides a basic chronological skeleton using the curated timeline events (Skilling resignation 8/14, Watkins anonymous letter 8/15, Watkins meets Lay 8/22) and a few supporting emails. However, it falls significantly short of a comprehensive answer about the 'sequence of crisis communications.' It lacks: (1) any detail about the content of Lay's all-employee email reassuring staff after Skilling's departure, (2) the internal communications and reactions within Enron during this period, (3) any analysis of the communication chain between Watkins and Lay beyond the bare timeline dates, (4) the WSJ interview email is cited but not meaningfully analyzed as part of the crisis communication sequence, and (5) no attempt to characterize the nature or tone of the communications as a crisis response. The answer is largely a list of dates with minimal synthesis. The search parameters shown also appear to have errors (searching for 'Andrew Watkins' instead of 'Sherron Watkins'). The response does correctly use available graph data without fabrication, but the depth and completeness of the crisis communications narrative is insufficient for what was asked."
+    },
+    {
+      "question_id": "enron-curated-late-october-crisis-monitoring-timeline",
+      "question_text": "What sequence of crisis-monitoring communications shows Enron's late-October 2001 narrative moving from partnership concerns to SEC scrutiny and emergency financing?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "timeline_reconstruction",
+      "architecture_primary": "timeline_retrieval",
+      "architecture_secondary": [
+        "topic_keyword_retrieval",
+        "evidence_drilldown"
+      ],
+      "domain_primary": "communications_dynamics_temporal",
+      "domain_secondary": [
+        "legal_audit_external_stakeholders",
+        "communications_dynamics_temporal"
+      ],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "timeline_reconstruction",
+      "inputs/question": "What sequence of crisis-monitoring communications shows Enron's late-October 2001 narrative moving from partnership concerns to SEC scrutiny and emergency financing?",
+      "expectations/question_id": "enron-curated-late-october-crisis-monitoring-timeline",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "timeline_reconstruction",
+      "expectations/architecture_primary": "timeline_retrieval",
+      "expectations/architecture_secondary": [
+        "topic_keyword_retrieval",
+        "evidence_drilldown"
+      ],
+      "expectations/domain_primary": "communications_dynamics_temporal",
+      "expectations/domain_secondary": [
+        "legal_audit_external_stakeholders",
+        "communications_dynamics_temporal"
+      ],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "What sequence of crisis-monitoring communications shows Enron's late-October 2001 narrative moving from partnership concerns to SEC scrutiny and emergency financing?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-late-october-crisis-monitoring-timeline",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "timeline_reconstruction",
+        "architecture_primary": "timeline_retrieval",
+        "architecture_secondary": [
+          "topic_keyword_retrieval",
+          "evidence_drilldown"
+        ],
+        "domain_primary": "communications_dynamics_temporal",
+        "domain_secondary": [
+          "legal_audit_external_stakeholders",
+          "communications_dynamics_temporal"
+        ],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "timeline_reconstruction"
+      },
+      "response_text": "### Answer\nThe late-October crisis-monitoring packet shows a dated progression from partnership controversy to SEC pressure, liquidity stress, and market deterioration.\n\n1. **2001-10-19**: The briefing foregrounds Fastow partnership scrutiny and lawsuit pressure. [2001-10-19, From: m..schmidt@enron.com, Subject: Enron Mentions]\n2. **2001-10-23**: The narrative shifts to SEC scrutiny while new financing pressure becomes explicit. [2001-10-23, From: m..schmidt@enron.com, Subject: Enron Mentions]\n3. **2001-10-29**: Liquidity and emergency-financing concerns move to the center of the packet. [2001-10-29, From: m..schmidt@enron.com, Subject: Enron Mentions]\n\n#### Evidence\n- [2001-10-19, From: m..schmidt@enron.com, Subject: Enron Mentions] \u2014 Enron Mentions Enron Shares Fall on Concern Over CFO's Partnerships (Update4) Bloomberg, 10/19/01 USA: UPDATE 1-Enron stock sustains further heavy losses. Reuters English News S...\n- [2001-10-23, From: m..schmidt@enron.com, Subject: Enron Mentions] \u2014 Enron Mentions Enron Asks Citigroup for $750 Mln Loan, People Say (Update1) Bloomberg, 10/23/01 Enron Corp. Cut to `Reduce' at Edward Jones Bloomberg, 10/23/01 Enron CFO: Compan...\n- [2001-10-29, From: m..schmidt@enron.com, Subject: Enron Mentions] \u2014 Enron Mentions USA: Enron shares in stay in doldrums after downgrade. Reuters English News Service, 10/29/01 USA: US companies' credit quality to worsen-Moody's. Reuters English...\n\n#### Conclusion\nSo the chronology moves from partnership-driven legal pressure, to SEC scrutiny, to emergency financing and credit deterioration by the end of October.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"Enron Mentions, SEC inquiry, stock decline, litigation\", \"sender\": \"m..schmidt@enron.com\", \"date_from\": \"2001-10-19\", \"date_to\": \"2001-10-20\", \"limit\": 4}) \u2192 1 emails; search_emails({\"keywords\": \"Enron Mentions, SEC, lawsuits, LJM, partnerships\", \"sender\": \"m..schmidt@enron.com\", \"date_from\": \"2001-10-23\", \"date_to\": \"2001-10-24\", \"limit\": 4}) \u2192 1 emails; search_emails({\"keywords\": \"Enron Mentions, Moody's, Baa2, credit lines, seven-year lows\", \"sender\": \"m..schmidt@enron.com\", \"date_from\": \"2001-10-29\", \"date_to\": \"2001-10-30\", \"limit\": 4}) \u2192 1 emails; search_emails({\"keywords\": \"crisis-monitoring, communications, partnership concerns, SEC scrutiny, emergency financing, bankruptcy, collapse, SEC investigation, California energy\", \"date_from\": \"2001-10-21\", \"date_to\": \"2001-10-31\"}) \u2192 10 emails; get_source_evidence({\"entity_name\": \"Enron\"}) \u2192 20 emails; semantic_search_emails({\"query\": \"What sequence of crisis-monitoring communications shows Enron's late-October 2001 narrative moving from partnership concerns to SEC scrutiny and emergency financing?\"}) \u2192 10 emails; get_email_full_body({\"message_id\": \"<4111286.1075854883075.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<12750121.1075840510246.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<1893801.1075840492626.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<15094689.1075840512154.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; query_timeline({\"person_name\": \"\", \"date_from\": \"2001-10-21\", \"date_to\": \"2001-10-31\"}) \u2192 structured result; query_timeline({\"person_name\": \"Enron\", \"date_from\": \"2001-10-21\", \"date_to\": \"2001-10-31\"}) \u2192 no matching records; get_communication_stats({\"entity_name\": \"Enron\", \"group_by\": \"month\"}) \u2192 text result",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 1392.9,
+      "evidence_quality/value": 0.8,
+      "evidence_quality/rationale": "The response provides strong evidence for its three key claims, each anchored to specific email dates, a named sender (m..schmidt@enron.com), and a consistent subject line ('Enron Mentions'). The evidence section includes partial body text from each email that corroborates the narrative shift described (partnership scrutiny \u2192 SEC scrutiny \u2192 liquidity/credit concerns). The provenance section lists specific tool calls with parameters and result counts, demonstrating methodical retrieval. Minor deductions apply because: (1) recipient information is absent from the citations, (2) the body excerpts are truncated and don't fully confirm all narrative claims (e.g., 'SEC scrutiny' on 10/23 is implied but not explicitly quoted), and (3) the chronological framing ('crisis-monitoring packet') is an interpretive label not directly sourced from the emails themselves. Overall, the core claims are well-grounded with specific dates, sender identity, subject lines, and partial content, meeting a high evidentiary standard.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.5,
+      "organizational_accuracy/rationale": "The response does not address organizational structure, reporting lines, titles, or relationship types (REPORTS_TO, MANAGES, etc.) at all. It is entirely focused on a chronological narrative of crisis-monitoring emails from late October 2001. Since the evaluation criteria specifically asks about organizational claims, reporting lines, accurate titles, and relationship types, the response is largely off-topic for this rubric. However, the response does not fabricate organizational relationships or contradict any org-structure facts \u2014 it simply doesn't engage with them. The email citations appear plausible and grounded in the corpus (m..schmidt@enron.com sending 'Enron Mentions' digests is consistent with known corpus patterns), and no internal contradictions are present. The score of 0.5 reflects that the core content is factually consistent with what's in the graph but the response fails to address the organizational structure dimension that this rubric evaluates, representing a significant omission rather than an error.",
+      "grounding_integrity/value": 0.9,
+      "grounding_integrity/rationale": "The response has a well-structured Provenance section that includes specific tool call citations with parameters and result counts, states 'All claims grounded in graph data,' and identifies the coverage scope. Each claim in the answer body is directly attributed to specific emails with sender, date, and subject line. The evidence section provides snippet-level corroboration from the actual email content. The tool calls are enumerated with their return counts, satisfying the citation requirement. Minor deductions: the grounding path description ('question -> active retrieval tools -> answer') is somewhat generic, and one tool call citation is truncated mid-string, suggesting incomplete logging. Overall, this is a strong grounding response with systematic attribution throughout.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.82,
+      "hallucination_detection/rationale": "The agent's response is largely well-grounded. The three email citations (2001-10-19, 2001-10-23, 2001-10-29 from m..schmidt@enron.com with subject 'Enron Mentions') are consistent with the tool results described in the provenance section, which show actual retrieval calls returning 1 email each for those date ranges. The snippet content quoted (e.g., Bloomberg headlines about CFO partnerships, Citigroup loan request, Moody's downgrade) is plausible for a media-monitoring digest and aligns with the historical record of Enron's collapse timeline. The agent does not fabricate entity names or invent relationships. The narrative framing (partnership controversy \u2192 SEC scrutiny \u2192 liquidity stress) is a reasonable interpretation of the retrieved content. Minor concern: the agent presents the chronological narrative with some confidence ('shows a dated progression') that slightly overstates certainty given only three data points were retrieved, and the snippet content is partially summarized rather than directly quoted. No outright fabrications are detected, and the provenance is transparently documented with actual tool calls. The score is slightly below 1.0 due to minor interpretive leaps presented as established fact rather than inference.",
+      "answer_completeness/value": 0.7,
+      "answer_completeness/rationale": "The response directly addresses the question with a clear chronological sequence (Oct 19 \u2192 Oct 23 \u2192 Oct 29) showing the narrative progression from partnership concerns to SEC scrutiny to emergency financing. It cites specific emails from the corpus (m..schmidt@enron.com 'Enron Mentions' series) with actual content snippets that support each stage of the narrative. The three-stage progression is well-grounded in email data. However, the response has some gaps: it doesn't deeply explore the Oct 23 email's SEC scrutiny content beyond a brief mention, doesn't include intermediate dates (Oct 20-22, 24-28) that might show finer-grained progression, and the evidence snippets are truncated. The response also doesn't fully leverage the broader search results (10 emails from the broader search) to enrich the narrative. Still, the main question is answered well with specific, grounded citations showing the requested progression."
+    },
+    {
+      "question_id": "enron-curated-employee-crisis-operations-timeline",
+      "question_text": "What sequence of employee-facing communications shows Enron moving into internal crisis operations between November 30 and December 7, 2001?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "timeline_reconstruction",
+      "architecture_primary": "timeline_retrieval",
+      "architecture_secondary": [
+        "topic_keyword_retrieval",
+        "evidence_drilldown"
+      ],
+      "domain_primary": "communications_dynamics_temporal",
+      "domain_secondary": [],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "timeline_reconstruction",
+      "inputs/question": "What sequence of employee-facing communications shows Enron moving into internal crisis operations between November 30 and December 7, 2001?",
+      "expectations/question_id": "enron-curated-employee-crisis-operations-timeline",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "timeline_reconstruction",
+      "expectations/architecture_primary": "timeline_retrieval",
+      "expectations/architecture_secondary": [
+        "topic_keyword_retrieval",
+        "evidence_drilldown"
+      ],
+      "expectations/domain_primary": "communications_dynamics_temporal",
+      "expectations/domain_secondary": [],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "What sequence of employee-facing communications shows Enron moving into internal crisis operations between November 30 and December 7, 2001?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-employee-crisis-operations-timeline",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "timeline_reconstruction",
+        "architecture_primary": "timeline_retrieval",
+        "architecture_secondary": [
+          "topic_keyword_retrieval",
+          "evidence_drilldown"
+        ],
+        "domain_primary": "communications_dynamics_temporal",
+        "domain_secondary": [],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "timeline_reconstruction"
+      },
+      "response_text": "### Answer\nThe employee-facing crisis packet becomes more operational across bankruptcy week, moving from benefits disruption to emergency contact logistics, severance planning, and formal legal structuring.\n\n1. **2001-11-29**: Layoff and severance planning becomes explicit. [2001-11-29, From: olalekan.oladeji@enron.com, Subject: Just a suggestion]\n2. **2001-11-30**: Employee benefits and savings-plan disruption become an immediate crisis notice. [2001-11-30, From: no.address@enron.com, Subject: PLEASE READ - IMPORTANT INFORMATION FOR PARTICIPANTS IN THE ENRON\n SAVINGS PLAN]\n3. **2001-12-03**: The company pivots to home-contact logistics so it can reach employees with critical materials. [2001-12-03, From: robert.jones@mailman.enron.com, Subject: Home Contact Information]\n4. **2001-12-07**: Legal and structuring issues show bankruptcy operations moving into formal process mode. [2001-12-07, From: sara.shackleton@enron.com, Subject: Enron Credit Inc.]\n\n#### Evidence\n- [2001-11-29, From: olalekan.oladeji@enron.com, Subject: Just a suggestion] \u2014 Just a suggestion Dear Ken, I am a second year associate with RAC underwriting group. In the past few days, I have been watching fellow staff packing their personal items in an ...\n- [2001-11-30, From: no.address@enron.com, Subject: PLEASE READ - IMPORTANT INFORMATION FOR PARTICIPANTS IN THE ENRON\n SAVINGS PLAN] \u2014 PLEASE READ - IMPORTANT INFORMATION FOR PARTICIPANTS IN THE ENRON SAVINGS PLAN Due to current business circumstances, on November 28, 2001, Enron's Board of Directors adopted an...\n- [2001-12-03, From: robert.jones@mailman.enron.com, Subject: Home Contact Information] \u2014 Home Contact Information Please review the home addresss and phone number shown on this eMail. DO NOT RESPOND if the information is correct. However, if incorrect then reply to ...\n- [2001-12-07, From: sara.shackleton@enron.com, Subject: Enron Credit Inc.] \u2014 Enron Credit Inc. Edmund: I have not received anything from anyone in London or anywhere else regarding positions, etc. I did speak with a Weil bankruptcy lawyer and there were ...\n\n#### Conclusion\nSo the dated notices show Enron moving from employee-benefit disruption into full internal crisis operations during bankruptcy week.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"Enron, internal crisis operations, employee-facing communications, bankruptcy, collapse, SEC investigation, California energy\", \"date_from\": \"2001-12-07\", \"date_to\": \"2001-12-07\", \"sender\": \"Enron\", \"recipient\": \"November 30, 2001\"}) \u2192 no matching records; search_emails({\"keywords\": \"Enron Mentions, SEC inquiry, liquidity pressure\", \"date_from\": \"2001-10-22\", \"date_to\": \"2001-10-24\", \"limit\": 3}) \u2192 1 emails; search_emails({\"keywords\": \"Enron Mentions, credit lines, financing pressure\", \"date_from\": \"2001-10-28\", \"date_to\": \"2001-10-30\", \"limit\": 3}) \u2192 1 emails; search_emails({\"keywords\": \"savings plan, current business circumstances\", \"date_from\": \"2001-11-29\", \"date_to\": \"2001-12-01\", \"limit\": 3}) \u2192 1 emails; search_emails({\"keywords\": \"Home Contact Information, critical company information\", \"sender\": \"robert.jones@mailman.enron.com\", \"date_from\": \"2001-12-03\", \"date_to\": \"2001-12-04\", \"limit\": 3}) \u2192 1 emails; search_emails({\"keywords\": \"Just a suggestion, massive layoff, bankruptcy\", \"sender\": \"olalekan.oladeji@enron.com\", \"date_from\": \"2001-11-29\", \"date_to\": \"2001-11-30\", \"limit\": 3}) \u2192 1 emails; search_emails({\"keywords\": \"Severance re Canada, severance packages, retention\", \"sender\": \"david.oxley@enron.com\", \"date_from\": \"2001-12-07\", \"date_to\": \"2001-12-08\", \"limit\": 3}) \u2192 1 emails; search_emails({\"keywords\": \"Enron Credit Inc., Weil bankruptcy lawyer, structuring issues\", \"sender\": \"sara.shackleton@enron.com\", \"date_from\": \"2001-12-07\", \"date_to\": \"2001-12-08\", \"limit\": 3}) \u2192 1 emails; search_emails({\"keywords\": \"Enron, internal crisis operations, employee-facing communications, bankruptcy, collapse, SEC investigation, California energy\", \"date_from\": \"2001-12-07\", \"date_to\": \"2001-12-07\"}) \u2192 no matching records; get_source_evidence({\"entity_name\": \"Enron\"}) \u2192 20 emails; semantic_search_emails({\"query\": \"What sequence of employee-facing communications shows Enron moving into internal crisis operations between November 30 and December 7, 2001?\"}) \u2192 8 emails; get_email_full_body({\"message_id\": \"<14005297.1075855398619.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<12345698.1075860836727.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<18977901.1075840836746.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<18608210.1075855396807.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_communication_timeline({\"entity_name\": \"Enron\", \"entity_b\": \"November 30, 2001\", \"date_from\": \"2001-12-07\", \"date_to\": \"2001-12-07\"}) \u2192 no matching records; query_timeline({\"person_name\": \"\", \"date_from\": \"2001-12-07\", \"date_to\": \"2001-12-07\"}) \u2192 no matching records; query_timeline({\"person_name\": \"Enron\", \"date_from\": \"2001-12-07\", \"date_to\": \"2001-12-07\"}) \u2192 no matching records; get_communication_stats({\"entity_name\": \"Enron\", \"group_by\": \"month\"}) \u2192 text result",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 1653.7,
+      "evidence_quality/value": 0.6,
+      "evidence_quality/rationale": "The response provides specific email citations with dates, senders, and subject lines for each of its four key claims, and includes snippet-level evidence in the Evidence section. The 2001-11-30 savings plan email and 2001-12-03 home contact email are well-supported with relevant content. However, several issues reduce the score: (1) The 2001-11-29 email from olalekan.oladeji is a personal suggestion letter to Ken Lay about employees packing boxes \u2014 it is tangentially related to layoffs but is not an 'employee-facing crisis packet' document, making the characterization somewhat misleading. (2) The 2001-12-07 Sara Shackleton email about 'Enron Credit Inc.' is a legal/operational email between colleagues, not clearly an 'employee-facing' communication, and the evidence snippet shows it's about bankruptcy lawyer contact rather than a formal crisis packet. (3) The provenance section shows a malformed/incomplete tool call log with a truncated source entry and a nonsensical recipient field ('November 30, 2001'), undermining confidence in the retrieval methodology. (4) The narrative framing ('employee-facing crisis packet') is an interpretive claim not fully supported by the cited emails. The response has genuine evidence but the framing overstates what the emails actually demonstrate, and the provenance section has quality issues.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.3,
+      "organizational_accuracy/rationale": "The response does not address organizational structure, reporting lines, titles, or relationship types (REPORTS_TO, MANAGES, etc.) at all. The question context asks for evaluation of organizational structure and relationships, but the agent's response is entirely about a chronological narrative of employee-facing crisis communications during bankruptcy week. While the email citations appear plausible and grounded in the corpus, there are no org hierarchy claims to evaluate as correct or incorrect. The response is essentially off-topic relative to the evaluation criteria, and the provenance section shows confused search parameters (e.g., using a date as a recipient field). The partial score reflects that the email citations themselves seem legitimate and internally consistent, but the complete absence of organizational structure content means the response fails the core evaluation criteria substantially.",
+      "grounding_integrity/value": 0.7,
+      "grounding_integrity/rationale": "The response includes a Provenance section with Sources, Grounding level, and Confidence indicators, and explicitly states 'All claims grounded in graph data.' Email citations are provided with dates, senders, and subjects, and snippet evidence is shown for each claim. However, the provenance section has notable weaknesses: the tool call citations are truncated and partially malformed (e.g., a recipient field set to 'November 30, 2001' which is nonsensical, and cut-off query strings), making it difficult to fully verify which tool calls produced which results. The narrative framing ('employee-facing crisis packet becomes more operational') is interpretive and not directly attributed to specific tool outputs. The connection between the sara.shackleton email about 'Enron Credit Inc.' and 'formal legal structuring' is a stretch that isn't well-grounded by the snippet shown. Overall, the structure is present and most claims have email-level attribution, but the tool call provenance is incomplete and some interpretive claims lack clear grounding, warranting a score below the top tier.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.7,
+      "hallucination_detection/rationale": "The response cites four specific emails with dates, senders, and subjects that appear plausible given the Enron corpus context. The email from no.address@enron.com about the Savings Plan and the sara.shackleton@enron.com email about Enron Credit Inc. are consistent with known Enron corpus emails. The robert.jones@mailman.enron.com home contact email is plausible. The olalekan.oladeji@enron.com 'Just a suggestion' email is less verifiable but not obviously fabricated. No ground truth is provided to verify or refute these citations directly. The narrative framing is reasonable and does not make strong external knowledge claims presented as graph-derived. The provenance section shows actual tool calls, lending some credibility. Minor concerns include: the characterization of the Dec 7 sara.shackleton email as evidence of 'bankruptcy operations moving into formal process mode' is a stretch given the snippet only mentions not receiving information and speaking with a bankruptcy lawyer \u2014 this is a mild over-interpretation. No outright fabricated entity names, invented statistics, or clearly false relationships are present. Overall, the response is mostly grounded with minor unsupported interpretive claims but no severe hallucinations.",
+      "answer_completeness/value": 0.4,
+      "answer_completeness/rationale": "The response attempts to address the question by identifying a sequence of employee-facing communications during the target period, but has significant gaps and weaknesses. On the positive side, it correctly identifies the savings plan notice (Nov 30) and home contact information email (Dec 3) as genuinely crisis-operational communications, and provides actual email citations with snippets. However, the sequence is thin (only 4 emails, one of which is Nov 29, outside the requested window) and the Nov 29 email from a junior employee suggesting layoff ideas is not really an 'employee-facing crisis communication' from management. The Dec 7 Sara Shackleton email about Enron Credit Inc. is a legal/operational email between colleagues, not an employee-facing crisis communication. The response misses what would be the most important communications in this period: formal bankruptcy announcements, HR communications about layoffs, employee assistance notices, and other broadcast messages that would characterize 'crisis operations.' The agent appears to have done limited searching and padded the response with tangentially related emails rather than exhaustively mining the corpus for the most relevant broadcast/HR communications. The narrative framing is reasonable but the underlying evidence base is weak and partially mischaracterized."
+    },
+    {
+      "question_id": "enron-curated-pacheco-early-june-management-timeline",
+      "question_text": "What early-June 2000 management-report sequence did Leonardo Pacheco send Kenneth Lay before the later late-June reporting cadence?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "timeline_reconstruction",
+      "architecture_primary": "timeline_retrieval",
+      "architecture_secondary": [
+        "evidence_drilldown",
+        "synthesis_provenance"
+      ],
+      "domain_primary": "trading_markets_platforms",
+      "domain_secondary": [
+        "governance_leadership"
+      ],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "timeline_reconstruction",
+      "inputs/question": "What early-June 2000 management-report sequence did Leonardo Pacheco send Kenneth Lay before the later late-June reporting cadence?",
+      "expectations/question_id": "enron-curated-pacheco-early-june-management-timeline",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "timeline_reconstruction",
+      "expectations/architecture_primary": "timeline_retrieval",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown",
+        "synthesis_provenance"
+      ],
+      "expectations/domain_primary": "trading_markets_platforms",
+      "expectations/domain_secondary": [
+        "governance_leadership"
+      ],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "What early-June 2000 management-report sequence did Leonardo Pacheco send Kenneth Lay before the later late-June reporting cadence?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-pacheco-early-june-management-timeline",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "timeline_reconstruction",
+        "architecture_primary": "timeline_retrieval",
+        "architecture_secondary": [
+          "evidence_drilldown",
+          "synthesis_provenance"
+        ],
+        "domain_primary": "trading_markets_platforms",
+        "domain_secondary": [
+          "governance_leadership"
+        ],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "timeline_reconstruction"
+      },
+      "response_text": "### Answer\nBefore the later late-June packet cadence, the visible early-June EnronOnline sequence is:\n\n1. **2000-06-23**: [2000-06-23, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 22, 2000] \u2014 EnronOnline Management Report for June 22, 2000 Please see the attached Management Report for June 22, 2000: Total Today Year To Date Lif...\n2. **2000-06-28**: [2000-06-28, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 27, 2000] \u2014 EnronOnline Management Report for June 27, 2000 Please see the attached Management Report for June 27, 2000: Total Today Year To Date Lif...\n3. **2000-06-29**: [2000-06-29, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 28, 2000] \u2014 EnronOnline Management Report for June 28, 2000 Please see the attached Management Report for June 28, 2000: Total Today Year To Date Lif...\n\n#### Evidence\n- [2000-06-23, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 22, 2000] \u2014 EnronOnline Management Report for June 22, 2000 Please see the attached Management Report for June 22, 2000: Total Today Year To Date Life To Date Number of Transactions 2,412 1...\n- [2000-06-28, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 27, 2000] \u2014 EnronOnline Management Report for June 27, 2000 Please see the attached Management Report for June 27, 2000: Total Today Year To Date Life To Date Number of Transactions 2,820 1...\n- [2000-06-29, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 28, 2000] \u2014 EnronOnline Management Report for June 28, 2000 Please see the attached Management Report for June 28, 2000: Total Today Year To Date Life To Date Number of Transactions 2,529 1...\n\n#### Conclusion\nSo the early-June evidence shows an already-structured EnronOnline reporting cadence before the later late-June run.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"early-June, management-report, sequence, late-June, reporting, cadence\", \"date_from\": \"2000-06-01\", \"date_to\": \"2000-06-30\", \"sender\": \"Leonardo Pacheco\", \"recipient\": \"Kenneth Lay\"}) \u2192 no matching records; search_emails({\"keywords\": \"EnronOnline Executive Summary\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-12-12\", \"date_to\": \"2000-12-14\", \"limit\": 6}) \u2192 2 emails; search_emails({\"keywords\": \"EnronOnline Management Report for June 22, 2000\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-06-22\", \"date_to\": \"2000-06-24\", \"limit\": 6}) \u2192 1 emails; search_emails({\"keywords\": \"EnronOnline Management Report for June 28, 2000\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-06-28\", \"date_to\": \"2000-06-30\", \"limit\": 6}) \u2192 2 emails; search_emails({\"keywords\": \"early-June, management-report, sequence, late-June, reporting, cadence\", \"date_from\": \"2000-06-01\", \"date_to\": \"2000-06-30\"}) \u2192 6 emails; get_source_evidence({\"entity_name\": \"Leonardo Pacheco\"}) \u2192 2 emails; semantic_search_emails({\"query\": \"What early-June 2000 management-report sequence did Leonardo Pacheco send Kenneth Lay before the later late-June reporting cadence?\"}) \u2192 9 emails; get_email_full_body({\"message_id\": \"<22140261.1075855882502.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<25136751.1075855865692.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<4221705.1075840085621.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<20747567.1075840071853.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_communication_timeline({\"entity_name\": \"Leonardo Pacheco\", \"entity_b\": \"Kenneth Lay\", \"date_from\": \"2000-06-01\", \"date_to\": \"2000-06-30\"}) \u2192 3 time periods; query_timeline({\"person_name\": \"\", \"date_from\": \"2000-06-01\", \"date_to\": \"2000-06-30\"}) \u2192 no matching records; query_timeline({\"person_name\": \"Leonardo Pacheco\", \"date_from\": \"2000-06-01\", \"date_to\": \"2000-06-30\"}) \u2192 no matching records; get_communication_stats({\"entity_name\": \"Leonardo Pacheco\", \"group_by\": \"month\"}) \u2192 text result",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 1287.2,
+      "evidence_quality/value": 0.6,
+      "evidence_quality/rationale": "The response provides specific email citations with dates, sender addresses, and subject lines for three EnronOnline Management Reports (June 22, 27, and 28, 2000), all from leonardo.pacheco@enron.com. The provenance section includes actual tool calls with result counts, which adds credibility. However, several issues reduce the score: (1) The evidence section largely duplicates the answer section rather than adding new supporting detail; (2) The claim about a 'late-June packet cadence' is asserted but not clearly evidenced with distinct emails; (3) The framing of 'early-June sequence' is misleading since all three emails are from late June (June 22-29), not early June as repeatedly claimed; (4) The conclusion contradicts the data by calling these 'early-June' emails when they are clearly late-June; (5) The tool call showing 'no matching records' for the Kenneth Lay recipient search is noted but not reconciled with the claims. The factual inconsistency between calling late-June emails 'early-June' is a notable error, though the underlying email citations themselves appear grounded in actual graph data.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.5,
+      "organizational_accuracy/rationale": "The response does not address organizational structure, reporting lines, titles, or relationship types (REPORTS_TO, MANAGES, etc.) at all. It focuses entirely on an email sequence/cadence analysis for EnronOnline management reports. Since the rubric specifically evaluates organizational claims, reporting lines, and relationship types, the absence of any such content means the response neither contradicts nor confirms org structure. The emails cited appear to be grounded in actual graph data (Leonardo Pacheco sending EnronOnline Management Reports), and no fabricated entities or relationships are present. However, the response fails to address the organizational evaluation criteria entirely, warranting a middle score rather than a penalty for fabrication or contradiction.",
+      "grounding_integrity/value": 0.7,
+      "grounding_integrity/rationale": "The response includes a Provenance section with tool call citations, states 'All claims grounded in graph data,' and provides specific email citations with dates, senders, and subjects that appear to come from actual search_emails tool calls. The email content snippets (transaction numbers, etc.) are consistently cited. However, there are some issues that prevent a full 1.0 score: (1) The tool call list in Sources appears truncated (ending mid-sentence with 'search_emails({\"keywords\": \"early'), suggesting incomplete provenance documentation; (2) The framing narrative about 'early-June' vs 'late-June cadence' and 'already-structured reporting cadence' introduces interpretive claims that go slightly beyond what the cited emails directly demonstrate; (3) The connection between the search queries run and the specific emails returned is not always perfectly clear (e.g., the June 28 search returning 2 emails but only specific ones being cited). The core email citations appear genuinely grounded in graph data with proper attribution, but the incomplete tool call documentation and some unsupported interpretive framing prevent a higher score.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.75,
+      "hallucination_detection/rationale": "The agent cites specific emails with dates, senders, and subjects that appear to be retrieved from actual tool calls (the provenance section shows search_emails calls returning matching counts). The email citations for June 23, 28, and 29 are consistent with the tool results described. However, there are some concerns: (1) The framing of 'early-June' is misleading since all three emails are from late June (June 22-28), not early June as repeatedly claimed \u2014 this is a factual mischaracterization of the data. (2) The conclusion that these represent an 'already-structured reporting cadence before the later late-June run' is somewhat circular since these emails ARE the late-June emails. (3) The agent claims emails are 'grounded in graph data' and the tool results do show matching records, so the citations themselves don't appear fabricated. The main issue is the interpretive framing ('early-June') contradicting what the dates actually show, rather than outright fabrication of citations or entities.",
+      "answer_completeness/value": 0.2,
+      "answer_completeness/rationale": "The question specifically asks about an 'early-June 2000' management-report sequence sent before a 'later late-June reporting cadence.' The agent's response fails to address this correctly: all three emails cited (June 22, 23, 27, 28, 29) are themselves late-June dates, not early-June. The agent never found or presented any genuinely early-June (e.g., June 1-15) emails. The agent also confirmed in its sources that a direct search for emails from Pacheco to Kenneth Lay returned no matching records, yet proceeded to present late-June emails as if they answered the question about an early-June sequence. The conclusion that 'early-June evidence shows an already-structured reporting cadence' is contradicted by the actual dates of the emails presented, which are all late June. The response misrepresents the data and does not actually answer what was asked."
+    },
+    {
+      "question_id": "enron-curated-pacheco-november-december-summary-timeline",
+      "question_text": "What sequence of EnronOnline executive summaries did Leonardo Pacheco send Kenneth Lay from late November into early December 2000?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "timeline_reconstruction",
+      "architecture_primary": "timeline_retrieval",
+      "architecture_secondary": [
+        "evidence_drilldown",
+        "synthesis_provenance"
+      ],
+      "domain_primary": "trading_markets_platforms",
+      "domain_secondary": [
+        "governance_leadership"
+      ],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "timeline_reconstruction",
+      "inputs/question": "What sequence of EnronOnline executive summaries did Leonardo Pacheco send Kenneth Lay from late November into early December 2000?",
+      "expectations/question_id": "enron-curated-pacheco-november-december-summary-timeline",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "timeline_reconstruction",
+      "expectations/architecture_primary": "timeline_retrieval",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown",
+        "synthesis_provenance"
+      ],
+      "expectations/domain_primary": "trading_markets_platforms",
+      "expectations/domain_secondary": [
+        "governance_leadership"
+      ],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "What sequence of EnronOnline executive summaries did Leonardo Pacheco send Kenneth Lay from late November into early December 2000?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-pacheco-november-december-summary-timeline",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "timeline_reconstruction",
+        "architecture_primary": "timeline_retrieval",
+        "architecture_secondary": [
+          "evidence_drilldown",
+          "synthesis_provenance"
+        ],
+        "domain_primary": "trading_markets_platforms",
+        "domain_secondary": [
+          "governance_leadership"
+        ],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "timeline_reconstruction"
+      },
+      "response_text": "### Answer\nThe dated EnronOnline packet shows the following sequence from Leonardo Pacheco:\n\n1. **2000-11-30**: [2000-11-30, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for November 29, 2000] \u2014 EnronOnline Executive Summary for November 29, 2000 Following please find the Daily EnronOnline Executive Summary. EnronOnline Executive ...\n2. **2000-12-01**: [2000-12-01, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for November, 30 2000] \u2014 EnronOnline Executive Summary for November, 30 2000 Following please find the Daily EnronOnline Executive Summary. EnronOnline Executive ...\n3. **2000-12-04**: [2000-12-04, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for December 1, 2000] \u2014 EnronOnline Management Report for December 1, 2000 Following please find the Weekly Management Report and the Daily Executive Summary. En...\n4. **2000-12-08**: [2000-12-08, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for December 7, 2000] \u2014 EnronOnline Executive Summary for December 7, 2000 Following please find the Daily EnronOnline Executive Summary. EnronOnline Executive S...\n5. **2000-12-08**: [2000-12-08, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for December 7, 2000] \u2014 EnronOnline Executive Summary for December 7, 2000 Following please find the Daily EnronOnline Executive Summary. EnronOnline Executive S...\n\n#### Evidence\n- [2000-11-30, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for November 29, 2000] \u2014 EnronOnline Executive Summary for November 29, 2000 Following please find the Daily EnronOnline Executive Summary. EnronOnline Executive Summary for 11/29/00 Transaction Summary...\n- [2000-12-01, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for November, 30 2000] \u2014 EnronOnline Executive Summary for November, 30 2000 Following please find the Daily EnronOnline Executive Summary. EnronOnline Executive Summary for 11/30/00 Transaction Summary...\n- [2000-12-04, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for December 1, 2000] \u2014 EnronOnline Management Report for December 1, 2000 Following please find the Weekly Management Report and the Daily Executive Summary. EnronOnline Executive Summary for 12/01/00...\n- [2000-12-08, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for December 7, 2000] \u2014 EnronOnline Executive Summary for December 7, 2000 Following please find the Daily EnronOnline Executive Summary. EnronOnline Executive Summary for 12/07/00 Transaction Summary ...\n- [2000-12-08, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for December 7, 2000] \u2014 EnronOnline Executive Summary for December 7, 2000 Following please find the Daily EnronOnline Executive Summary. EnronOnline Executive Summary for 12/07/00 Transaction Summary ...\n\n#### Conclusion\nSo the timeline is a concrete dated sequence of EnronOnline management reports and executive summaries rather than an undifferentiated reporting period.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"EnronOnline, executive summaries, Leonardo Pacheco, Kenneth Lay, November, December 2000\", \"date_from\": \"2000-11-21\", \"date_to\": \"2000-12-10\", \"sender\": \"Leonardo Pacheco\", \"recipient\": \"Kenneth Lay\"}) \u2192 5 emails; search_emails({\"keywords\": \"EnronOnline Executive Summary\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-12-12\", \"date_to\": \"2000-12-14\", \"limit\": 6}) \u2192 2 emails; search_emails({\"keywords\": \"EnronOnline Management Report for June 22, 2000\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-06-22\", \"date_to\": \"2000-06-24\", \"limit\": 6}) \u2192 1 emails; search_emails({\"keywords\": \"EnronOnline Management Report for June 28, 2000\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-06-28\", \"date_to\": \"2000-06-30\", \"limit\": 6}) \u2192 2 emails; search_emails({\"keywords\": \"EnronOnline, executive summaries, Leonardo Pacheco, Kenneth Lay, November, December 2000\", \"date_from\": \"2000-11-21\", \"date_to\": \"2000-12-10\"}) \u2192 15 emails; get_source_evidence({\"entity_name\": \"Leonardo Pacheco\"}) \u2192 2 emails; semantic_search_emails({\"query\": \"What sequence of EnronOnline executive summaries did Leonardo Pacheco send Kenneth Lay from late November into early December 2000?\"}) \u2192 10 emails; get_email_full_body({\"message_id\": \"<12449042.1075855864352.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<10445386.1075840253389.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<23108345.1075840276638.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<8869712.1075840252786.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_communication_timeline({\"entity_name\": \"Leonardo Pacheco\", \"entity_b\": \"Kenneth Lay\", \"date_from\": \"2000-11-21\", \"date_to\": \"2000-12-10\"}) \u2192 2 time periods; query_timeline({\"person_name\": \"\", \"date_from\": \"2000-11-21\", \"date_to\": \"2000-12-10\"}) \u2192 no matching records; query_timeline({\"person_name\": \"Leonardo Pacheco\", \"date_from\": \"2000-11-21\", \"date_to\": \"2000-12-10\"}) \u2192 no matching records; get_communication_stats({\"entity_name\": \"Leonardo Pacheco\", \"group_by\": \"month\"}) \u2192 text result",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 2238.6,
+      "evidence_quality/value": 0.85,
+      "evidence_quality/rationale": "The response provides strong evidence for its claims, including specific email dates, sender addresses (leonardo.pacheco@enron.com), and subject lines for each cited email. The evidence section mirrors the main claims with consistent detail, including partial body text snippets that corroborate the subject lines. The response demonstrates a clear chronological sequence with five specific emails spanning 2000-11-30 to 2000-12-08. Minor deductions apply because: (1) recipient information is absent from all citations, which would strengthen provenance; (2) there is a duplicate entry for 2000-12-08 with identical metadata that is unexplained; (3) the conclusion is truncated mid-sentence, suggesting an incomplete response; (4) no formal provenance section citing tool names or query methods is present. Despite these gaps, the core claims are well-supported by specific, consistent email metadata.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.5,
+      "organizational_accuracy/rationale": "The response provides email citations that appear plausible and internally consistent (dates, sender, subject lines all align). However, the question context asks about organizational structure and relationships, and this response contains NO organizational claims whatsoever \u2014 no reporting lines, no titles, no REPORTS_TO or MANAGES relationships, no hierarchy information. The response is entirely about email content/timeline for EnronOnline reports. Since the rubric evaluates organizational accuracy, the response neither fabricates org relationships (avoiding a low score) nor provides any org structure information (preventing a high score). The email citations themselves appear legitimate and consistent, but the complete absence of organizational content means the response fails to address the evaluation criteria. A middle score reflects that what IS present is not wrong, but the core requirement is entirely missing.",
+      "grounding_integrity/value": 0.3,
+      "grounding_integrity/rationale": "The response provides email citations with dates, senders, and subjects that appear to be grounded in graph data, and the evidence section repeats those citations. However, there is no formal Provenance section with Sources, Grounding level, and Confidence fields as required. There is no mention of which tool calls were made (e.g., 'search_emails returned...'), no explicit statement of grounding level, and no confidence rating. The response also appears to be cut off mid-sentence ('So the timeline is a concrete dated sequence of EnronOnl'), suggesting an incomplete answer. While the email citations themselves look plausible and internally consistent (suggesting actual graph retrieval rather than fabrication), the systematic provenance documentation required for a higher score is entirely absent.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.75,
+      "hallucination_detection/rationale": "The response presents specific email citations with dates, senders, and subjects that appear internally consistent and plausible for the Enron corpus. The citations reference leonardo.pacheco@enron.com sending EnronOnline Executive Summaries and Management Reports in late November and early December 2000, which is a credible pattern for such a role. However, there is no ground truth provided to verify these specific citations, and the response includes a duplicate entry (two identical 2000-12-08 entries with the same subject), which raises minor concerns about data quality or fabrication. Without ground truth to confirm or deny these specific email records, and given that the citations are internally consistent and follow a believable pattern, a minor deduction is warranted for the unexplained duplicate and the inability to verify against ground truth, but no outright fabrication is clearly detectable.",
+      "answer_completeness/value": 0.7,
+      "answer_completeness/rationale": "The agent provides a concrete, dated sequence of EnronOnline executive summaries from Leonardo Pacheco to Kenneth Lay spanning late November into early December 2000, which directly addresses the question. The emails are cited with dates and subjects, showing a clear chronological progression. However, there are some gaps: the sequence appears to skip several days (no entries for Nov 27-28, Dec 2-3, Dec 5-6), and it's unclear whether those gaps represent missing emails in the corpus or genuinely no emails sent on those days. The duplicate entry for 2000-12-08 is redundant and slightly reduces quality. The response also doesn't explicitly confirm these were sent TO Kenneth Lay specifically, which was part of the question. The conclusion is also cut off mid-sentence. Despite these issues, the main question about the sequence is answered with reasonable completeness using available graph data."
+    },
+    {
+      "question_id": "enron-curated-pacheco-december-reporting-cadence-timeline",
+      "question_text": "What short EnronOnline reporting cadence is visible in Pacheco's December 8 through December 12, 2000 messages to Kenneth Lay?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "timeline_reconstruction",
+      "architecture_primary": "timeline_retrieval",
+      "architecture_secondary": [
+        "evidence_drilldown",
+        "topic_keyword_retrieval"
+      ],
+      "domain_primary": "trading_markets_platforms",
+      "domain_secondary": [
+        "governance_leadership"
+      ],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "timeline_reconstruction",
+      "inputs/question": "What short EnronOnline reporting cadence is visible in Pacheco's December 8 through December 12, 2000 messages to Kenneth Lay?",
+      "expectations/question_id": "enron-curated-pacheco-december-reporting-cadence-timeline",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "timeline_reconstruction",
+      "expectations/architecture_primary": "timeline_retrieval",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown",
+        "topic_keyword_retrieval"
+      ],
+      "expectations/domain_primary": "trading_markets_platforms",
+      "expectations/domain_secondary": [
+        "governance_leadership"
+      ],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "What short EnronOnline reporting cadence is visible in Pacheco's December 8 through December 12, 2000 messages to Kenneth Lay?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-pacheco-december-reporting-cadence-timeline",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "timeline_reconstruction",
+        "architecture_primary": "timeline_retrieval",
+        "architecture_secondary": [
+          "evidence_drilldown",
+          "topic_keyword_retrieval"
+        ],
+        "domain_primary": "trading_markets_platforms",
+        "domain_secondary": [
+          "governance_leadership"
+        ],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "timeline_reconstruction"
+      },
+      "response_text": "### Answer\nThe retrieved data supports the following chronology in strict date order:\n\n1. **2001-11-02**: [2001-11-02, From: ronniechan@hanglung.com, Subject: untitled] \u2014 HANG LUNG DEVELOPMENT COMPANY LIMITED 28/F, Standard Chartered Bank Building 4 Des Voeux Road Central, Hong Kong, China Telephone: (852) 2879-0111 Fax: (852)...\n2. **2001-11-29**: [2001-11-29, From: anastasia.aourik@enron.com, Subject: I Am Happy!!!] \u2014 I Am Happy!!! Hello Mr. Kenneth Lay, I hope you don't mind an email from someone who is not very high in the decision-making level of Enron but I have such s...\n3. **2002-01-18**: [2002-01-18, From: lblanchard@howard.edu, Subject: Documents for Development Committee Meeting (1/18)] \u2014 Documents for Development Committee Meeting (1/18) To: Mr. Richard Parsons (Chairman, Development Committee) - FYI Dr. Kenneth Lay (phone) Mr. Robert Lumpkin...\n\n#### Evidence\n- [2001-11-02, From: ronniechan@hanglung.com, Subject: untitled] \u2014 HANG LUNG DEVELOPMENT COMPANY LIMITED 28/F, Standard Chartered Bank Building 4 Des Voeux Road Central, Hong Kong, China Telephone: (852) 2879-0111 Fax: (852) 2868-6036 E-mail: R...\n- [2001-11-29, From: anastasia.aourik@enron.com, Subject: I Am Happy!!!] \u2014 I Am Happy!!! Hello Mr. Kenneth Lay, I hope you don't mind an email from someone who is not very high in the decision-making level of Enron but I have such strong need to share ...\n- [2002-01-18, From: lblanchard@howard.edu, Subject: Documents for Development Committee Meeting (1/18)] \u2014 Documents for Development Committee Meeting (1/18) To: Mr. Richard Parsons (Chairman, Development Committee) - FYI Dr. Kenneth Lay (phone) Mr. Robert Lumpkins (phone) Copy: Ms. ...\n\n#### Conclusion\nSo the answer is anchored to the dated timeline rows and supporting emails returned for this question, not to a generic narrative summary.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"EnronOnline, reporting cadence, December 8, 2000, December 12, 2000\", \"date_from\": \"2000-12-12\", \"date_to\": \"2000-12-12\"}) \u2192 no matching records; get_source_evidence({\"entity_name\": \"Kenneth Lay\"}) \u2192 10 emails; semantic_search_emails({\"query\": \"What short EnronOnline reporting cadence is visible in Pacheco's December 8 through December 12, 2000 messages to Kenneth Lay?\"}) \u2192 10 emails; get_email_full_body({\"message_id\": \"<24254865.1075860847134.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<27094377.1075860836751.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<24316812.1075862884459.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<26112614.1075852812307.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; query_timeline({\"person_name\": \"\", \"date_from\": \"2000-12-12\", \"date_to\": \"2000-12-12\"}) \u2192 no matching records; query_timeline({\"person_name\": \"Kenneth Lay\", \"date_from\": \"2000-12-12\", \"date_to\": \"2000-12-12\"}) \u2192 no matching records; get_communication_timeline({\"entity_name\": \"Kenneth Lay\", \"entity_b\": \"Pacheco\", \"date_from\": \"2000-12-12\", \"date_to\": \"2000-12-12\"}) \u2192 no matching records; get_communication_stats({\"entity_name\": \"Kenneth Lay\", \"group_by\": \"month\"}) \u2192 text result",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 1984.1,
+      "evidence_quality/value": 0.3,
+      "evidence_quality/rationale": "The response includes specific email citations with dates, senders, and subject lines, and has a provenance section listing tool calls. However, the evidence presented is largely irrelevant to the apparent question about EnronOnline reporting cadence in Pacheco's December 2000 messages to Kenneth Lay. The three emails cited (Nov 2001 from Hang Lung Development, Nov 2001 'I Am Happy!!!', Jan 2002 Howard University committee) have no apparent connection to the query topic. The provenance section confirms the actual search returned 'no matching records' for the relevant date range and topic. The agent essentially presents off-topic emails as if they constitute an answer, which is misleading. While the citations are specific and the provenance is detailed, the fundamental mismatch between the question and the evidence provided, combined with the admission of 'no matching records' for the actual query, limits the score significantly. The response does not fabricate entities but fails to properly communicate that the relevant information was not found.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.2,
+      "organizational_accuracy/rationale": "The response does not address organizational structure, reporting lines, titles, or relationship types (REPORTS_TO, MANAGES, etc.) in any meaningful way. It presents a chronological list of emails that appear unrelated to the question about organizational hierarchy, and the emails cited (Hang Lung Development, a fan email to Kenneth Lay, a Howard University committee meeting) provide no org structure information. There are no relationship types shown, no reporting lines established, and no hierarchy described. The response appears to be answering a different question entirely (about EnronOnline reporting cadence) rather than organizational structure. While it does not fabricate explicit org relationships, it completely fails to address the evaluation criteria for organizational structure accuracy, consistency, and relationship typing. The minimal score above 0.0 is given only because the response does not actively contradict any org facts \u2014 it simply fails to address them at all.",
+      "grounding_integrity/value": 0.4,
+      "grounding_integrity/rationale": "The response has a Provenance section with tool call citations and states 'All claims grounded in graph data,' which are positive indicators. However, there are significant grounding problems: (1) The answer presents three emails (Nov 2001, Nov 2001, Jan 2002) as a 'chronology' in response to a question about Pacheco's December 8-12, 2000 messages to Kenneth Lay about EnronOnline reporting cadence \u2014 none of the cited emails are relevant to the actual question, suggesting the retrieval failed but the agent presented unrelated results as if they were answers. (2) The tool calls confirm the search returned no matching records for the specific query, yet the agent still presents emails as evidence without clearly flagging that these are non-responsive results. (3) The conclusion claims the answer is 'anchored to the dated timeline rows' but the cited emails have nothing to do with Pacheco, EnronOnline, or the December 2000 timeframe. (4) The provenance section is truncated (cut off mid-sentence), reducing its reliability. The agent deserves partial credit for having a provenance section and citing tool calls, but loses significant points for presenting irrelevant emails as responsive evidence without clearly stating the actual query returned no results.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.7,
+      "hallucination_detection/rationale": "The agent presents three email citations with dates, senders, and subjects that appear to be drawn from actual tool results (get_source_evidence and semantic_search_emails calls are documented in the provenance). The emails cited (Hang Lung Development, 'I Am Happy!!!', Howard University Development Committee) are plausible Enron corpus emails and are not obviously fabricated. However, the response is largely non-responsive to the actual question (about Pacheco's December 8-12, 2000 EnronOnline reporting cadence messages to Kenneth Lay), and the three emails presented have no apparent relevance to that query. The agent does not fabricate relationships or invent statistics, and it acknowledges finding no matching records for the specific date/keyword search. The main concern is that the irrelevant emails are presented as if they answer the question, which could mislead, but the citations themselves appear grounded in tool outputs rather than fabricated. No external knowledge is falsely presented as graph-derived, and no invented entity names or relationships are present. The score is reduced slightly for presenting tangentially retrieved emails as if they constitute a meaningful answer to the specific question asked.",
+      "answer_completeness/value": 0.0,
+      "answer_completeness/rationale": "The agent completely fails to answer the question. The user asked specifically about Pacheco's messages to Kenneth Lay between December 8-12, 2000, and what EnronOnline reporting cadence is visible in those emails. The agent returned three completely irrelevant emails from 2001-2002 (from Hang Lung Development, an Enron employee expressing happiness, and a Howard University document), none of which involve Pacheco, none of which are from December 2000, and none of which discuss EnronOnline reporting cadence. The agent's search attempts were poorly constructed (e.g., date_from and date_to both set to 2000-12-12 instead of spanning the full date range), and the agent never searched specifically for Pacheco as a sender. The conclusion section provides no actual answer to the question, instead offering a meta-statement about being 'anchored to dated timeline rows.' This is a complete non-answer to the specific question asked."
+    }
+  ],
+  "backend": "local",
+  "corpus": "enron",
+  "runtime_transport": "direct",
+  "tracing": "disabled-env-gated"
+}

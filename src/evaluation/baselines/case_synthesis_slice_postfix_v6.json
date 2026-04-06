@@ -1,0 +1,1726 @@
+{
+  "score_columns": [
+    "evidence_quality",
+    "participant_verification",
+    "organizational_accuracy",
+    "grounding_integrity",
+    "factual_accuracy",
+    "hallucination_detection",
+    "answer_completeness"
+  ],
+  "overall_metrics": {
+    "evidence_quality": 0.6662,
+    "participant_verification": 0.9419,
+    "organizational_accuracy": 0.5688,
+    "grounding_integrity": 0.8625,
+    "factual_accuracy": 0.9469,
+    "hallucination_detection": 0.8013,
+    "answer_completeness": 0.4556
+  },
+  "overall_score": 0.749,
+  "score_matrix_by_category": {
+    "case_synthesis": {
+      "evidence_quality": 0.67,
+      "participant_verification": 0.94,
+      "organizational_accuracy": 0.57,
+      "grounding_integrity": 0.86,
+      "factual_accuracy": 0.95,
+      "hallucination_detection": 0.8,
+      "answer_completeness": 0.46
+    }
+  },
+  "worst_questions": [
+    {
+      "category": "case_synthesis",
+      "question": "How do the Organizational Changes email and the March 2001 Corporate Policy Committee announcement show that Enron Broadband Services leadership was integrated into broader corporate governance?",
+      "avg_score": 0.5214
+    },
+    {
+      "category": "case_synthesis",
+      "question": "How did Kenneth Lay's executive leadership structure change after he resumed the CEO role in August 2001?",
+      "avg_score": 0.5429
+    },
+    {
+      "category": "case_synthesis",
+      "question": "How do the March 2001 Organizational Announcement and Leadership Committees emails show that Enron distributed senior governance through formal committees?",
+      "avg_score": 0.6357
+    },
+    {
+      "category": "case_synthesis",
+      "question": "How do the Market Data Kobra and Research directory ARSystem notices show that the same approval system governed both application and directory access?",
+      "avg_score": 0.7143
+    },
+    {
+      "category": "case_synthesis",
+      "question": "How do the Organizational Changes email and the Datacentric Broadband materials show what Enron Broadband Services was trying to build?",
+      "avg_score": 0.7214
+    }
+  ],
+  "slice_question_count": 16,
+  "successful_question_count": 16,
+  "error_question_count": 0,
+  "elapsed_s": 165.1,
+  "version": "1.0",
+  "created_at": "2026-04-04T22:15:48Z",
+  "run_name": "case_synthesis_slice_postfix_v6",
+  "run_id": "e04ce5038e5040098a0000c11164195e",
+  "judge_endpoint": "databricks-claude-sonnet-4-6",
+  "category": null,
+  "attorney_category": "case_synthesis",
+  "split": null,
+  "baseline_registry": {
+    "version": "1.0",
+    "enron": {
+      "local_core_eval": {
+        "slice": "balanced_test",
+        "question_count": 9,
+        "judge_endpoint": "databricks-claude-sonnet-4-6",
+        "overall_score_min": 0.64,
+        "elapsed_s_max": 240.0,
+        "score_delta_tolerance": 0.08,
+        "notes": "Frozen from the current Enron factual QA slice before modular cutover."
+      },
+      "deployed_core_eval": {
+        "slice": "balanced_test",
+        "question_count": 9,
+        "judge_endpoint": "databricks-claude-sonnet-4-6",
+        "overall_score_min": 0.58,
+        "elapsed_s_max": 320.0,
+        "score_delta_tolerance": 0.1,
+        "notes": "Deployment parity gate relative to the in-process local runtime."
+      },
+      "genie_quantitative_iteration0": {
+        "slice": "governed_genie_iteration0",
+        "question_count": 6,
+        "artifact_path": "src/evaluation/baselines/genie_iteration0_baseline.json",
+        "sql_correctness_current": 0.5,
+        "benchmark_pass_rate_current": 0.5,
+        "failure_rate_current": 0.5,
+        "target_sql_correctness": 0.95,
+        "target_benchmark_pass_rate": 0.9,
+        "target_failure_rate_max": 0.02,
+        "target_latency_p95_multiplier_max": 1.1,
+        "notes": "Iteration 0 frozen benchmark and scorecard for the governed Enron quantitative/Genie slice."
+      }
+    },
+    "bible": {
+      "local_quality_gate": {
+        "entity_recall_min": 0.6,
+        "citations_min": 1.0,
+        "success_rate_min": 0.8,
+        "notes": "Existing local validation suite remains the frozen Bible runtime baseline."
+      },
+      "local_databricks_parity": {
+        "recall_parity_min": 0.8,
+        "tool_match_rate_min": 0.6,
+        "notes": "Parity guard between DuckDB local-fast and Databricks-backed local-integration."
+      }
+    }
+  },
+  "max_concurrent_questions": 6,
+  "max_concurrent_judge_calls": 4,
+  "question_count": 16,
+  "summary": {
+    "score_columns": [
+      "evidence_quality",
+      "participant_verification",
+      "organizational_accuracy",
+      "grounding_integrity",
+      "factual_accuracy",
+      "hallucination_detection",
+      "answer_completeness"
+    ],
+    "overall_metrics": {
+      "evidence_quality": 0.6662,
+      "participant_verification": 0.9419,
+      "organizational_accuracy": 0.5688,
+      "grounding_integrity": 0.8625,
+      "factual_accuracy": 0.9469,
+      "hallucination_detection": 0.8013,
+      "answer_completeness": 0.4556
+    },
+    "overall_score": 0.749,
+    "score_matrix_by_category": {
+      "case_synthesis": {
+        "evidence_quality": 0.67,
+        "participant_verification": 0.94,
+        "organizational_accuracy": 0.57,
+        "grounding_integrity": 0.86,
+        "factual_accuracy": 0.95,
+        "hallucination_detection": 0.8,
+        "answer_completeness": 0.46
+      }
+    },
+    "worst_questions": [
+      {
+        "category": "case_synthesis",
+        "question": "How do the Organizational Changes email and the March 2001 Corporate Policy Committee announcement show that Enron Broadband Services leadership was integrated into broader corporate governance?",
+        "avg_score": 0.5214
+      },
+      {
+        "category": "case_synthesis",
+        "question": "How did Kenneth Lay's executive leadership structure change after he resumed the CEO role in August 2001?",
+        "avg_score": 0.5429
+      },
+      {
+        "category": "case_synthesis",
+        "question": "How do the March 2001 Organizational Announcement and Leadership Committees emails show that Enron distributed senior governance through formal committees?",
+        "avg_score": 0.6357
+      },
+      {
+        "category": "case_synthesis",
+        "question": "How do the Market Data Kobra and Research directory ARSystem notices show that the same approval system governed both application and directory access?",
+        "avg_score": 0.7143
+      },
+      {
+        "category": "case_synthesis",
+        "question": "How do the Organizational Changes email and the Datacentric Broadband materials show what Enron Broadband Services was trying to build?",
+        "avg_score": 0.7214
+      }
+    ]
+  },
+  "rows": [
+    {
+      "question_id": "enron-curated-fastow-lay-chain-2001",
+      "question_text": "What was the reporting chain from Andrew Fastow to Kenneth Lay in 2001?",
+      "corpus": "enron",
+      "eval_split": "test",
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "architecture_secondary": [
+        "org_hierarchy_retrieval"
+      ],
+      "domain_primary": "governance_leadership",
+      "domain_secondary": [
+        "financial_structures_risk"
+      ],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "rubric_seed",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [
+        "Andrew Fastow",
+        "Jeff Skilling",
+        "Kenneth Lay"
+      ],
+      "category": "case_synthesis",
+      "inputs/question": "What was the reporting chain from Andrew Fastow to Kenneth Lay in 2001?",
+      "expectations/question_id": "enron-curated-fastow-lay-chain-2001",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "test",
+      "expectations/attorney_category": "case_synthesis",
+      "expectations/architecture_primary": "synthesis_provenance",
+      "expectations/architecture_secondary": [
+        "org_hierarchy_retrieval"
+      ],
+      "expectations/domain_primary": "governance_leadership",
+      "expectations/domain_secondary": [
+        "financial_structures_risk"
+      ],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "rubric_seed",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [
+        "Andrew Fastow",
+        "Jeff Skilling",
+        "Kenneth Lay"
+      ],
+      "inputs": {
+        "question": "What was the reporting chain from Andrew Fastow to Kenneth Lay in 2001?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-fastow-lay-chain-2001",
+        "corpus": "enron",
+        "eval_split": "test",
+        "attorney_category": "case_synthesis",
+        "architecture_primary": "synthesis_provenance",
+        "architecture_secondary": [
+          "org_hierarchy_retrieval"
+        ],
+        "domain_primary": "governance_leadership",
+        "domain_secondary": [
+          "financial_structures_risk"
+        ],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "rubric_seed",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [
+          "Andrew Fastow",
+          "Jeff Skilling",
+          "Kenneth Lay"
+        ],
+        "graph_ground_truth": "org_hierarchy shows Andrew Fastow (CFO) reporting to Jeff Skilling; org_hierarchy also shows Jeff Skilling reporting to Kenneth Lay. Lay reassumed the CEO role on August 14, 2001.",
+        "historical_ground_truth": "Fastow was CFO under Skilling, and Skilling reported to Lay. After Skilling resigned in August 2001, Lay resumed the CEO role.",
+        "evidence_required": true,
+        "category": "case_synthesis"
+      },
+      "response_text": "### Answer\nThe retrieved graph returns a 2-hop path connecting Andrew Fastow and Kenneth Lay.\n\n**Path chain**: `Andrew Fastow` -> `Jeff Skilling` -> `Kenneth Lay`\n\n**Hop-by-hop edges**:\n1. `Andrew Fastow` --`REPORTS_TO`--> `Jeff Skilling`\n2. `Jeff Skilling` --`REPORTS_TO`--> `Kenneth Lay`\n\n#### Evidence\n- Structured graph path: `Andrew Fastow` -> `Jeff Skilling` -> `Kenneth Lay`\n- Structured graph source: `curated_org_hierarchy (SEC filings, DOJ records)`\n- This path comes from the graph's curated hierarchy dataset derived from public records, not from a quoted email exchange.\n\n#### Conclusion\nSo the connection runs through `Jeff Skilling` before reaching Kenneth Lay, rather than collapsing to a single unsupported leap.\n\n### Caveats\n- One retrieval step failed, so coverage may be partial.\n- Evidence strength was moderate; unsupported details should be treated as unverified.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians. One retrieval step failed, so coverage may be partial. Evidence strength was moderate; unsupported details should be treated as unverified.\n- **Sources**: trace_path({\"entity_a\": \"Andrew Fastow\", \"entity_b\": \"Kenneth Lay\"}) \u2192 structured result; find_connections({\"entity_name\": \"Andrew Fastow\"}) \u2192 Results capped at 10 per type. Use relationship_type param to get full results for a specific type.; get_relationship_evidence({\"source_entity\": \"Andrew Fastow\", \"target_entity\": \"Kenneth Lay\"}) \u2192 One retrieval step failed, so coverage may be partial.; get_emails_between({\"entity_a\": \"Andrew Fastow\", \"entity_b\": \"Kenneth Lay\"}) \u2192 3 emails; get_dyad_topics({\"entity_a\": \"Andrew Fastow\", \"entity_b\": \"Kenneth Lay\"}) \u2192 No emails found between these people.; find_top_contacts({\"entity_name\": \"Andrew Fastow\", \"direction\": \"both\", \"limit\": 10}) \u2192 10 contacts",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 7173.5,
+      "evidence_quality/value": 0.7,
+      "evidence_quality/rationale": "The response provides solid structural evidence for the organizational path between Fastow and Lay, citing specific REPORTS_TO relationships from the curated org hierarchy table with proper attribution to SEC filings and DOJ records. The provenance section is detailed and lists specific tool calls with their results (trace_path, find_connections, get_relationship_evidence, get_emails_between, get_dyad_topics, find_top_contacts). However, the response loses points for several gaps: (1) it mentions 3 emails were found between Fastow and Lay via get_emails_between but provides no details about those emails (dates, subjects, content), which would have significantly strengthened the evidence; (2) the get_dyad_topics result contradicts the get_emails_between result (3 emails found vs. 'no emails found'), which is unexplained and undermines credibility; (3) the response acknowledges 'one retrieval step failed' without specifying which step. The core claim about the organizational hierarchy path is well-supported by the curated table citation, but the failure to surface the email evidence that was apparently available represents a missed opportunity to provide stronger grounding.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "Found 3/3: ['Andrew Fastow', 'Jeff Skilling', 'Kenneth Lay']. Missing: []",
+      "organizational_accuracy/value": 1.0,
+      "organizational_accuracy/rationale": "The agent accurately represents the organizational hierarchy from the curated org_hierarchy table. It correctly identifies both REPORTS_TO relationships: Andrew Fastow reports to Jeff Skilling, and Jeff Skilling reports to Kenneth Lay. The 2-hop chain is presented clearly with explicit relationship types labeled. There are no contradictions, no fabricated entities or relationships, and the agent properly cites the curated org hierarchy as its source rather than inventing email citations. The response is well-structured and consistent throughout.",
+      "grounding_integrity/value": 0.85,
+      "grounding_integrity/rationale": "The response has a well-structured Provenance section that lists specific tool calls with their results (trace_path, find_connections, get_relationship_evidence, get_emails_between, get_dyad_topics, find_top_contacts), states grounding level explicitly as 'All claims grounded in graph data', and identifies the source as 'curated_org_hierarchy (SEC filings, DOJ records)'. The hop-by-hop edges are clearly attributed to the curated org hierarchy dataset rather than fabricated. The response appropriately notes that the path comes from structured data, not email exchanges. Minor deductions: the provenance path description ('question -> active retrieval tools -> answer') is vague rather than mapping specific claims to specific tool outputs; there is a slight inconsistency where get_emails_between returned 3 emails but get_dyad_topics found none, which is not reconciled or explained; and the 'evidence strength was moderate' caveat is mentioned twice without elaboration on what made it moderate. Overall, the grounding is systematic and transparent with tool citations present, warranting a high score just below perfect.",
+      "factual_accuracy/value": 0.9,
+      "factual_accuracy/rationale": "The agent correctly identified the 2-hop path Andrew Fastow -> Jeff Skilling -> Kenneth Lay using the curated org_hierarchy data, with accurate REPORTS_TO relationships at each hop. The agent properly attributed the source to the curated org hierarchy table and did not fabricate email citations or claim email-derived evidence for the structural relationships. The agent appropriately noted that get_relationship_evidence had a partial failure and that coverage may be incomplete. Minor deduction for not mentioning Lay's reassumption of CEO role on August 14, 2001 (which is in the graph's investigation timeline), but this was not directly asked. No hallucinations or contradictions with graph data were detected. The note about 'SEC filings, DOJ records' as the source of the curated data is accurate metadata about the curated table's provenance and does not constitute presenting external facts as graph-derived evidence.",
+      "hallucination_detection/value": 0.95,
+      "hallucination_detection/rationale": "The agent's response accurately reflects the org hierarchy as stored in the curated graph: Andrew Fastow REPORTS_TO Jeff Skilling, and Jeff Skilling REPORTS_TO Kenneth Lay. These match the ground truth exactly. The agent correctly attributes the source as 'curated_org_hierarchy (SEC filings, DOJ records)' and explicitly notes this comes from the curated hierarchy dataset derived from public records, not from email content \u2014 which is an appropriate and honest qualification. No fabricated email citations, invented relationships, or made-up statistics are present. The minor deduction is for the parenthetical '(SEC filings, DOJ records)' label on the data source, which could be interpreted as presenting external knowledge as graph-derived, but the agent clearly frames it as the name/provenance of the curated dataset rather than claiming to have retrieved SEC filing details directly. Overall, the response is well-grounded, properly qualified, and free of hallucinations.",
+      "answer_completeness/value": 0.85,
+      "answer_completeness/rationale": "The agent correctly identifies the full reporting chain: Andrew Fastow \u2192 Jeff Skilling \u2192 Kenneth Lay, with proper REPORTS_TO relationships at each hop. This directly and accurately answers the question using the curated org hierarchy data. The answer is well-structured and grounded. Minor deductions: the agent does not mention the context of Lay reassuming the CEO role on August 14, 2001 (which is in the curated investigation timeline and adds important nuance to the 2001 timeframe specified in the question), and the caveats about 'moderate evidence strength' and 'one retrieval step failed' introduce unnecessary uncertainty about what is actually well-established curated data. The answer is otherwise complete and accurate for what was asked."
+    },
+    {
+      "question_id": "enron-curated-access-governance-collapse-synthesis",
+      "question_text": "What evidence in the Enron email corpus shows that access governance was formal, role-based, and increasingly restrictive as the company collapsed?",
+      "corpus": "enron",
+      "eval_split": "holdout",
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "architecture_secondary": [
+        "evidence_drilldown",
+        "timeline_retrieval"
+      ],
+      "domain_primary": "access_privilege_governance",
+      "domain_secondary": [
+        "information_security",
+        "compliance_governance"
+      ],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [
+        "arsystem@mailman.enron.com",
+        "Sandeep Kohli",
+        "Tana Jones",
+        "Vince Kaminski",
+        "ISDA Master Agreement Data Base",
+        "eConnect - VPN Tier 2 - Full Access"
+      ],
+      "category": "case_synthesis",
+      "inputs/question": "What evidence in the Enron email corpus shows that access governance was formal, role-based, and increasingly restrictive as the company collapsed?",
+      "expectations/question_id": "enron-curated-access-governance-collapse-synthesis",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "holdout",
+      "expectations/attorney_category": "case_synthesis",
+      "expectations/architecture_primary": "synthesis_provenance",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown",
+        "timeline_retrieval"
+      ],
+      "expectations/domain_primary": "access_privilege_governance",
+      "expectations/domain_secondary": [
+        "information_security",
+        "compliance_governance"
+      ],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [
+        "arsystem@mailman.enron.com",
+        "Sandeep Kohli",
+        "Tana Jones",
+        "Vince Kaminski",
+        "ISDA Master Agreement Data Base",
+        "eConnect - VPN Tier 2 - Full Access"
+      ],
+      "inputs": {
+        "question": "What evidence in the Enron email corpus shows that access governance was formal, role-based, and increasingly restrictive as the company collapsed?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-access-governance-collapse-synthesis",
+        "corpus": "enron",
+        "eval_split": "holdout",
+        "attorney_category": "case_synthesis",
+        "architecture_primary": "synthesis_provenance",
+        "architecture_secondary": [
+          "evidence_drilldown",
+          "timeline_retrieval"
+        ],
+        "domain_primary": "access_privilege_governance",
+        "domain_secondary": [
+          "information_security",
+          "compliance_governance"
+        ],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [
+          "arsystem@mailman.enron.com",
+          "Sandeep Kohli",
+          "Tana Jones",
+          "Vince Kaminski",
+          "ISDA Master Agreement Data Base",
+          "eConnect - VPN Tier 2 - Full Access"
+        ],
+        "graph_ground_truth": "The local Enron corpus shows access governance along three dimensions: formal approval workflow, role-based logical permissions, and collapse-era physical restriction.",
+        "historical_ground_truth": "The corpus reflects access governance through request approvals, differentiated edit/view privileges, confidentiality boundaries, and tighter restrictions during the collapse period.",
+        "evidence_required": true,
+        "category": "case_synthesis"
+      },
+      "response_text": "### Answer\nThe retrieved emails show three layers of controlled access rather than open access: formal approval workflow, role-based logical permissions, and tighter physical entry controls.\n\n1. **Formal approval workflow**: ARSystem notices use request IDs, named approvers or alternates, and overdue approval reminders before access is granted. One example covers `eConnect - VPN  Tier 2 - Full Access`. [2002-01-01, From: arsystem@mailman.enron.com, Subject: Your Approval is Overdue: Access Request for\n brian.redmond@enron.com]\n2. **Role-based logical permissions**: The ISDA database email distinguishes edit access from view-only access and says non-Legal or Credit employees should not see privileged comments. [2000-10-20, From: tana.jones@enron.com, Subject: ISDA Master Agreement Data Base Link]\n3. **Collapse-era physical restriction**: The physical-access email routes visitors through Enron Security, requires pickup at `1400 Smith Street`, and limits temporary cards to `24 hours` unless a longer badge is arranged. [2002-01-23, From: mark.bridges@ubsw.com, Subject: FW: Physical Access (ID Cards) for access to Enron]\n\n#### Evidence\n- [2002-01-01, From: arsystem@mailman.enron.com, Subject: Your Approval is Overdue: Access Request for\n brian.redmond@enron.com] \u2014 Your Approval is Overdue: Access Request for brian.redmond@enron.com This request has been pending your approval for 4 days. Please click http://itcapps.corp.enron.com/srrs/auth...\n- [2000-10-20, From: tana.jones@enron.com, Subject: ISDA Master Agreement Data Base Link] \u2014 ISDA Master Agreement Data Base Link Attached is the link that will allow you access to referenced database. You should have edit access (non-Legal or Credit employees can get v...\n- [2002-01-23, From: mark.bridges@ubsw.com, Subject: FW: Physical Access (ID Cards) for access to Enron] \u2014 FW: Physical Access (ID Cards) for access to Enron UBSW Regional Security has coordinated the following access control procedures with Enron Security. We request that all visito...\n\n#### Conclusion\nTaken together, these emails show that Enron was not operating on open access: permissions were approved, role-scoped, and physically tightened during the collapse period.\n\n### Provenance\n- **Path**: question -> evidence retrieval -> claim-supporting records -> grounded answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"access request, request submitted, submission notice, approval is overdue, your approval is overdue, overdue notice, overdue notices, review and act upon this request, approved my access, arsystem\", \"limit\": 8}) \u2192 8 emails; search_emails({\"keywords\": \"ISDA Master Agreement Data Base, view access only, attorney/client privilege\", \"limit\": 4}) \u2192 1 emails; search_emails({\"keywords\": \"Physical Access (ID Cards) for access to Enron, Enron-Houston complex, temporary ID card, valid for 24 hours only\", \"limit\": 4}) \u2192 1 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 7079.4,
+      "evidence_quality/value": 0.85,
+      "evidence_quality/rationale": "The response provides strong evidence for its three main claims. Each claim is supported by a specific email citation with date, sender, and subject line. The provenance section explicitly lists the tool calls used (search_emails with specific keyword parameters) and their result counts, which is good practice. The evidence section reproduces partial email content that corroborates the claims made. Minor deductions: some claims within each category (e.g., 'request IDs, named approvers or alternates') are asserted but not fully demonstrated in the quoted snippets; the physical restriction claim attributes specific details like '1400 Smith Street' and '24 hours' that appear in the summary but aren't fully visible in the truncated evidence quote. The provenance section is present and reasonably detailed. Overall, the response demonstrates solid grounding with specific dates, sender/recipient pairs, and subject lines for all three key claims, with tool citations supporting the retrieval process.",
+      "participant_verification/value": 0.67,
+      "participant_verification/rationale": "Found 4/6: ['arsystem@mailman.enron.com', 'Tana Jones', 'ISDA Master Agreement Data Base', 'eConnect - VPN Tier 2 - Full Access']. Missing: ['Sandeep Kohli', 'Vince Kaminski']",
+      "organizational_accuracy/value": 0.9,
+      "organizational_accuracy/rationale": "The agent's response accurately identifies all three dimensions of access governance present in the graph ground truth: formal approval workflow, role-based logical permissions, and collapse-era physical restriction. Each claim is grounded in specific, cited emails with dates, senders, and subjects that are plausible and internally consistent. The response correctly characterizes the ARSystem approval workflow, the ISDA database's edit vs. view-only distinction with confidentiality boundaries for non-Legal/Credit employees, and the physical access tightening during the collapse period with specific details (1400 Smith Street, 24-hour badge limits, Enron Security coordination). No fabricated entities or contradictions are present. The response does not make any organizational hierarchy or reporting-line claims that could be evaluated for accuracy under the org structure rubric, but the access governance structure is well-represented. A minor deduction is applied because the response does not explicitly use relationship types (REPORTS_TO, MANAGES, etc.) as the rubric requests, though the question is about access governance rather than org hierarchy, making this a very minor gap. Overall, the response is accurate, well-structured, and fully grounded in graph data.",
+      "grounding_integrity/value": 1.0,
+      "grounding_integrity/rationale": "The response has a complete and well-structured Provenance section that includes specific tool call citations with parameters and result counts, states 'All claims grounded in graph data', specifies the grounding level and coverage, and traces a clear path from tool calls to claims. Every factual claim in the answer body is directly attributed to a specific email with date, sender, and subject line. The three layers of access control described are each tied to distinct email evidence retrieved from the graph. No external knowledge is presented as graph evidence. The provenance section explicitly names the search_emails tool calls with their keyword parameters and return counts, satisfying all requirements for a fully grounded response.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "The agent's response maps precisely onto all three dimensions identified in the Graph Ground Truth: formal approval workflow (ARSystem overdue approval notice), role-based logical permissions (ISDA database edit vs. view-only, confidentiality boundaries for non-Legal/Credit staff), and collapse-era physical restriction (UBS physical access email with 24-hour badge limits). All three claims are grounded in specific, plausible email citations with dates, senders, and subjects. No external facts are presented as graph-derived evidence. The agent correctly characterizes limitations and provenance. The response aligns with the Historical Ground Truth without fabricating anything from it as graph evidence.",
+      "hallucination_detection/value": 0.92,
+      "hallucination_detection/rationale": "The response is well-grounded with specific email citations that appear consistent with the Enron corpus. The three-layer framework (formal approval workflow, role-based logical permissions, collapse-era physical restriction) aligns with the graph ground truth. Each claim is tied to a specific cited email with plausible metadata (sender, date, subject). The ISDA email from tana.jones@enron.com on 2000-10-20 and the ARSystem approval notice are consistent with known Enron email patterns. The physical access email from mark.bridges@ubsw.com dated 2002-01-23 is plausible given the UBS Warburg acquisition of Enron's trading operations in early 2002. Minor concerns: the specific detail that temporary cards are limited to '24 hours' is presented as a direct quote, which could be fabricated if the tool snippet was truncated (the provenance shows the search query was cut off). However, this is a minor risk and the overall response shows appropriate qualification, proper sourcing attribution, and no obvious external knowledge presented as graph-derived. No invented entity names, relationships, or statistics are detected. The response appropriately notes coverage limitations.",
+      "answer_completeness/value": 0.72,
+      "answer_completeness/rationale": "The response addresses all three dimensions mentioned in the reference context (formal approval workflow, role-based logical permissions, and collapse-era physical restriction), grounding each in specific email citations with dates, senders, and subjects. The three-part structure maps well to the question's three aspects: formality, role-based access, and increasing restriction during collapse. However, the answer is somewhat thin \u2014 only one email per dimension is cited, and the role-based evidence (ISDA database) is a single example that partially supports the claim. The collapse-era restriction evidence comes from a UBS external party email rather than internal Enron governance communications, which slightly weakens the 'increasingly restrictive' narrative. The answer doesn't explore whether there are additional emails showing a trend over time (e.g., comparing early vs. late corpus access policies), which would better support 'increasingly restrictive.' The provenance section is transparent about tool usage. Overall, the main question is answered reasonably well with legitimate grounding, but lacks depth and trend evidence that would make the 'increasingly restrictive' claim more compelling."
+    },
+    {
+      "question_id": "enron-curated-lay-post-skilling-leadership-synthesis",
+      "question_text": "How did Kenneth Lay's executive leadership structure change after he resumed the CEO role in August 2001?",
+      "corpus": "enron",
+      "eval_split": "holdout",
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "architecture_secondary": [
+        "timeline_retrieval",
+        "evidence_drilldown"
+      ],
+      "domain_primary": "governance_leadership",
+      "domain_secondary": [],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [
+        "Kenneth Lay",
+        "Jeff Skilling",
+        "Greg Whalley",
+        "James Derrick",
+        "Jeff McMahon"
+      ],
+      "category": "case_synthesis",
+      "inputs/question": "How did Kenneth Lay's executive leadership structure change after he resumed the CEO role in August 2001?",
+      "expectations/question_id": "enron-curated-lay-post-skilling-leadership-synthesis",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "holdout",
+      "expectations/attorney_category": "case_synthesis",
+      "expectations/architecture_primary": "synthesis_provenance",
+      "expectations/architecture_secondary": [
+        "timeline_retrieval",
+        "evidence_drilldown"
+      ],
+      "expectations/domain_primary": "governance_leadership",
+      "expectations/domain_secondary": [],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [
+        "Kenneth Lay",
+        "Jeff Skilling",
+        "Greg Whalley",
+        "James Derrick",
+        "Jeff McMahon"
+      ],
+      "inputs": {
+        "question": "How did Kenneth Lay's executive leadership structure change after he resumed the CEO role in August 2001?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-lay-post-skilling-leadership-synthesis",
+        "corpus": "enron",
+        "eval_split": "holdout",
+        "attorney_category": "case_synthesis",
+        "architecture_primary": "synthesis_provenance",
+        "architecture_secondary": [
+          "timeline_retrieval",
+          "evidence_drilldown"
+        ],
+        "domain_primary": "governance_leadership",
+        "domain_secondary": [],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [
+          "Kenneth Lay",
+          "Jeff Skilling",
+          "Greg Whalley",
+          "James Derrick",
+          "Jeff McMahon"
+        ],
+        "graph_ground_truth": "The local leadership evidence shows that after Skilling's resignation, Lay resumed the CEO role and the executive structure around him shifted to include Whalley and later McMahon while Derrick remained in place.",
+        "historical_ground_truth": "Lay's post-August 2001 leadership structure reflects a crisis-era executive realignment after Skilling's exit.",
+        "evidence_required": true,
+        "category": "case_synthesis"
+      },
+      "response_text": "### Answer\n#### Timeline of Events\n\n1. **2001-08-14**: Jeff Skilling resigns as CEO of Enron. Kenneth Lay resumes the CEO role.\n - Source: Curated timeline (verified)\n\n2. **2001-08-14 21:30:32**: Wes Carberry emails Jeff Skilling, mentioning Kenneth Lay's email about Skilling's departure.\n - Source: Email evidence (derived)\n\n3. **2001-08-16 17:18:10**: Rahil Jafry forwards an article about Jeff Skilling's interview with The Wall Street Journal, where Skilling cites Enron's stock price as a reason for his resignation. Kenneth Lay has resumed CEO duties.\n - Source: Email evidence (derived)\n\n4. **2001-08-23 20:42:18**: Cindy Cassidy from The Business Council emails Jeff Skilling about listing him as a Graduate member and Former President & CEO of Enron Corp.\n - Source: Email evidence (derived)\n\n5. **2001-08-29 12:59:35**: M. Schmidt sends an update on Enron mentions from August 25-27, including news about Kenneth Lay denying calls for India sanctions.\n - Source: Email evidence (derived)\n\n6. **2001-08-30 19:15:46**: Rahil Jafry forwards an article from TheStreet.com discussing Enron's reliance on asset sales and potential weakness in its trading operation.\n - Source: Email evidence (derived)\n\n#### Analysis of Executive Leadership Structure\n\nAfter Kenneth Lay resumed the CEO role in August 2001, the executive leadership structure at Enron appeared to be directly impacted by Jeff Skilling's resignation. The exact changes in Lay's leadership structure are not explicitly detailed in the retrieved emails. However, the emails suggest that Lay took over the CEO duties amidst significant challenges, including a declining stock price and scrutiny over Enron's financial practices.\n\n#### Communication Patterns\n\nThe communication volume related to Kenneth Lay and Enron's executive leadership increased in August 2001, likely due to the change in CEO and the company's financial situation. The emails retrieved show a mix of internal communications and external news articles being shared among employees.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"Kenneth Lay, executive leadership, CEO, August 2001\", \"date_from\": \"2001-08-01\", \"date_to\": \"2001-09-01\"}) \u2192 15 emails; get_source_evidence({\"entity_name\": \"Kenneth Lay\"}) \u2192 10 emails; semantic_search_emails({\"query\": \"How did Kenneth Lay's executive leadership structure change after he resumed the CEO role in August 2001?\"}) \u2192 9 emails; get_email_full_body({\"message_id\": \"<24254865.1075860847134.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<27094377.1075860836751.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<24316812.1075862884459.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<26112614.1075852812307.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; query_timeline({\"person_name\": \"\", \"date_from\": \"2001-08-01\", \"date_to\": \"2001-09-01\"}) \u2192 structured result; query_timeline({\"person_name\": \"Kenneth Lay\", \"date_from\": \"2001-08-01\", \"date_to\": \"2001-09-01\"}) \u2192 structured result; get_communication_timeline({\"entity_name\": \"Kenneth Lay\", \"entity_b\": \"August 2001\", \"date_from\": \"2001-08-01\", \"date_to\": \"2001-09-01\"}) \u2192 no matching records; get_communication_stats({\"entity_name\": \"Kenneth Lay\", \"group_by\": \"month\"}) \u2192 text result",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 20226.7,
+      "evidence_quality/value": 0.7,
+      "evidence_quality/rationale": "The response provides moderate-to-good evidence for its claims. Key strengths include: specific email timestamps with sender/recipient pairs for most timeline entries (Wes Carberry to Skilling, Rahil Jafry forwarding articles, Cindy Cassidy email, M. Schmidt update), a provenance section citing specific tool calls with result counts, and a curated timeline citation for the Skilling resignation date. The response also includes partial message IDs suggesting actual retrieval. Weaknesses include: the analytical section on 'executive leadership structure changes' is largely assertion-based without specific email evidence, the provenance section is cut off mid-citation, and some email claims (e.g., the Rahil Jafry and M. Schmidt entries) lack subject lines or explicit sender/recipient relationship types from the graph. The core question about how Lay's leadership structure changed is acknowledged as not well-supported by the data, which is honest but reduces the overall utility. Overall, key factual claims have timestamps and named parties, but the central analytical question lacks strong evidentiary support.",
+      "participant_verification/value": 0.4,
+      "participant_verification/rationale": "Found 2/5: ['Kenneth Lay', 'Jeff Skilling']. Missing: ['Greg Whalley', 'James Derrick', 'Jeff McMahon']",
+      "organizational_accuracy/value": 0.5,
+      "organizational_accuracy/rationale": "The response correctly identifies the core fact that Skilling resigned on 2001-08-14 and Lay resumed the CEO role, which aligns with the graph ground truth. However, the response fails to identify the key post-Skilling leadership structure elements that are available in the knowledge graph \u2014 specifically the roles of Whalley and McMahon stepping into the executive structure around Lay, and Derrick remaining in place. The agent explicitly acknowledges that 'the exact changes in Lay's leadership structure are not explicitly detailed in the retrieved emails,' indicating incomplete retrieval rather than fabrication. The email citations provided appear plausible and consistent with the corpus context (news forwarding, external communications about Skilling's departure), with no obvious fabrications. There are no internal contradictions. The response is honest about its limitations but misses significant structural details (Whalley, McMahon, Derrick relationships) that the graph ground truth indicates should be findable. No relationship types (REPORTS_TO, MANAGES) are shown, which further reduces the organizational structure quality. The core CEO transition is correct, but the surrounding executive realignment is largely absent.",
+      "grounding_integrity/value": 0.85,
+      "grounding_integrity/rationale": "The response has a clear Provenance section with Sources, Grounding level, and Confidence indicators. Tool call citations are included with specific search queries and result counts. Each timeline claim is labeled with its source type (curated timeline vs. email evidence). The grounding level is explicitly stated as 'All claims grounded in graph data.' The response appropriately acknowledges limitations ('exact changes in Lay's leadership structure are not explicitly detailed in the retrieved emails'). Minor deductions: the provenance section appears truncated (the last tool call citation is cut off), and the 'Confidence' field is not explicitly stated as a separate item even though grounding level is present. The analysis section makes some interpretive claims ('communication volume...increased') that are somewhat inferential but are reasonably tied to the email evidence retrieved. Overall, this is a well-grounded response with systematic attribution.",
+      "factual_accuracy/value": 0.3,
+      "factual_accuracy/rationale": "The agent correctly identifies that Lay resumed the CEO role after Skilling's August 2001 resignation, which aligns with the curated timeline. However, the agent fails to find the key graph-derivable facts about the executive structure shift: specifically that Whalley and McMahon became part of Lay's leadership structure, and that Derrick remained in place. The agent explicitly acknowledges 'The exact changes in Lay's leadership structure are not explicitly detailed in the retrieved emails,' indicating it missed these graph-available facts. The email citations provided are peripheral (news forwards, external contacts) rather than evidence of the executive realignment. No fabrications are detected, but the core answer about the post-Skilling leadership structure (Whalley, McMahon, Derrick) is absent, which is the primary information the graph should contain per the Graph Ground Truth.",
+      "hallucination_detection/value": 0.75,
+      "hallucination_detection/rationale": "The response is largely grounded and appropriately qualified. The curated timeline fact about Skilling's resignation and Lay resuming CEO is correctly cited. The email citations (Carberry, Jafry, Cassidy, Schmidt) appear plausible as graph-derived references with specific timestamps and message IDs, suggesting they came from actual tool results rather than fabrication. The analysis section appropriately acknowledges that the exact leadership structure changes (Whalley, McMahon, Derrick) are 'not explicitly detailed in the retrieved emails,' which is honest rather than fabricating those details. Minor concerns: the response does not mention Whalley or McMahon at all, which is acceptable since the agent correctly notes the information isn't in retrieved emails. The email citations cannot be fully verified from the response alone, but they include specific metadata (timestamps, sender names) consistent with tool-retrieved data rather than invented. The provenance section shows actual tool calls with result counts, adding credibility. The main deduction is that some email citations (e.g., Rahil Jafry forwarding WSJ article, M. Schmidt update) are presented with high specificity that could be fabricated, but the level of detail and consistency with known corpus patterns makes outright fabrication unlikely. No external knowledge is falsely presented as graph-derived.",
+      "answer_completeness/value": 0.3,
+      "answer_completeness/rationale": "The response touches on the topic but fails to adequately answer the question about how Lay's executive leadership structure changed. The ground truth indicates the answer should cover Whalley and McMahon stepping into key roles alongside Lay, with Derrick remaining in place. The agent's response does not mention Whalley, McMahon, or Derrick at all \u2014 the most critical structural changes. Instead, it provides a timeline of tangentially related emails (news articles, external communications) and vaguely acknowledges that 'exact changes are not explicitly detailed.' The agent appears to have not used the org hierarchy table or investigation timeline tools effectively, which would have surfaced the relevant leadership transitions. The response is mostly filler with no substantive answer to the structural question asked."
+    },
+    {
+      "question_id": "enron-curated-sec-fbi-legal-crisis-synthesis",
+      "question_text": "How did SEC scrutiny, document destruction, and FBI involvement combine into Enron's legal crisis in the local evidence?",
+      "corpus": "enron",
+      "eval_split": "holdout",
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "architecture_secondary": [
+        "timeline_retrieval",
+        "evidence_drilldown"
+      ],
+      "domain_primary": "legal_audit_external_stakeholders",
+      "domain_secondary": [],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [
+        "SEC",
+        "Arthur Andersen",
+        "FBI",
+        "document destruction",
+        "Enron"
+      ],
+      "category": "case_synthesis",
+      "inputs/question": "How did SEC scrutiny, document destruction, and FBI involvement combine into Enron's legal crisis in the local evidence?",
+      "expectations/question_id": "enron-curated-sec-fbi-legal-crisis-synthesis",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "holdout",
+      "expectations/attorney_category": "case_synthesis",
+      "expectations/architecture_primary": "synthesis_provenance",
+      "expectations/architecture_secondary": [
+        "timeline_retrieval",
+        "evidence_drilldown"
+      ],
+      "expectations/domain_primary": "legal_audit_external_stakeholders",
+      "expectations/domain_secondary": [],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [
+        "SEC",
+        "Arthur Andersen",
+        "FBI",
+        "document destruction",
+        "Enron"
+      ],
+      "inputs": {
+        "question": "How did SEC scrutiny, document destruction, and FBI involvement combine into Enron's legal crisis in the local evidence?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-sec-fbi-legal-crisis-synthesis",
+        "corpus": "enron",
+        "eval_split": "holdout",
+        "attorney_category": "case_synthesis",
+        "architecture_primary": "synthesis_provenance",
+        "architecture_secondary": [
+          "timeline_retrieval",
+          "evidence_drilldown"
+        ],
+        "domain_primary": "legal_audit_external_stakeholders",
+        "domain_secondary": [],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [
+          "SEC",
+          "Arthur Andersen",
+          "FBI",
+          "document destruction",
+          "Enron"
+        ],
+        "graph_ground_truth": "The local legal-crisis evidence links SEC scrutiny, document destruction, FBI investigation, and the eventual Andersen obstruction case into one escalating chain.",
+        "historical_ground_truth": "Enron's legal crisis escalated through overlapping regulatory inquiry and document-destruction investigation rather than a single isolated event.",
+        "evidence_required": true,
+        "category": "case_synthesis"
+      },
+      "response_text": "### Answer\nThe local legal-crisis evidence shows one escalating chain rather than isolated events: SEC scrutiny in late October 2001, document-destruction allegations that brought in the FBI by January 24, 2002, and the later Andersen obstruction case in March 2002.\n\n1. **SEC scrutiny begins**: The regulatory timeline records `2001-10-22` \u2014 SEC opens informal inquiry into Enron.\n2. **The inquiry intensifies**: The same timeline then records `2001-10-31` \u2014 SEC upgrades to formal investigation.\n3. **Document destruction becomes an FBI matter**: [2002-01-24, From: jr..legal@enron.com, Subject: Cooperation with the FBI] says Enron was cooperating with the FBI regarding allegations of document destruction.\n4. **The crisis expands into the Andersen obstruction case**: The criminal-investigation timeline records `2002-03-14` \u2014 Arthur Andersen indicted for obstruction of justice.\n\n#### Evidence\n- Timeline event `2001-10-22` \u2014 SEC opens informal inquiry into Enron\n- Timeline event `2001-10-31` \u2014 SEC upgrades to formal investigation\n- [2002-01-24, From: jr..legal@enron.com, Subject: Cooperation with the FBI] \u2014 Cooperation with the FBI Enron has consented to allow the Federal Bureau of Investigation to search the Enron Building and to interview employees regarding allegations of docume...\n- Timeline event `2002-03-14` \u2014 Arthur Andersen indicted for obstruction of justice\n\n#### Conclusion\nSo Enron's legal crisis escalated through overlapping regulatory scrutiny, document-destruction allegations, FBI involvement, and the later Andersen obstruction case.\n\n### Provenance\n- **Path**: question -> evidence retrieval -> timeline-backed documentary packet -> grounded answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"Cooperation with the FBI, allegations of document destruction, searching the Enron Building\", \"date_from\": \"2001-10-01\", \"date_to\": \"2002-03-31\", \"limit\": 8}) \u2192 1 emails; query_timeline({\"date_from\": \"2001-10-01\", \"date_to\": \"2001-10-31\", \"category\": \"regulatory\"}) \u2192 structured result; query_timeline({\"date_from\": \"2002-03-01\", \"date_to\": \"2002-03-31\", \"category\": \"criminal_investigation\"}) \u2192 structured result",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 6958.8,
+      "evidence_quality/value": 0.85,
+      "evidence_quality/rationale": "The response provides strong evidence for most claims. The four key claims are each backed by specific evidence: two timeline events with exact dates (2001-10-22 and 2001-10-31) for SEC inquiry escalation, a specific email citation with date, sender, and subject line for FBI cooperation, and a timeline event with exact date (2002-03-14) for the Andersen indictment. The provenance section is present and includes actual tool calls with parameters and result counts, which is commendable. Minor deductions: the email sender 'jr..legal@enron.com' appears slightly malformed (double dot), raising minor authenticity concerns; the response could have included more email citations to corroborate the broader narrative; and the conclusion paragraph contains unsupported assertions about 'overlapping' dynamics that go slightly beyond the cited evidence. Overall, the response is well-grounded with specific dates, named entities, and tool citations supporting the main claims.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "Found 5/5: ['SEC', 'Arthur Andersen', 'FBI', 'document destruction', 'Enron']. Missing: []",
+      "organizational_accuracy/value": 0.7,
+      "organizational_accuracy/rationale": "The response accurately captures the escalating chain of legal-crisis events from the graph ground truth: SEC informal inquiry (2001-10-22), formal investigation upgrade (2001-10-31), FBI involvement via document destruction (2002-01-24 email), and Andersen indictment (2002-03-14). The timeline facts are consistent with the curated investigation timeline and no contradictions are present. However, the question asks specifically about organizational structure and relationships (reporting lines, titles, REPORTS_TO/MANAGES relationship types), and the response does not address these at all \u2014 it focuses entirely on the legal-crisis event chain. Since the graph ground truth for this question is about the escalating legal-crisis chain rather than org hierarchy, the response is well-aligned with what the graph actually contains, but the evaluation rubric explicitly asks about org structure claims, relationship types, and reporting lines. The response makes no fabricated claims and is internally consistent, but it lacks any organizational relationship mapping, titles, or relationship-type annotations (REPORTS_TO, MANAGES, etc.) that the rubric requires for a higher score. The email citation appears plausible and grounded, though the sender address format is slightly unusual. Overall: accurate and consistent on the legal-crisis chain, but incomplete relative to the org-structure evaluation criteria.",
+      "grounding_integrity/value": 0.95,
+      "grounding_integrity/rationale": "The response has a well-structured Provenance section with explicit tool call citations (search_emails and query_timeline with parameters and return counts), a stated grounding level ('All claims grounded in graph data'), and clear attribution of each claim to either a timeline event or an email. The four evidence items are each labeled with their source type. The tool calls are specific and plausible. The only minor issue is that the email citation uses a partially obscured sender address ('jr..legal@enron.com') which could raise a small authenticity question, but this is consistent with how email data is sometimes anonymized in the corpus rather than fabrication. The response does not introduce external knowledge without labeling it, and the conclusion is directly supported by the cited evidence. Overall this is a well-grounded, properly attributed response.",
+      "factual_accuracy/value": 0.95,
+      "factual_accuracy/rationale": "The agent correctly identified and presented the escalating chain of legal-crisis events that the graph ground truth describes: SEC scrutiny (informal inquiry 2001-10-22, formal investigation 2001-10-31), document destruction leading to FBI involvement (email citation from jr..legal@enron.com dated 2002-01-24), and the Andersen obstruction indictment (2002-03-14). All four elements of the graph ground truth chain are present and correctly sequenced. The agent properly cites timeline entries and an email with plausible metadata. The conclusion accurately mirrors the historical ground truth framing (overlapping regulatory inquiry and document-destruction investigation) without presenting external facts as graph-derived evidence. Minor deduction for the slightly imprecise email sender address format ('jr..legal@enron.com') which could indicate a truncated or uncertain citation, but this is a minor concern and does not constitute fabrication. Overall, the response is well-grounded, comprehensive, and avoids hallucination.",
+      "hallucination_detection/value": 0.75,
+      "hallucination_detection/rationale": "The response is largely well-grounded. The timeline events (2001-10-22 SEC informal inquiry, 2001-10-31 SEC formal investigation, 2002-03-14 Andersen indictment) are drawn from the curated investigation timeline and are consistent with the ground truth. The email citation [2002-01-24, From: jr..legal@enron.com, Subject: Cooperation with the FBI] is presented as retrieved via a search_emails tool call with a reported result of 1 email, so it appears to be a genuine retrieval rather than a fabricated citation. The sender address 'jr..legal@enron.com' is slightly unusual (double dot) but could reflect actual corpus data. The quoted snippet about FBI cooperation and document destruction is plausible and consistent with known events. No clearly fabricated entity names, invented relationships, or external knowledge is presented as graph-derived. The main minor concern is that the email citation cannot be fully verified from the information provided \u2014 the sender address format is irregular and could indicate a data artifact or minor inaccuracy \u2014 but there is no outright fabrication detectable. The overall narrative correctly reflects the escalating chain described in the ground truth without inventing additional unsupported claims.",
+      "answer_completeness/value": 0.82,
+      "answer_completeness/rationale": "The response addresses all four key components mentioned in the question: SEC scrutiny (informal inquiry Oct 22, formal investigation Oct 31), document destruction allegations, FBI involvement (email evidence from Jan 24, 2002), and the Andersen obstruction case (March 14, 2002). It presents these as an escalating chain, which directly matches what the graph contains. The answer uses both timeline data and actual email evidence, showing multi-source retrieval. Minor gaps include: limited exploration of additional emails that might show internal awareness of the SEC inquiry or document destruction discussions, and the FBI cooperation email citation uses a partially obscured sender address without further verification. The answer could have searched for more emails around the SEC inquiry period or document shredding discussions to strengthen the chain. Overall, the main question is answered well with appropriate sourcing, but slightly more depth in the middle links of the chain (document destruction specifics) would have made it more comprehensive."
+    },
+    {
+      "question_id": "enron-curated-role-based-access-governance-synthesis",
+      "question_text": "How do the ARSystem approval notices and the ISDA Master Agreement Data Base email together show that Enron used role-based access governance rather than open access?",
+      "corpus": "enron",
+      "eval_split": "test",
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "architecture_secondary": [
+        "evidence_drilldown",
+        "access_control_isolation"
+      ],
+      "domain_primary": "access_privilege_governance",
+      "domain_secondary": [],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "case_synthesis",
+      "inputs/question": "How do the ARSystem approval notices and the ISDA Master Agreement Data Base email together show that Enron used role-based access governance rather than open access?",
+      "expectations/question_id": "enron-curated-role-based-access-governance-synthesis",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "test",
+      "expectations/attorney_category": "case_synthesis",
+      "expectations/architecture_primary": "synthesis_provenance",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown",
+        "access_control_isolation"
+      ],
+      "expectations/domain_primary": "access_privilege_governance",
+      "expectations/domain_secondary": [],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "How do the ARSystem approval notices and the ISDA Master Agreement Data Base email together show that Enron used role-based access governance rather than open access?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-role-based-access-governance-synthesis",
+        "corpus": "enron",
+        "eval_split": "test",
+        "attorney_category": "case_synthesis",
+        "architecture_primary": "synthesis_provenance",
+        "architecture_secondary": [
+          "evidence_drilldown",
+          "access_control_isolation"
+        ],
+        "domain_primary": "access_privilege_governance",
+        "domain_secondary": [],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "case_synthesis"
+      },
+      "response_text": "### Answer\nThe retrieved emails show controlled access rather than open access: requests moved through named approvers, permissions were tiered by role, and privileged comments were hidden from broader viewers.\n\n1. **Formal approval workflow**: ARSystem notices use request IDs, named approvers or alternates, and overdue approval reminders before access is granted. One example covers `eConnect - VPN  Tier 2 - Full Access`. [2002-01-01, From: arsystem@mailman.enron.com, Subject: Your Approval is Overdue: Access Request for\n brian.redmond@enron.com]\n2. **Role-based logical permissions**: The ISDA database email distinguishes edit access from view-only access and says non-Legal or Credit employees should not see privileged comments. [2000-10-20, From: tana.jones@enron.com, Subject: ISDA Master Agreement Data Base Link]\n\n#### Evidence\n- [2002-01-01, From: arsystem@mailman.enron.com, Subject: Your Approval is Overdue: Access Request for\n brian.redmond@enron.com] \u2014 Your Approval is Overdue: Access Request for brian.redmond@enron.com This request has been pending your approval for 4 days. Please click http://itcapps.corp.enron.com/srrs/auth...\n- [2000-10-20, From: tana.jones@enron.com, Subject: ISDA Master Agreement Data Base Link] \u2014 ISDA Master Agreement Data Base Link Attached is the link that will allow you access to referenced database. You should have edit access (non-Legal or Credit employees can get v...\n\n#### Conclusion\nTaken together, these emails show that Enron used approver-mediated and role-scoped access controls, not broad open access.\n\n### Provenance\n- **Path**: question -> evidence retrieval -> claim-supporting records -> grounded answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"access request, request submitted, submission notice, approval is overdue, your approval is overdue, overdue notice, overdue notices, review and act upon this request, approved my access, arsystem\", \"limit\": 8}) \u2192 8 emails; search_emails({\"keywords\": \"ISDA Master Agreement Data Base, view access only, attorney/client privilege\", \"limit\": 4}) \u2192 1 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 6940.8,
+      "evidence_quality/value": 0.8,
+      "evidence_quality/rationale": "The response provides solid evidence for its two main claims. Each claim is tied to a specific email with date, sender, and subject line. The provenance section explicitly cites the tool calls used (search_emails with specific keyword parameters) and the number of results returned. The ARSystem email (2002-01-01) directly supports the formal approval workflow claim, and the Tana Jones ISDA email (2000-10-20) directly supports the role-based permissions claim. Minor deductions apply because: (1) only two emails are cited despite 9 total being retrieved, leaving the broader assertion about 'controlled access' somewhat underexplored; (2) the claim about 'tiered by role' is only partially supported by the ISDA email snippet shown; (3) the provenance path description is generic rather than specific. Overall, the key claims are well-grounded with specific citations, dates, and tool provenance, meeting the threshold for strong evidence.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.5,
+      "organizational_accuracy/rationale": "The response does not directly address organizational structure, reporting lines, titles, or relationship types (REPORTS_TO, MANAGES, etc.) as the scoring rubric requires. Instead, it describes IT access control workflows and database permissions. The email citations appear plausible and internally consistent, with no fabricated entities or contradictions detected. However, the response fails to provide any org hierarchy claims, relationship types, or structural information that would be evaluated under this rubric. Since the Graph Ground Truth and Historical Ground Truth fields are empty, it is unclear what specific org structure was expected, but the response's complete absence of organizational relationship content means it cannot score highly on a rubric focused on reporting lines and hierarchy accuracy. The score reflects that the response is internally consistent and grounded (no fabrications or contradictions), but largely misses the organizational structure dimension being evaluated.",
+      "grounding_integrity/value": 1.0,
+      "grounding_integrity/rationale": "The response has a complete and well-structured Provenance section that includes: (1) explicit tool call citations with parameters and result counts (search_emails calls with specific keywords and limits), (2) a clear grounding level statement ('All claims grounded in graph data'), (3) coverage context about the corpus, and (4) a logical path description. All factual claims in the answer body are directly tied to specific email citations with dates, senders, and subjects. The two main claims (formal approval workflow and role-based permissions) each have corresponding email evidence explicitly cited. No external knowledge is presented as graph evidence. The response correctly distinguishes what the emails show without fabricating additional details.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.85,
+      "hallucination_detection/rationale": "The response cites two specific emails with dates, senders, and subjects, and the claims made about each email's content appear consistent with what would plausibly be retrieved from the described tool calls. The agent properly attributes claims to graph data and describes tool calls with result counts. No entity names appear fabricated, and the relationships described (approval workflows, role-based access) are grounded in the cited emails rather than invented. Minor concern: the response presents fairly specific details about email content (e.g., '4 days' pending, specific URL fragment, specific access tier name 'eConnect - VPN Tier 2 - Full Access') that could be fabricated but are also plausibly retrieved from actual emails. Without ground truth to verify these specific citations, a small deduction is warranted for the possibility that some content details are embellished, but there is no clear outright fabrication or external knowledge presented as graph-derived. The provenance section is transparent about tool usage and limitations.",
+      "answer_completeness/value": 0.8,
+      "answer_completeness/rationale": "The response directly addresses the question by connecting both email sources to the concept of role-based access governance. It correctly identifies the ARSystem approval workflow (named approvers, overdue reminders, tiered access like VPN Tier 2) and the ISDA database email (edit vs. view-only access, privileged comments restricted to Legal/Credit employees). The synthesis is logical and grounded in actual email citations with dates and senders. Minor gaps: the response could more explicitly contrast role-based governance with what 'open access' would look like, and could elaborate more on how the two sources complement each other structurally (one showing process governance, one showing data-level permission tiers). The conclusion is somewhat brief. But the core question is well answered with appropriate evidence from both specified email sources."
+    },
+    {
+      "question_id": "enron-curated-ebs-strategy-build-and-invest-synthesis",
+      "question_text": "How do the Organizational Changes email and the Datacentric Broadband materials show what Enron Broadband Services was trying to build?",
+      "corpus": "enron",
+      "eval_split": "test",
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "domain_primary": "business_units_projects",
+      "domain_secondary": [
+        "communications_dynamics_temporal"
+      ],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "case_synthesis",
+      "inputs/question": "How do the Organizational Changes email and the Datacentric Broadband materials show what Enron Broadband Services was trying to build?",
+      "expectations/question_id": "enron-curated-ebs-strategy-build-and-invest-synthesis",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "test",
+      "expectations/attorney_category": "case_synthesis",
+      "expectations/architecture_primary": "synthesis_provenance",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "expectations/domain_primary": "business_units_projects",
+      "expectations/domain_secondary": [
+        "communications_dynamics_temporal"
+      ],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "How do the Organizational Changes email and the Datacentric Broadband materials show what Enron Broadband Services was trying to build?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-ebs-strategy-build-and-invest-synthesis",
+        "corpus": "enron",
+        "eval_split": "test",
+        "attorney_category": "case_synthesis",
+        "architecture_primary": "synthesis_provenance",
+        "architecture_secondary": [
+          "evidence_drilldown"
+        ],
+        "domain_primary": "business_units_projects",
+        "domain_secondary": [
+          "communications_dynamics_temporal"
+        ],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "case_synthesis"
+      },
+      "response_text": "### Answer\nTaken together, these records show that EBS was trying to build and commercialize its own broadband operating platform while evaluating adjacent broadband opportunities that could ride on that platform.\n\n1. **Operating build-out plan**: The Organizational Changes email defines EBS around `network build-out`, `BOS development`, which shows a build-and-operate broadband agenda. [2000-02-17, From: office.chairman@enron.com, Subject: Organizational Changes]\n2. **Example of the opportunity set**: The Datacentric Broadband briefing describes a broadband wireless company that EBS was evaluating in that broader market. [2001-05-11, From: gene.humphrey@enron.com, Subject: Datacentric Broadband]\n3. **The strategy combines infrastructure and commercialization**: The first record is about building EBS's own operating capabilities, while the second shows management screening external broadband ventures that could expand the commercial portfolio.\n\n#### Evidence\n- [2000-02-17, From: office.chairman@enron.com, Subject: Organizational Changes] \u2014 Organizational Changes As Enron's broadband services business grows, we will continue to position the company to take advantage of the significant opportunities in this market a...\n- [2001-05-11, From: gene.humphrey@enron.com, Subject: Datacentric Broadband] \u2014 Datacentric Broadband Jeff, After your call I thought I should give you some background on Datacentric Broadband (DCB). 1. The company was founded by Leslie Anderson a woman ent...\n\n#### Conclusion\nSo the local evidence points to EBS building a broadband operating business, with Datacentric appearing as one adjacent broadband opportunity inside that strategic landscape.\n\n### Provenance\n- **Path**: question -> evidence retrieval -> claim-supporting records -> grounded answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"Organizational Changes, network build-out, commercial development, Enron Broadband Services\", \"sender\": \"office.chairman@enron.com\", \"date_from\": \"2000-02-17\", \"date_to\": \"2000-02-18\", \"limit\": 4}) \u2192 1 emails; search_emails({\"keywords\": \"Datacentric Broadband, 2 million, Redstone, regional broadband wireless\", \"sender\": \"gene.humphrey@enron.com\", \"date_from\": \"2001-05-11\", \"date_to\": \"2001-05-12\", \"limit\": 4}) \u2192 1 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 6973.1,
+      "evidence_quality/value": 0.7,
+      "evidence_quality/rationale": "The response provides specific evidence for its two main claims: exact email dates, sender addresses, and subject lines are cited for both the Organizational Changes email and the Datacentric Broadband email. A provenance section is present with actual tool citations showing search parameters and result counts. Partial email content snippets are included. However, the analytical claims about EBS strategy ('build-and-operate broadband agenda,' 'infrastructure and commercialization') are somewhat loosely connected to the cited evidence \u2014 the snippets shown don't fully demonstrate the strategic synthesis being described. The response also relies on only two emails to support fairly broad strategic conclusions, and the relationship between the two emails is asserted rather than demonstrated through graph relationships or additional corroborating sources. The provenance section is well-structured with actual tool call syntax and result counts, which strengthens credibility. Overall, key claims have specific email-level evidence but the higher-level strategic synthesis lacks sufficient grounding.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.3,
+      "organizational_accuracy/rationale": "The response does not meaningfully address organizational structure, reporting lines, titles, or relationship types (REPORTS_TO, MANAGES, etc.) as required by the evaluation criteria. While it references two emails and makes general claims about EBS's strategic direction, it provides no org hierarchy information, no named individuals with titles, no reporting relationships, and no relationship type annotations. The response appears to answer a strategy question rather than an organizational structure question. The email citations appear plausible and internally consistent, but the core task of accurately representing organizational structure and relationships is almost entirely absent. A score of 0.3 reflects that the cited sources are real graph entries with no obvious fabrication, but the organizational content requested is missing.",
+      "grounding_integrity/value": 0.95,
+      "grounding_integrity/rationale": "The response has a well-structured Provenance section that includes specific tool call citations with parameters and result counts, states 'All claims grounded in graph data,' and provides a grounding level and coverage note. All claims in the answer body are directly tied to specific emails with dates, senders, and subjects. The evidence section quotes actual email content snippets. The tool calls are explicitly cited (search_emails with parameters and return counts). Minor deduction because the response could more explicitly distinguish between what the email content directly states versus interpretive synthesis (e.g., 'The strategy combines infrastructure and commercialization' is an inference), but this is a minor issue and the overall grounding is systematic and transparent.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.7,
+      "hallucination_detection/rationale": "The response cites two specific emails with dates, senders, and subjects that appear to be retrieved via tool calls (as shown in the Provenance section), so these are not obviously fabricated citations. The claims made about the emails' content are modest and plausible given the snippets provided. However, there are some concerns: (1) The response presents interpretive claims about EBS strategy ('build-and-operate broadband agenda', 'management screening external broadband ventures') that go somewhat beyond what the brief snippets can support, though these are framed as inferences rather than hard facts. (2) The snippet for the Organizational Changes email mentions 'network build-out' and 'BOS development' as if quoting the email, but these specific phrases aren't visible in the provided excerpt \u2014 this is a minor unsupported claim. (3) No ground truth was provided to verify against, so fabrication of email metadata cannot be fully ruled out, but the tool call provenance lends credibility. Overall, the response is cautious, properly qualified, and grounded in retrieved data with no egregious fabrications detected, warranting a score in the 0.7 range.",
+      "answer_completeness/value": 0.4,
+      "answer_completeness/rationale": "The response identifies both emails and provides basic context about each, but fails to deeply analyze what EBS was actually trying to build from the content of these specific documents. The answer is quite shallow - it mentions 'network build-out' and 'BOS development' from the Organizational Changes email but doesn't elaborate on what BOS (Broadband Operating System) was or what the organizational structure revealed about EBS's strategic vision. For the Datacentric Broadband email, it only describes it as an 'adjacent opportunity' being evaluated, without extracting specific details about what broadband capabilities or infrastructure were being considered. The response doesn't synthesize the two documents to paint a coherent picture of what EBS was trying to build - it treats them as largely separate items rather than showing how they complement each other to reveal EBS's vision. The conclusion is generic and doesn't add meaningful insight beyond what was already stated. The agent appears to have retrieved the emails but only used surface-level content rather than mining the actual substance of what these documents reveal about EBS's technical and commercial ambitions."
+    },
+    {
+      "question_id": "enron-curated-audit-coordination-to-fbi-synthesis",
+      "question_text": "How do the Arthur Andersen audit-coordination email and the FBI cooperation notice show the shift from routine audit support to criminal-investigation response?",
+      "corpus": "enron",
+      "eval_split": "test",
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "domain_primary": "legal_audit_external_stakeholders",
+      "domain_secondary": [
+        "communications_dynamics_temporal"
+      ],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "case_synthesis",
+      "inputs/question": "How do the Arthur Andersen audit-coordination email and the FBI cooperation notice show the shift from routine audit support to criminal-investigation response?",
+      "expectations/question_id": "enron-curated-audit-coordination-to-fbi-synthesis",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "test",
+      "expectations/attorney_category": "case_synthesis",
+      "expectations/architecture_primary": "synthesis_provenance",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "expectations/domain_primary": "legal_audit_external_stakeholders",
+      "expectations/domain_secondary": [
+        "communications_dynamics_temporal"
+      ],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "How do the Arthur Andersen audit-coordination email and the FBI cooperation notice show the shift from routine audit support to criminal-investigation response?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-audit-coordination-to-fbi-synthesis",
+        "corpus": "enron",
+        "eval_split": "test",
+        "attorney_category": "case_synthesis",
+        "architecture_primary": "synthesis_provenance",
+        "architecture_secondary": [
+          "evidence_drilldown"
+        ],
+        "domain_primary": "legal_audit_external_stakeholders",
+        "domain_secondary": [
+          "communications_dynamics_temporal"
+        ],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "case_synthesis"
+      },
+      "response_text": "### Answer\nThe Arthur Andersen packet is dominated by three themes: audit-control work, secure handling of sensitive material, and later investigation pressure.\n\n1. **Audit-control discipline**: The early packet frames Andersen as Enron's external audit party for review and control work. [2001-02-06, From: sally.beck@enron.com, Subject: Doorstep Review Process]\n2. **Secure handling of sensitive audit information**: The secure-folder message emphasizes controlled transfer of confidential materials to Arthur Andersen. [2001-04-10, From: beth.apollo@enron.com, Subject: Confidential Folder to safely pass information to  Arthur Andersen]\n3. **Cooperation with investigators over document-destruction allegations**: By January 2002 the theme shifts to FBI searches, employee interviews, and legal exposure. [2002-01-24, From: jr..legal@enron.com, Subject: Cooperation with the FBI]\n\n#### Evidence\n- [2001-02-06, From: sally.beck@enron.com, Subject: Doorstep Review Process] \u2014 Doorstep Review Process Doorstep reviews are by design a quick look at commercial activities and the mid and back office support for those activities in our wholesale businesses...\n- [2001-04-10, From: beth.apollo@enron.com, Subject: Confidential Folder to safely pass information to  Arthur Andersen] \u2014 Confidential Folder to safely pass information to Arthur Andersen We have become increasingly concerned about confidential information (dpr/position info, curves, validations/st...\n- [2002-01-24, From: jr..legal@enron.com, Subject: Cooperation with the FBI] \u2014 Cooperation with the FBI Enron has consented to allow the Federal Bureau of Investigation to search the Enron Building and to interview employees regarding allegations of docume...\n\n#### Conclusion\nSo the message cluster moves from ordinary audit-control coordination, to secure information handling, to direct cooperation with investigators over document-destruction allegations.\n\n### Provenance\n- **Path**: question -> evidence retrieval -> claim-supporting records -> grounded answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"Doorstep Review Process, Arthur Andersen, audit party, controls\", \"sender\": \"sally.beck@enron.com\", \"date_from\": \"2001-02-06\", \"date_to\": \"2001-02-07\", \"limit\": 4}) \u2192 2 emails; search_emails({\"keywords\": \"Confidential Folder to safely pass information to Arthur Andersen, confidential folder, safely pass information\", \"sender\": \"beth.apollo@enron.com\", \"date_from\": \"2001-04-10\", \"date_to\": \"2001-04-11\", \"limit\": 4}) \u2192 1 emails; search_emails({\"keywords\": \"Cooperation with the FBI, allegations of document destruction, Arthur Andersen\", \"sender\": \"jr..legal@enron.com\", \"date_from\": \"2002-01-24\", \"date_to\": \"2002-01-25\", \"limit\": 4}) \u2192 1 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 1341.4,
+      "evidence_quality/value": 0.72,
+      "evidence_quality/rationale": "The response provides reasonable evidence for its three main claims, each supported by a specific email citation including date, sender, and subject line. The provenance section includes actual tool calls with parameters and result counts, which adds credibility. However, several weaknesses prevent a higher score: (1) The sender 'beth.apollo@enron.com' is an unusual Enron address that raises authenticity concerns, though it cannot be definitively flagged as fabricated without graph access. (2) The email content snippets are truncated and don't fully substantiate the thematic claims made. (3) The connection between the 'Doorstep Review Process' email and Arthur Andersen specifically is asserted but not clearly demonstrated in the excerpt shown. (4) The narrative conclusion about a 'message cluster moving' from audit coordination to investigation cooperation is an interpretive claim that goes slightly beyond what the three isolated emails can fully support. (5) The provenance section is present and structured, which is positive, but the tool citations show very narrow date ranges (single-day searches) suggesting cherry-picked rather than comprehensive retrieval. Overall, key claims have specific email-level evidence but some analytical assertions lack full support.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.5,
+      "organizational_accuracy/rationale": "The response does not address organizational structure, reporting lines, titles, or relationship types (REPORTS_TO, MANAGES, etc.) at all. The question appears to be about Arthur Andersen's relationship with Enron in the context of email content, and the agent provides a thematic summary of email clusters rather than any organizational hierarchy information. Since the Graph Ground Truth and Historical Ground Truth fields are both empty, there is no specific org structure to validate against. The response is internally consistent with no contradictions, and the email citations appear plausible and grounded. However, the rubric specifically asks to evaluate organizational structure and relationships, and the response contains none of that \u2014 no reporting lines, no titles, no relationship types. The core content (thematic email analysis) is coherent and reasonably structured, but it fundamentally misses the organizational dimension the rubric requires. A score of 0.5 reflects that the response is factually consistent and grounded but significantly incomplete relative to the org-structure evaluation criteria.",
+      "grounding_integrity/value": 0.9,
+      "grounding_integrity/rationale": "The response has a well-structured Provenance section that includes specific tool call citations with parameters and result counts, states 'All claims grounded in graph data,' and provides a grounding level description. Each claim in the answer body is directly tied to a specific email citation with sender, date, and subject line. The tool calls are explicitly listed with their search parameters and return counts. Minor deductions: the 'Path' description is somewhat generic and procedural rather than substantive, and there is a slight concern that 'beth.apollo@enron.com' is an unusual Enron email address that could potentially be fabricated, though this cannot be confirmed without external verification. Overall, the response demonstrates systematic grounding with clear attribution of all claims to graph data and explicit tool call provenance.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.5,
+      "hallucination_detection/rationale": "The response cites three specific emails with dates, senders, and subjects that appear to come from tool results, which is appropriate. However, several concerns arise: (1) 'beth.apollo@enron.com' is a suspicious sender \u2014 'Apollo' is not a recognized Enron employee name in the corpus, and this looks potentially fabricated or hallucinated as an entity. (2) 'jr..legal@enron.com' is an unusual email address format (double dot) that raises questions about authenticity. (3) The provenance section claims these came from tool calls with specific result counts, but without ground truth to verify, the unusual entity names (especially beth.apollo) suggest possible fabrication. (4) The narrative framing ('packet dominated by three themes') presents an analytical structure that goes beyond what three retrieved emails could reliably support, potentially overstating the evidence. The sally.beck@enron.com citation is plausible given she was a known Enron employee, but the other two senders are questionable. The combination of a suspicious entity name and an oddly formatted email address in cited sources warrants a significant penalty for potential hallucination.",
+      "answer_completeness/value": 0.5,
+      "answer_completeness/rationale": "The response identifies three relevant emails and constructs a narrative arc from routine audit coordination to criminal investigation response, which addresses the core of the question. However, it falls short of a complete answer in several ways: (1) The analysis of each email is superficial \u2014 only snippet-level content is quoted without substantive analysis of what specifically in each email demonstrates the 'shift' (e.g., language changes, tone, legal framing, urgency markers). (2) The question specifically asks about 'the Arthur Andersen audit-coordination email' and 'the FBI cooperation notice' as two specific documents \u2014 the response uses three emails and doesn't clearly identify which is 'the' audit-coordination email. (3) The comparative analysis between the two document types is weak; the response lists themes sequentially but doesn't directly contrast the procedural/bureaucratic language of audit support against the legal/investigative language of the FBI notice. (4) The 'Confidential Folder' email (April 2001) is positioned as a middle step but its relevance to the shift narrative is underdeveloped. (5) No use of the investigation timeline table, which would have provided crucial context for dating the shift and corroborating the narrative. The answer is partially correct and uses available graph data, but lacks the depth and direct comparative analysis the question demands."
+    },
+    {
+      "question_id": "enron-curated-arsystem-submission-to-overdue-synthesis",
+      "question_text": "How do the Kenneth Parkhill submission notice and the Seung-Taek Oh overdue notices together show a staged ARSystem access workflow?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "architecture_secondary": [
+        "evidence_drilldown",
+        "access_control_isolation"
+      ],
+      "domain_primary": "access_privilege_governance",
+      "domain_secondary": [],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "case_synthesis",
+      "inputs/question": "How do the Kenneth Parkhill submission notice and the Seung-Taek Oh overdue notices together show a staged ARSystem access workflow?",
+      "expectations/question_id": "enron-curated-arsystem-submission-to-overdue-synthesis",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "case_synthesis",
+      "expectations/architecture_primary": "synthesis_provenance",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown",
+        "access_control_isolation"
+      ],
+      "expectations/domain_primary": "access_privilege_governance",
+      "expectations/domain_secondary": [],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "How do the Kenneth Parkhill submission notice and the Seung-Taek Oh overdue notices together show a staged ARSystem access workflow?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-arsystem-submission-to-overdue-synthesis",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "case_synthesis",
+        "architecture_primary": "synthesis_provenance",
+        "architecture_secondary": [
+          "evidence_drilldown",
+          "access_control_isolation"
+        ],
+        "domain_primary": "access_privilege_governance",
+        "domain_secondary": [],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "case_synthesis"
+      },
+      "response_text": "### Answer\nThe available data shows a narrow slice of a formal access-request approval workflow in the Enron email corpus, but not a full end-to-end or company-wide process.\n\n#### Evidence\n- [2002-01-01, From: arsystem@mailman.enron.com, Subject: Your Approval is Overdue: Access Request for\n brian.redmond@enron.com] \u2014 Automated overdue notice showing a tracked request, named approver, and resource awaiting approval. Your Approval is Overdue: Access Request for brian.redmond@enron.com This request has been pending your approval for 4 days. Please click http://itcapps.corp.enron.com/srrs/auth...\n- [2001-12-28, From: arsystem@mailman.enron.com, Subject: Your Approval is Overdue: Access Request for\n rodney.malcolm@enron.com] \u2014 Automated overdue notice showing a tracked request, named approver, and resource awaiting approval. Your Approval is Overdue: Access Request for rodney.malcolm@enron.com This request has been pending your approval for 9 days. Please click http://itcapps.corp.enron.com/srrs/aut...\n- [2002-01-17, From: arsystem@mailman.enron.com, Subject: Approval is Overdue: Access Request for naveen.andrews@enron.com] \u2014 Automated overdue notice showing a tracked request, named approver, and resource awaiting approval. Approval is Overdue: Access Request for naveen.andrews@enron.com This request has been pending approval for 2 days and you are the alternate. Please click http://itcapps.corp.en...\n\n#### Conclusion\nThese emails support that Enron used tracked access requests with named approvers and overdue approval notices. The retrieved sample does not show the full workflow definition or how broadly it was used across the company.\n\n### Caveats\n- Evidence strength was limited; unsupported details should be treated as unverified.\n- Retrieved emails were related to the topic, but they did not yet establish a repeated or end-to-end workflow trace.\n\n### Provenance\n- **Path**: question -> targeted access-request retrieval -> claim-supporting emails -> scoped conclusion about tracked approvals versus a full workflow\n- **Grounding**: Partially grounded \u2014 retrieved emails show related approvals, but not a repeated or end-to-end workflow trace\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians. Evidence strength was limited; unsupported details should be treated as unverified. Retrieved emails were related to the topic, but they did not yet establish a repeated or end-to-end workflow trace.\n- **Sources**: search_emails({\"keywords\": \"access request, request submitted, submission notice, approval is overdue, your approval is overdue, overdue notice, overdue notices, review and act upon this request, approved my access, arsystem\", \"limit\": 8}) \u2192 8 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 1473.4,
+      "evidence_quality/value": 0.8,
+      "evidence_quality/rationale": "The response provides strong evidence for its specific claims, citing three emails with precise dates (2002-01-01, 2001-12-28, 2002-01-17), sender addresses (arsystem@mailman.enron.com), subject lines, and partial email body content. The provenance section clearly documents the tool used (search_emails with specific keywords) and the result count (8 emails). The conclusion is appropriately scoped to what the evidence supports \u2014 confirming a tracked approval workflow exists without overclaiming a full end-to-end process. Minor deductions: the response could have included recipient names/roles for the approvers to strengthen the workflow claim, and the email body excerpts are truncated. However, the core claims are well-supported by specific, verifiable email citations, and the agent appropriately acknowledges limitations in coverage and evidence strength.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.5,
+      "organizational_accuracy/rationale": "The response does not directly address organizational structure, reporting lines, or relationship types (REPORTS_TO, MANAGES, etc.). Instead, it focuses on an IT access request workflow. The email citations appear plausible and grounded in the corpus (automated system emails from arsystem@mailman.enron.com), and no fabricated entities or contradictions are present. However, since the question context calls for evaluation of organizational structure and relationships, the response largely sidesteps that domain. It neither correctly nor incorrectly maps reporting lines \u2014 it simply doesn't engage with org hierarchy. The partial score reflects that the response is internally consistent, cites real-seeming email evidence without fabrication, and appropriately caveats its limitations, but fails to provide meaningful organizational relationship information that would be expected in this evaluation context.",
+      "grounding_integrity/value": 0.85,
+      "grounding_integrity/rationale": "The response has a well-structured Provenance section that includes Sources with explicit tool call citations (search_emails with parameters shown), a Grounding level statement ('Partially grounded'), and Coverage notes. Claims are directly tied to specific email citations with dates, senders, and subjects. The response appropriately scopes its conclusions to what the data supports and explicitly flags limitations. Minor deductions: the grounding level label 'Partially grounded' is somewhat ambiguous (it refers to workflow completeness rather than data attribution clarity), and the 'Path' field describes reasoning flow rather than data provenance. However, all factual claims are traceable to cited emails, no external knowledge is presented as graph evidence, and the agent correctly distinguishes between what the emails show versus what remains unknown.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.9,
+      "hallucination_detection/rationale": "The agent's response is well-grounded and appropriately cautious. The three email citations (dates, senders, subjects, and partial body content) are plausible and internally consistent with the described automated AR system workflow. The agent does not fabricate relationships, invent statistics, or present external knowledge as graph-derived. It explicitly qualifies its conclusions as partial and notes the evidence does not establish a full end-to-end workflow. The only minor concern is that the cited emails cannot be independently verified against a provided ground truth, but the agent's framing is appropriately hedged and the citations are structurally consistent with what an automated IT access-request system would generate. No outright fabrication is detected.",
+      "answer_completeness/value": 0.2,
+      "answer_completeness/rationale": "The question asks specifically about Kenneth Parkhill submission notices and Seung-Taek Oh overdue notices and how they together demonstrate a staged ARSystem access workflow. The agent failed to find or reference either of these specific individuals in its response. Instead, it returned generic ARSystem overdue notices for brian.redmond, rodney.malcolm, and naveen.andrews \u2014 none of whom were asked about. The agent did not locate the Kenneth Parkhill submission notice or the Seung-Taek Oh overdue notices, which appear to be the specific emails the question is built around. While the agent correctly identified that Enron used a tracked access request system with overdue notices, it could not connect the two specific named examples to demonstrate the 'staged' workflow (submission \u2192 pending \u2192 overdue escalation). The response touches on the general topic but fundamentally fails to answer the specific question asked, missing both named individuals entirely."
+    },
+    {
+      "question_id": "enron-curated-application-directory-approval-synthesis",
+      "question_text": "How do the Market Data Kobra and Research directory ARSystem notices show that the same approval system governed both application and directory access?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "architecture_secondary": [
+        "evidence_drilldown",
+        "access_control_isolation"
+      ],
+      "domain_primary": "access_privilege_governance",
+      "domain_secondary": [],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "case_synthesis",
+      "inputs/question": "How do the Market Data Kobra and Research directory ARSystem notices show that the same approval system governed both application and directory access?",
+      "expectations/question_id": "enron-curated-application-directory-approval-synthesis",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "case_synthesis",
+      "expectations/architecture_primary": "synthesis_provenance",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown",
+        "access_control_isolation"
+      ],
+      "expectations/domain_primary": "access_privilege_governance",
+      "expectations/domain_secondary": [],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "How do the Market Data Kobra and Research directory ARSystem notices show that the same approval system governed both application and directory access?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-application-directory-approval-synthesis",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "case_synthesis",
+        "architecture_primary": "synthesis_provenance",
+        "architecture_secondary": [
+          "evidence_drilldown",
+          "access_control_isolation"
+        ],
+        "domain_primary": "access_privilege_governance",
+        "domain_secondary": [],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "case_synthesis"
+      },
+      "response_text": "### Answer\nThe retrieved packet shows ARSystem approval notices, but this run did not surface both the application-access and directory-access notices needed to prove that the same approval system governed both resources.\n\n#### Evidence\n- [2002-01-17, From: arsystem@mailman.enron.com, Subject: Approval is Overdue: Access Request for naveen.andrews@enron.com] \u2014 Automated overdue notice showing a tracked request, named approver, and resource awaiting approval. Approval is Overdue: Access Request for naveen.andrews@enron.com This request has been pending approval for 2 days and you are the alternate. Please click http://itcapps.corp.en...\n\n#### Conclusion\nSo the available evidence supports ARSystem-mediated approval controls, but not the full application-versus-directory comparison asked for here.\n\n### Provenance\n- **Path**: question -> evidence retrieval -> claim-supporting records -> grounded answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"access request, request submitted, submission notice, approval is overdue, your approval is overdue, overdue notice, overdue notices, review and act upon this request, approved my access, arsystem\", \"limit\": 8}) \u2192 8 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 2123.1,
+      "evidence_quality/value": 0.5,
+      "evidence_quality/rationale": "The response provides one specific email citation with a date (2002-01-17), sender (arsystem@mailman.enron.com), subject line, and partial content, which is concrete evidence. The provenance section includes a tool citation with the actual search query used. However, the response only surfaces a single email example and explicitly acknowledges it cannot answer the full question asked (application-access vs. directory-access comparison). The evidence is real and grounded but thin \u2014 one email supporting a partial claim. The conclusion is appropriately hedged, which is honest, but the overall evidentiary support is limited to a single data point with no relationship types, email counts, or additional corroborating records despite the tool returning 8 emails. The agent could have cited more of those 8 results to strengthen the evidence base.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.5,
+      "organizational_accuracy/rationale": "The response makes no fabricated organizational claims and correctly grounds its single citation in actual email data (an ARSystem automated notice). It accurately acknowledges the limits of what was found. However, the response provides essentially no organizational structure, reporting lines, titles, or relationship types (REPORTS_TO, MANAGES, etc.), which are the primary evaluation criteria. The one piece of evidence cited is an automated system email rather than anything revealing hierarchy. The response is honest about its gaps, which prevents a lower score, but the near-total absence of org-structure content keeps it at the midpoint.",
+      "grounding_integrity/value": 0.9,
+      "grounding_integrity/rationale": "The response has a well-structured Provenance section that includes the specific tool call with parameters (search_emails with keywords and limit), states grounding level explicitly ('All claims grounded in graph data'), cites a specific email with date/sender/subject, and clearly acknowledges the limitation of what was found versus what was asked. The response appropriately flags that the evidence only partially addresses the question rather than fabricating unsupported claims. Minor deduction because the 'Path' entry in provenance is somewhat generic/boilerplate rather than substantively informative, and the confidence level is not explicitly stated as a metric, but overall the grounding is systematic and well-attributed.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.9,
+      "hallucination_detection/rationale": "The response is largely well-grounded and appropriately hedged. The agent cites a specific email (2002-01-17, from arsystem@mailman.enron.com, subject referencing naveen.andrews@enron.com) which appears to be a real retrieved result from the tool call shown. The agent correctly acknowledges the limits of what was found and does not fabricate a comparison it couldn't support. The only minor concern is that 'naveen.andrews@enron.com' is an unusual name for an Enron employee (it matches a British actor's name), which could suggest a fabricated entity \u2014 however, Enron did have employees with non-Western names and the email address format is consistent. Without ground truth to contradict this, it remains a minor flag rather than a confirmed hallucination. No external knowledge is presented as graph-derived, no invented statistics are present, and the conclusion is appropriately cautious.",
+      "answer_completeness/value": 0.2,
+      "answer_completeness/rationale": "The agent acknowledges it cannot fully answer the question and only provides a single generic ARSystem overdue notice that doesn't specifically address either 'Market Data Kobra' or 'Research directory' access. The question asks for a comparative analysis showing how the same approval system governed both application access (Market Data Kobra) and directory access (Research directory). The agent neither identifies the specific named resources nor demonstrates the structural similarity between the two types of notices. While the agent is honest about its limitations, it fails to attempt more targeted searches for 'Market Data Kobra' or 'Research directory' specifically, which might have surfaced relevant emails. The single generic example provided barely touches on the question's core comparative requirement."
+    },
+    {
+      "question_id": "enron-curated-workflow-plus-role-boundary-synthesis",
+      "question_text": "How do the ARSystem notices and the ISDA Master Agreement Data Base email show that Enron combined workflow approval with role-based permission boundaries?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "architecture_secondary": [
+        "evidence_drilldown",
+        "access_control_isolation"
+      ],
+      "domain_primary": "access_privilege_governance",
+      "domain_secondary": [],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "case_synthesis",
+      "inputs/question": "How do the ARSystem notices and the ISDA Master Agreement Data Base email show that Enron combined workflow approval with role-based permission boundaries?",
+      "expectations/question_id": "enron-curated-workflow-plus-role-boundary-synthesis",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "case_synthesis",
+      "expectations/architecture_primary": "synthesis_provenance",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown",
+        "access_control_isolation"
+      ],
+      "expectations/domain_primary": "access_privilege_governance",
+      "expectations/domain_secondary": [],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "How do the ARSystem notices and the ISDA Master Agreement Data Base email show that Enron combined workflow approval with role-based permission boundaries?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-workflow-plus-role-boundary-synthesis",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "case_synthesis",
+        "architecture_primary": "synthesis_provenance",
+        "architecture_secondary": [
+          "evidence_drilldown",
+          "access_control_isolation"
+        ],
+        "domain_primary": "access_privilege_governance",
+        "domain_secondary": [],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "case_synthesis"
+      },
+      "response_text": "### Answer\nThe available data shows a narrow slice of a formal access-request approval workflow in the Enron email corpus, but not a full end-to-end or company-wide process.\n\n#### Evidence\n- [2002-01-01, From: arsystem@mailman.enron.com, Subject: Your Approval is Overdue: Access Request for\n brian.redmond@enron.com] \u2014 Automated overdue notice showing a tracked request, named approver, and resource awaiting approval. Your Approval is Overdue: Access Request for brian.redmond@enron.com This request has been pending your approval for 4 days. Please click http://itcapps.corp.enron.com/srrs/auth...\n- [2001-12-28, From: arsystem@mailman.enron.com, Subject: Your Approval is Overdue: Access Request for\n rodney.malcolm@enron.com] \u2014 Automated overdue notice showing a tracked request, named approver, and resource awaiting approval. Your Approval is Overdue: Access Request for rodney.malcolm@enron.com This request has been pending your approval for 9 days. Please click http://itcapps.corp.enron.com/srrs/aut...\n- [2002-01-17, From: arsystem@mailman.enron.com, Subject: Approval is Overdue: Access Request for naveen.andrews@enron.com] \u2014 Automated overdue notice showing a tracked request, named approver, and resource awaiting approval. Approval is Overdue: Access Request for naveen.andrews@enron.com This request has been pending approval for 2 days and you are the alternate. Please click http://itcapps.corp.en...\n\n#### Conclusion\nThese emails support that Enron used tracked access requests with named approvers and overdue approval notices. The retrieved sample does not show the full workflow definition or how broadly it was used across the company.\n\n### Caveats\n- Evidence strength was limited; unsupported details should be treated as unverified.\n- Retrieved emails were related to the topic, but they did not yet establish a repeated or end-to-end workflow trace.\n\n### Provenance\n- **Path**: question -> targeted access-request retrieval -> claim-supporting emails -> scoped conclusion about tracked approvals versus a full workflow\n- **Grounding**: Partially grounded \u2014 retrieved emails show related approvals, but not a repeated or end-to-end workflow trace\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians. Evidence strength was limited; unsupported details should be treated as unverified. Retrieved emails were related to the topic, but they did not yet establish a repeated or end-to-end workflow trace.\n- **Sources**: search_emails({\"keywords\": \"access request, request submitted, submission notice, approval is overdue, your approval is overdue, overdue notice, overdue notices, review and act upon this request, approved my access, arsystem\", \"limit\": 8}) \u2192 8 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 1848.2,
+      "evidence_quality/value": 0.8,
+      "evidence_quality/rationale": "The response provides strong specific evidence for its claims, including three concrete email citations with exact dates (2002-01-01, 2001-12-28, 2002-01-17), sender addresses (arsystem@mailman.enron.com), subject lines, and partial email body content. The provenance section clearly documents the tool used (search_emails with specific keywords) and the result count (8 emails). The conclusion is appropriately scoped to what the evidence actually supports \u2014 confirming a tracked approval workflow exists without overclaiming a full end-to-end process. Minor deductions: the response could have included more of the 8 retrieved emails to strengthen coverage, and some claims about 'named approvers' and 'resources awaiting approval' are partially supported but the actual approver names aren't shown in the excerpts. The honest acknowledgment of evidence limitations and the clear provenance section are strengths. Overall, key claims are well-supported by specific, verifiable email data.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.5,
+      "organizational_accuracy/rationale": "The response does not address organizational structure, reporting lines, titles, or relationship types (REPORTS_TO, MANAGES, etc.) in any meaningful way. It focuses entirely on an IT access request workflow derived from automated system emails. There are no fabricated relationships or contradictions, and the agent appropriately caveats its findings, but the response simply does not engage with organizational hierarchy content. Since both the Graph Ground Truth and Historical Ground Truth are empty, there is no specific org structure to validate against, which prevents a lower score for contradictions. The score reflects that the response is internally consistent and honest about its limitations, but fails to provide any organizational structure analysis that the evaluation criteria require.",
+      "grounding_integrity/value": 0.85,
+      "grounding_integrity/rationale": "The response has a well-structured Provenance section that includes Sources with explicit tool call citations (search_emails with parameters shown), a Grounding level statement ('Partially grounded'), and Coverage notes. Claims are directly tied to specific email citations with dates, senders, and subjects. The response appropriately scopes its conclusions to what the evidence supports and explicitly flags limitations. Minor deductions: the grounding level description is somewhat informal ('Partially grounded' refers to workflow completeness rather than data sourcing), and there is no explicit statement distinguishing graph data from general/external knowledge. The 'Path' field describes reasoning steps rather than data provenance. Overall, this is a strong grounding effort with clear attribution and honest uncertainty acknowledgment.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.9,
+      "hallucination_detection/rationale": "The agent's response is well-grounded and appropriately cautious. The three email citations (dates, senders, subjects, and partial body content) are plausible and internally consistent with the described automated AR system workflow. The agent does not fabricate relationships, invent statistics, or present external knowledge as graph-derived. It explicitly qualifies its conclusions as partial and notes limitations in coverage. The only minor concern is that the email citations cannot be independently verified against a provided ground truth, but the agent's framing is appropriately hedged and the details (arsystem@mailman.enron.com, itcapps.corp.enron.com URLs, overdue day counts) are consistent with what such a system would produce. No outright fabrication is detected.",
+      "answer_completeness/value": 0.3,
+      "answer_completeness/rationale": "The response partially addresses the question by identifying ARSystem automated approval notices and connecting them to a workflow approval concept. However, it completely fails to address the second half of the question \u2014 the ISDA Master Agreement Data Base email and how it demonstrates role-based permission boundaries. The question specifically asks about the combination of workflow approval WITH role-based permission boundaries, using two distinct email types as evidence. The agent only retrieved ARSystem overdue notices and never found or analyzed the ISDA Master Agreement email. Additionally, the response doesn't meaningfully explain how these emails demonstrate 'role-based permission boundaries' \u2014 it only notes that approvers are named, without discussing what roles or permission scopes were involved. The answer touches on the topic but leaves the most analytically interesting part of the question (the combination of workflow + RBAC, and the ISDA email specifically) completely unaddressed."
+    },
+    {
+      "question_id": "enron-curated-ebs-governance-integration-synthesis",
+      "question_text": "How do the Organizational Changes email and the March 2001 Corporate Policy Committee announcement show that Enron Broadband Services leadership was integrated into broader corporate governance?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "domain_primary": "business_units_projects",
+      "domain_secondary": [
+        "governance_leadership"
+      ],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "case_synthesis",
+      "inputs/question": "How do the Organizational Changes email and the March 2001 Corporate Policy Committee announcement show that Enron Broadband Services leadership was integrated into broader corporate governance?",
+      "expectations/question_id": "enron-curated-ebs-governance-integration-synthesis",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "case_synthesis",
+      "expectations/architecture_primary": "synthesis_provenance",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "expectations/domain_primary": "business_units_projects",
+      "expectations/domain_secondary": [
+        "governance_leadership"
+      ],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "How do the Organizational Changes email and the March 2001 Corporate Policy Committee announcement show that Enron Broadband Services leadership was integrated into broader corporate governance?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-ebs-governance-integration-synthesis",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "case_synthesis",
+        "architecture_primary": "synthesis_provenance",
+        "architecture_secondary": [
+          "evidence_drilldown"
+        ],
+        "domain_primary": "business_units_projects",
+        "domain_secondary": [
+          "governance_leadership"
+        ],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "case_synthesis"
+      },
+      "response_text": "### Answer\nThe available data shows that there is limited direct evidence linking the Organizational Changes email and the March 2001 Corporate Policy Committee announcement to the integration of Enron Broadband Services (EBS) leadership into broader corporate governance. However, we can analyze the retrieved emails and related information to infer some insights.\n\n#### Key People and Entities Involved\n\nFrom the email evidence, the following individuals are mentioned in relation to Enron Broadband Services or corporate governance:\n1. Jeff Skilling - As the recipient of an email related to a YPO Panel on 4.24 at Enron Broadband Services facility.\n2. Vince Kaminski - Sent an email unrelated to the topic but was involved in discussions potentially related to EBS or broader corporate matters.\n3. Sherri Sera - Coordinated logistics for a YPO Panel at the EBS facility.\n\n#### Email Evidence Analysis\n\n1. **Email on YPO Panel at EBS Facility** \n - This email indicates that Enron Broadband Services was significant enough to host a YPO (Young Presidents' Organization) Panel, suggesting its importance within Enron.\n\n2. **Limited Direct Evidence on Organizational Changes or Corporate Policy Committee**\n - The search results did not directly yield emails related to the Organizational Changes email or the March 2001 Corporate Policy Committee announcement.\n\n#### Inference and Context\n\nWhile direct evidence is limited, the presence of EBS in significant corporate events (like hosting a YPO Panel) and the involvement of key Enron figures suggest that EBS was integrated into broader corporate activities. However, without direct emails or announcements regarding the Organizational Changes or Corporate Policy Committee, we cannot conclusively state how these specifically showed EBS leadership integration.\n\n#### Volume of Evidence and Related Themes\n\n- The search returned 8 emails, but none directly addressed the Organizational Changes email or the March 2001 Corporate Policy Committee announcement in the context of EBS leadership integration.\n- Related themes include Enron Broadband Services, corporate governance, and organizational changes within Enron.\n\n#### Conclusion\n\nThe available data does not directly show how the Organizational Changes email and the March 2001 Corporate Policy Committee announcement integrated Enron Broadband Services leadership into broader corporate governance. However, EBS's significance is highlighted through its hosting of important events.\n\n### Evidence\n- [2001-03-26, From: joannie.williamson@enron.com, Subject: Re: 4/3/01 - 1:30-3:30 p.m. - Meeting Confirmation] \u2014 Re: 4/3/01 - 1:30-3:30 p.m. - Meeting Confirmation Dorothy, I have this meeting scheduled on Jeff's calendar from 1:30 - 2:30. Do you anticipate Jeff and Ken...\n- [2001-03-28, From: sherri.sera@enron.com, Subject: Re: YPO Panel on 4.24] \u2014 Re: YPO Panel on 4.24 Judy, my apologies for the delay in responding to your request. The meetin= g=20 is scheduled to take place at Enron Broadband Services...\n- [2001-03-29, From: owner-eveningmba@haas.berkeley.edu, Subject: Fall 01 Pre-Registration] \u2014 Fall 01 Pre-Registration Judging from a number of e-mails I've gotten, this note may not have gotten through. So here it comes again. Diane ************8 HI ...\n\n### Caveats\n- Evidence strength was moderate; unsupported details should be treated as unverified.\n\n### Provenance\n- **Path**: question -> evidence retrieval -> claim-supporting records -> grounded answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians. Evidence strength was moderate; unsupported details should be treated as unverified.\n- **Sources**: search_emails({\"keywords\": \"Organizational Changes, March 2001, Corporate Policy Committee, Enron Broadband Services, corporate governance, broadband, EBS, fiber\", \"limit\": 8, \"date_from\": \"2001-03-01\", \"date_to\": \"2001-04-01\"}) \u2192 8 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 9196.9,
+      "evidence_quality/value": 0.2,
+      "evidence_quality/rationale": "The response provides very minimal evidence for its claims. Only two emails are cited in the evidence section, neither of which directly addresses the question about Organizational Changes emails or the March 2001 Corporate Policy Committee announcement integrating EBS leadership into corporate governance. The YPO Panel email is tangentially related at best and is used to make a weak inferential leap about EBS's 'significance.' The response openly acknowledges it found no direct evidence for the core question, which is appropriate transparency, but the two cited emails do not support the broader claims made about EBS integration into corporate governance. There is no provenance section with tool citations, no relationship types from the graph (REPORTS_TO, MANAGES, etc.), no email counts supporting patterns, and no specific subject lines or sender/recipient pairs that actually address the question. The response is largely composed of unsupported assertions and hedged inferences. The honest admission of limited evidence prevents a score of 0.0, but the lack of meaningful supporting data and the weak connection between cited emails and the claims made keeps the score very low.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.3,
+      "organizational_accuracy/rationale": "The response attempts to address organizational structure but largely fails to provide meaningful organizational claims. It does not identify any reporting lines, titles, REPORTS_TO or MANAGES relationships, or org hierarchy details. The two email citations provided (YPO Panel logistics, meeting confirmation) are tangentially related at best and do not support any organizational structure claims. The response honestly acknowledges the lack of direct evidence, which avoids fabrication penalties, but it also fails to leverage the curated org hierarchy table (24 entries) or investigation timeline (28 events) that should be available to the agent. The mention of Jeff Skilling, Vince Kaminski, and Sherri Sera lacks any organizational context (no titles, no reporting relationships). The response is mostly a non-answer with minimal organizational content, earning partial credit only for not fabricating relationships and for correctly identifying key Enron figures by name.",
+      "grounding_integrity/value": 0.3,
+      "grounding_integrity/rationale": "The response includes some email citations with dates and senders, which provides minimal grounding. However, it lacks a formal Provenance section with Sources, Grounding level, and Confidence fields as required. There are no tool call citations (e.g., 'find_connections returned...'). The response does not clearly distinguish between claims derived from graph data versus general/training knowledge. The inference section draws conclusions about EBS's corporate significance from tangential evidence (a YPO panel logistics email) without proper attribution. The response does acknowledge when direct evidence is not found, which is appropriate, but the overall grounding methodology is not systematic. The two email citations provided are weakly relevant and the response essentially admits they don't support the core question, yet still uses them to make inferences without flagging those inferences as speculative or externally-informed.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.75,
+      "hallucination_detection/rationale": "The response is largely cautious and appropriately hedged, acknowledging limited evidence. The two email citations provided (2001-03-26 from joannie.williamson and 2001-03-28 from sherri.sera) appear to be actual retrieved emails rather than fabricated ones, and the agent does not over-claim what they show. However, there are some minor unsupported claims: the agent states Jeff Skilling was 'the recipient of an email related to a YPO Panel on 4.24 at Enron Broadband Services facility' \u2014 the cited email is from sherri.sera and mentions Enron but does not clearly establish Skilling as the recipient or confirm the EBS facility specifically. The claim about Vince Kaminski being 'involved in discussions potentially related to EBS or broader corporate matters' is vague and unsupported by any cited evidence. These are minor inferential overreaches rather than outright fabrications, and the agent appropriately concludes that direct evidence is lacking. No major hallucinations of entities, statistics, or external knowledge presented as graph-derived facts are detected.",
+      "answer_completeness/value": 0.1,
+      "answer_completeness/rationale": "The response almost entirely fails to answer the specific question asked. The user asked about two specific documents - the 'Organizational Changes email' and the 'March 2001 Corporate Policy Committee announcement' - and how they demonstrate EBS leadership integration into corporate governance. The agent admits it could not find these documents and provides only tangentially related emails (a YPO Panel logistics email and a meeting confirmation) that have no bearing on the question. The agent does not retrieve or analyze org hierarchy data, investigation timeline entries, or communication statistics that might shed light on EBS leadership roles in corporate governance. The conclusion is essentially 'we couldn't find the relevant information,' which while honest, represents a near-complete failure to address the question. The response does not fabricate information, which prevents a score of 0.0, but it provides almost no substantive answer to what was asked."
+    },
+    {
+      "question_id": "enron-curated-ebs-priorities-vs-dcb-fit-synthesis",
+      "question_text": "How do the Organizational Changes email and the Datacentric Broadband briefing show the difference between EBS's operating priorities and investments it did not view as a strategic fit?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "domain_primary": "business_units_projects",
+      "domain_secondary": [
+        "communications_dynamics_temporal"
+      ],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "case_synthesis",
+      "inputs/question": "How do the Organizational Changes email and the Datacentric Broadband briefing show the difference between EBS's operating priorities and investments it did not view as a strategic fit?",
+      "expectations/question_id": "enron-curated-ebs-priorities-vs-dcb-fit-synthesis",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "case_synthesis",
+      "expectations/architecture_primary": "synthesis_provenance",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "expectations/domain_primary": "business_units_projects",
+      "expectations/domain_secondary": [
+        "communications_dynamics_temporal"
+      ],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "How do the Organizational Changes email and the Datacentric Broadband briefing show the difference between EBS's operating priorities and investments it did not view as a strategic fit?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-ebs-priorities-vs-dcb-fit-synthesis",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "case_synthesis",
+        "architecture_primary": "synthesis_provenance",
+        "architecture_secondary": [
+          "evidence_drilldown"
+        ],
+        "domain_primary": "business_units_projects",
+        "domain_secondary": [
+          "communications_dynamics_temporal"
+        ],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "case_synthesis"
+      },
+      "response_text": "### Answer\nThese two emails distinguish EBS's internal operating agenda from a broadband investment it did not treat as strategically aligned.\n\n1. **Operating priorities**: The Organizational Changes email defines EBS around `network build-out`, `BOS development`, which shows a build-and-operate agenda for the broadband business. [2000-02-17, From: office.chairman@enron.com, Subject: Organizational Changes]\n2. **Investment outside that core fit**: The Datacentric Broadband briefing reports that Ken Rice said EBS was not interested and did not see a strategic fit in going deeper on the investment. [2001-05-11, From: gene.humphrey@enron.com, Subject: Datacentric Broadband]\n\n#### Evidence\n- [2000-02-17, From: office.chairman@enron.com, Subject: Organizational Changes] \u2014 Organizational Changes As Enron's broadband services business grows, we will continue to position the company to take advantage of the significant opportunities in this market a...\n- [2001-05-11, From: gene.humphrey@enron.com, Subject: Datacentric Broadband] \u2014 Datacentric Broadband Jeff, After your call I thought I should give you some background on Datacentric Broadband (DCB). 1. The company was founded by Leslie Anderson a woman ent...\n\n#### Conclusion\nTogether, the records show that EBS was focused on building and commercializing its own broadband platform, while treating Datacentric Broadband as an adjacent opportunity that did not match that operating plan.\n\n### Provenance\n- **Path**: question -> evidence retrieval -> claim-supporting records -> grounded answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"Organizational Changes, network build-out, BOS development, cross-market capabilities, commercial development\", \"sender\": \"office.chairman@enron.com\", \"date_from\": \"2000-02-17\", \"date_to\": \"2000-02-18\", \"limit\": 4}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<17902498.1075845507055.JavaMail.evans@thyme>\", \"limit\": 1}) \u2192 1 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 1190.6,
+      "evidence_quality/value": 0.7,
+      "evidence_quality/rationale": "The response provides specific email citations with dates, senders, and subject lines for both key claims, and includes a provenance section with actual tool calls and message IDs. The two core claims (EBS operating priorities and the Datacentric Broadband strategic misfit) are each tied to a specific email with metadata. However, the evidence is somewhat thin: only two emails are cited, the body excerpts are truncated and don't fully substantiate the specific claims made (e.g., Ken Rice's statement about strategic fit is asserted but the excerpt shown doesn't confirm it), and only one tool call is shown in the provenance despite two emails being cited. The conclusion is reasonable and grounded, but the evidentiary chain for the Datacentric Broadband claim in particular relies on assertion rather than demonstrated quote from the email body.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.5,
+      "organizational_accuracy/rationale": "The response references two emails with specific metadata (dates, senders, subjects) and makes claims about EBS's organizational priorities and investment decisions. The organizational claims are plausible and internally consistent \u2014 no contradictions are present within the response. However, the response provides minimal organizational structure detail: no reporting lines (REPORTS_TO, MANAGES), no titles, and no explicit hierarchy information. The question context asks to evaluate organizational structure and relationships, and the response largely discusses strategic priorities rather than org structure. The Graph Ground Truth and Historical Ground Truth fields are empty, meaning there is no specific ground truth to contradict, but also no basis to reward detailed accuracy. The response avoids fabrication and stays grounded in cited emails, but fails to demonstrate meaningful org hierarchy content with relationship types as the rubric requires. The core content is reasonable but the organizational structure representation is thin.",
+      "grounding_integrity/value": 0.85,
+      "grounding_integrity/rationale": "The response has a clear Provenance section with Sources, Grounding level, and Confidence indicators. Tool call citations are included with specific parameters and result counts. Claims are tied to specific emails with dates, senders, and subjects. The grounding level is explicitly stated as 'All claims grounded in graph data.' Minor deductions: the second email citation (gene.humphrey@enron.com, 2001-05-11) lacks a corresponding tool call citation in the Sources section \u2014 only the first email's retrieval is documented with a message_id lookup. The second email's provenance trail is incomplete, leaving one claim partially unverified in the tool citation chain. Additionally, the 'Path' description is somewhat generic rather than listing all specific tool calls used. Overall, the response is well-structured and mostly grounded, but the missing tool citation for the second key email prevents a full score.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.7,
+      "hallucination_detection/rationale": "The response cites two specific emails with dates, senders, and subjects. The first email [2000-02-17, office.chairman@enron.com, 'Organizational Changes'] appears to be a plausible Enron email and is supported by a tool call shown in the provenance section. The second email [2001-05-11, gene.humphrey@enron.com, 'Datacentric Broadband'] is cited with specific content claims (Ken Rice said EBS was not interested, no strategic fit) but no corresponding tool call is shown in the provenance for this email \u2014 only the first email's retrieval is documented. This raises a moderate concern that the second citation's specific attributed quote ('Ken Rice said EBS was not interested') may be fabricated or unsupported by retrieved data. However, the email subject and sender are plausible, and the response does not make wildly implausible claims. The overall narrative is coherent and the first citation appears grounded. The missing provenance for the second email and the specific attributed statement to Ken Rice without tool-call support constitute a minor-to-moderate hallucination risk, warranting a score of 0.7 rather than higher.",
+      "answer_completeness/value": 0.5,
+      "answer_completeness/rationale": "The response identifies the two relevant emails and makes a basic contrast between EBS's operating priorities (network build-out, BOS development) and the Datacentric Broadband investment being seen as not a strategic fit. However, the answer is quite thin. It does not deeply explore the content of either email to substantiate the contrast \u2014 for example, it doesn't detail what specific priorities the Organizational Changes email outlines (leadership structure, commercial focus areas, market strategy) or what specific reasons were given in the Datacentric Broadband briefing for the lack of strategic fit. The conclusion is generic and doesn't leverage the full content available in the emails. The agent retrieved the emails but did not fully extract and compare their substantive content to answer the 'how do they show the difference' aspect of the question comprehensively. Key aspects are touched on but significant analytical depth is missing."
+    },
+    {
+      "question_id": "enron-curated-ebs-venture-pipeline-synthesis",
+      "question_text": "How do the EBS Ventures weekly deal tracking sheet and the Datacentric Broadband briefing show that broadband opportunities were being managed through a structured venture pipeline?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "domain_primary": "business_units_projects",
+      "domain_secondary": [],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "case_synthesis",
+      "inputs/question": "How do the EBS Ventures weekly deal tracking sheet and the Datacentric Broadband briefing show that broadband opportunities were being managed through a structured venture pipeline?",
+      "expectations/question_id": "enron-curated-ebs-venture-pipeline-synthesis",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "case_synthesis",
+      "expectations/architecture_primary": "synthesis_provenance",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "expectations/domain_primary": "business_units_projects",
+      "expectations/domain_secondary": [],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "How do the EBS Ventures weekly deal tracking sheet and the Datacentric Broadband briefing show that broadband opportunities were being managed through a structured venture pipeline?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-ebs-venture-pipeline-synthesis",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "case_synthesis",
+        "architecture_primary": "synthesis_provenance",
+        "architecture_secondary": [
+          "evidence_drilldown"
+        ],
+        "domain_primary": "business_units_projects",
+        "domain_secondary": [],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "case_synthesis"
+      },
+      "response_text": "### Answer\nThese records show a structured venture pipeline: one is a recurring weekly tracker, and the other is a specific broadband opportunity moving through that review flow.\n\n1. **Standing pipeline tracker**: The EBS Ventures weekly deal tracking sheet shows a recurring mechanism for tracking opportunities, rather than ad hoc one-off conversations. [2000-06-06, From: rebekah.rushing@enron.com, Subject: EBS Ventures weekly deal tracking sheet]\n2. **Concrete opportunity packet**: The Datacentric Broadband briefing is a company-specific evaluation that fits the kind of opportunity the venture tracker was meant to manage. [2001-05-11, From: gene.humphrey@enron.com, Subject: Datacentric Broadband]\n\n#### Evidence\n- [2000-06-06, From: rebekah.rushing@enron.com, Subject: EBS Ventures weekly deal tracking sheet] \u2014 EBS Ventures weekly deal tracking sheet Following is the EBS Ventures weekly deal tracking sheet. Thanks! Rebekah Rushing (rebekah_rushing@enron.net) Enron Broadband Services Br...\n- [2001-05-11, From: gene.humphrey@enron.com, Subject: Datacentric Broadband] \u2014 Datacentric Broadband Jeff, After your call I thought I should give you some background on Datacentric Broadband (DCB). 1. The company was founded by Leslie Anderson a woman ent...\n\n#### Conclusion\nTaken together, the weekly tracker plus the Datacentric briefing show that broadband opportunities were being handled through a structured venture review pipeline.\n\n### Provenance\n- **Path**: question -> evidence retrieval -> claim-supporting records -> grounded answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"Datacentric Broadband, 2 million, Redstone, regional broadband wireless\", \"sender\": \"gene.humphrey@enron.com\", \"date_from\": \"2001-05-11\", \"date_to\": \"2001-05-12\", \"limit\": 4}) \u2192 1 emails; search_emails({\"keywords\": \"EBS Ventures weekly deal tracking sheet\", \"sender\": \"rebekah.rushing@enron.com\", \"date_from\": \"2000-06-01\", \"date_to\": \"2000-06-30\", \"limit\": 4}) \u2192 1 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 1802.2,
+      "evidence_quality/value": 0.72,
+      "evidence_quality/rationale": "The response provides reasonable evidence for its two main claims, with specific email dates, sender names, and subject lines cited for both the EBS Ventures weekly tracker and the Datacentric Broadband opportunity. The provenance section includes actual tool calls with parameters and result counts, which adds credibility. However, the evidence is thin in depth \u2014 only two emails are cited, and the body excerpts are truncated, leaving key claims (e.g., 'structured venture review pipeline,' 'moving through that review flow') somewhat asserted rather than fully demonstrated. The connection between the two emails as part of the same pipeline is inferred rather than directly evidenced. Minor claims about the nature of the pipeline structure lack direct supporting quotes. Overall, key claims have specific email-level support, but the analytical conclusions drawn from just two data points are not fully substantiated.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.3,
+      "organizational_accuracy/rationale": "The response does not address organizational structure, reporting lines, titles, or relationship types (REPORTS_TO, MANAGES, etc.) at all. The question appears to be about organizational relationships, but the agent's answer focuses entirely on venture pipeline processes and email content about broadband deals. There are no fabricated relationships, but there are also no organizational claims made whatsoever. The response is essentially non-responsive to an org-structure query, describing email content about EBS Ventures deal tracking and Datacentric Broadband instead. Since the Graph Ground Truth and Historical Ground Truth fields are empty, it's unclear what specific org facts were expected, but the complete absence of any organizational structure analysis, hierarchy discussion, or relationship typing warrants a low score. The agent did ground its claims in actual emails without fabrication, which prevents a score of 0.0, but the fundamental mismatch between the query type (org structure) and the response content (venture pipeline process) is a significant failure.",
+      "grounding_integrity/value": 0.95,
+      "grounding_integrity/rationale": "The response has a well-structured Provenance section that includes specific tool call citations with parameters and result counts, states 'All claims grounded in graph data', and specifies the grounding level and coverage. All claims in the answer body are directly attributed to specific emails with dates, senders, and subjects that match the tool call results. The evidence section includes actual email snippet content. The path from tool calls to claims is clear and traceable. Minor deduction for the fact that the provenance 'Path' description is somewhat generic rather than describing the actual reasoning chain, but this is a minor issue. Overall this is a well-grounded response that properly attributes all claims to graph data.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.85,
+      "hallucination_detection/rationale": "The agent's response appears well-grounded in actual retrieved emails, with both citations supported by tool results shown in the provenance section. The two email citations (2000-06-06 rebekah.rushing@enron.com and 2001-05-11 gene.humphrey@enron.com) are directly backed by the search_emails tool calls that returned those specific records. The email content snippets quoted match what would be expected from the subjects. The interpretive claims ('structured venture pipeline,' 'recurring mechanism,' 'company-specific evaluation') are reasonable inferences from the email content rather than fabrications. Minor concern: the characterization of these two emails as demonstrating a 'structured venture review pipeline' is an interpretive leap that goes slightly beyond what two isolated emails can definitively prove, but this is analytical inference rather than hallucination. No fabricated entities, invented relationships, or external knowledge presented as graph-derived data is detected. The provenance is transparent and the tool results are cited honestly.",
+      "answer_completeness/value": 0.4,
+      "answer_completeness/rationale": "The agent finds both relevant emails and correctly identifies them as evidence of a structured venture pipeline. However, the answer is quite shallow and fails to deeply analyze the actual content of either document. The agent only quotes the opening lines of each email without extracting meaningful details about pipeline structure, deal stages, evaluation criteria, or how the Datacentric opportunity specifically fits into the venture review process. The question asks HOW these documents show structured pipeline management - requiring analysis of their content, format, and relationship to each other - but the agent provides only surface-level identification of the emails. The conclusion is generic and doesn't demonstrate substantive understanding of what either document actually contains about pipeline mechanics. The agent also doesn't explore whether there are related emails, follow-ups, or other participants that would enrich the picture of how the pipeline functioned."
+    },
+    {
+      "question_id": "enron-curated-skilling-to-lay-governance-shift-synthesis",
+      "question_text": "How do the August 14, 2001 resignation record and the hierarchy rows show a shift from Skilling-centered governance to Lay-centered governance?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "architecture_secondary": [
+        "timeline_retrieval",
+        "evidence_drilldown"
+      ],
+      "domain_primary": "governance_leadership",
+      "domain_secondary": [],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "case_synthesis",
+      "inputs/question": "How do the August 14, 2001 resignation record and the hierarchy rows show a shift from Skilling-centered governance to Lay-centered governance?",
+      "expectations/question_id": "enron-curated-skilling-to-lay-governance-shift-synthesis",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "case_synthesis",
+      "expectations/architecture_primary": "synthesis_provenance",
+      "expectations/architecture_secondary": [
+        "timeline_retrieval",
+        "evidence_drilldown"
+      ],
+      "expectations/domain_primary": "governance_leadership",
+      "expectations/domain_secondary": [],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "How do the August 14, 2001 resignation record and the hierarchy rows show a shift from Skilling-centered governance to Lay-centered governance?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-skilling-to-lay-governance-shift-synthesis",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "case_synthesis",
+        "architecture_primary": "synthesis_provenance",
+        "architecture_secondary": [
+          "timeline_retrieval",
+          "evidence_drilldown"
+        ],
+        "domain_primary": "governance_leadership",
+        "domain_secondary": [],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "case_synthesis"
+      },
+      "response_text": "### Answer\nJeff Skilling served as President & COO from January 1, 1997 to February 12, 2001, and then as CEO from February 12, 2001 until his resignation on August 14, 2001. Throughout his tenure in both roles, he reported to Kenneth Lay.\n\nDuring Skilling's time as President & COO (1997-01-01 to 2001-02-12) and CEO (2001-02-12 to 2001-08-14), several key executives reported to him, including:\n1. Andrew Fastow (CFO, Enron Corp): 1998-01-01 to 2001-10-24\n2. Tim Belden (Head of Trading, Enron West Power Trading): 1998-01-01 to 2001-12-02\n3. Lou Pai (CEO, Enron Energy Services): 1999-01-01 to 2001-06-01\n4. Cliff Baxter (Vice Chairman, Enron Corp): 2000-01-01 to 2001-05-02\n5. Kenneth Rice (CEO, Enron Broadband Services): 2000-01-01 to 2001-08-01\n6. Rick Buy (Chief Risk Officer, Enron Corp): 2000-01-01 to 2002-01-23\n7. Mark Frevert (Vice Chairman, Enron Wholesale Services): 2001-02-12 to 2002-01-23\n8. David Delainey (CEO, Enron Energy Services): 2001-06-01 to 2001-12-02\n\nUpon Skilling's resignation on August 14, 2001, these direct reports either continued their roles or transitioned to report directly to Kenneth Lay, shifting the governance structure from Skilling-centered to Lay-centered.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: query_org_hierarchy({\"entity_name\": \"Jeff Skilling\"}) \u2192 structured result; find_connections({\"entity_name\": \"Jeff Skilling\", \"relationship_type\": \"REPORTS_TO\"}) \u2192 structured result; find_connections({\"entity_name\": \"Jeff Skilling\", \"relationship_type\": \"MANAGES\"}) \u2192 structured result; get_entity_summary({\"entity_name\": \"Jeff Skilling\"}) \u2192 structured result; get_source_evidence({\"entity_name\": \"Jeff Skilling\"}) \u2192 15 emails; get_hierarchy_evidence({\"person_name\": \"Jeff Skilling\"}) \u2192 5 evidence rows; get_email_full_body({\"message_id\": \"<14147421.1075844513527.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<18700621.1075843452573.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<10149359.1075840254949.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<22052599.1075840278335.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 10144.4,
+      "evidence_quality/value": 0.7,
+      "evidence_quality/rationale": "The response provides reasonably well-supported claims with a provenance section citing specific tool calls, message IDs, and structured query results. The org hierarchy data for Skilling's roles and reporting relationships to Kenneth Lay aligns with the curated org hierarchy table (24 entries from public record). The list of direct reports includes specific date ranges and titles, suggesting grounding in the org hierarchy table. However, several weaknesses prevent a higher score: (1) No specific email dates, sender/recipient pairs, or Subject: lines are surfaced in the answer body to corroborate the direct-report relationships \u2014 the message IDs are cited in provenance but their content is not shown or summarized to support any specific claim; (2) The direct reports list (Fastow, Belden, Pai, Baxter, Rice, Buy, Frevert, Delainey) lacks inline evidence tying each person to Skilling via email content or explicit graph relationship citations; (3) The provenance section lists tool calls but does not map specific tool outputs to specific claims, making it difficult to verify which claims are grounded in email data versus the org hierarchy table alone. The response is solid for org hierarchy facts but thin on email-level evidence for the broader claims.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.7,
+      "organizational_accuracy/rationale": "The response correctly identifies Skilling's dual roles (President & COO, then CEO) with accurate date ranges, and correctly places him reporting to Kenneth Lay. The list of direct reports includes plausible and largely accurate figures (Fastow as CFO, Rice as EBS CEO, Delainey as EES CEO, Frevert as Vice Chairman) with reasonable date ranges consistent with the org hierarchy table. The response is internally consistent with no contradictions. Minor deductions apply because: (1) some of the listed direct reports (e.g., Tim Belden as 'Head of Trading') may not be formally in the curated org hierarchy as direct Skilling reports, and the date ranges for some entries appear to extend beyond Skilling's tenure without clear sourcing; (2) the claim that all listed executives 'reported to Skilling' is stated with confidence but the graph ground truth provided is empty, making verification impossible \u2014 the agent should have hedged more on indirect vs. direct reporting lines; (3) the transition narrative after Skilling's resignation is reasonable but presented as fact without explicit graph evidence cited. Overall, the core organizational structure is accurate and well-structured with relationship types shown, but some peripheral claims lack sufficient hedging.",
+      "grounding_integrity/value": 0.9,
+      "grounding_integrity/rationale": "The response has a well-structured Provenance section with explicit tool call citations (query_org_hierarchy, find_connections, get_entity_summary, get_source_evidence, get_hierarchy_evidence, get_email_full_body with specific message IDs), states grounding level ('All claims grounded in graph data'), and identifies the data source (curated org hierarchy table, email corpus). The specific dates, roles, and reporting relationships are attributed to structured graph results. Minor deduction because the response doesn't explicitly distinguish which specific claims came from which specific tool calls (e.g., which direct reports came from find_connections vs. org hierarchy), and the claim that all these executives 'reported to Skilling' is asserted without per-person citation linking back to specific tool results. The email message IDs cited in get_email_full_body calls add credibility but their relevance to specific claims isn't mapped. Overall, this is a strong grounding response with systematic provenance documentation.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.7,
+      "hallucination_detection/rationale": "The response appears to draw from the curated org hierarchy table (24 entries from public record), which is a legitimate source. The dates for Skilling's roles (President & COO 1997-2001, CEO 2001, resignation August 14, 2001) align with well-known historical facts and are plausibly in the curated tables. The direct reports listed (Fastow, Belden, Pai, Baxter, Rice, Buy, Frevert, Delainey) with specific date ranges are consistent with the org hierarchy table structure described in the system context. However, several concerns exist: (1) The specific start/end dates for subordinates like Tim Belden (1998-01-01), Lou Pai, Cliff Baxter, Kenneth Rice, Rick Buy, and David Delainey are very precise and may not all be verifiable from the 24-entry curated org hierarchy \u2014 some could be extrapolated or fabricated. (2) The claim that all these individuals 'reported to Skilling' is presented with high confidence, but the graph ground truth provided is empty, making it impossible to fully verify. (3) The provenance section lists specific message IDs as retrieved evidence, which adds credibility but cannot be verified against ground truth. The response is generally plausible and consistent with historical knowledge, with no egregious fabrications, but the precision of subordinate date ranges raises minor concerns about whether all 8 entries are genuinely in the 24-entry curated table.",
+      "answer_completeness/value": 0.5,
+      "answer_completeness/rationale": "The response partially addresses the question by correctly identifying Skilling's resignation date (August 14, 2001) and listing his direct reports from the hierarchy table. However, it fails to fully analyze the governance shift in a structured way. The answer doesn't explicitly compare the 'before' and 'after' hierarchy configurations \u2014 it only vaguely states that reports 'either continued their roles or transitioned to report directly to Kenneth Lay' without showing specific hierarchy rows that demonstrate this shift. The response doesn't show Lay's own hierarchy entries (e.g., his role as Chairman/CEO post-resignation) or contrast the reporting structures before and after August 14, 2001. It also doesn't address how the investigation timeline event (Skilling's resignation) connects to the structural change. The answer uses the org hierarchy data but doesn't fully leverage it to demonstrate the governance transition with specific before/after comparisons that the question explicitly asks for."
+    },
+    {
+      "question_id": "enron-curated-cpc-and-leadership-committees-synthesis",
+      "question_text": "How do the March 2001 Organizational Announcement and Leadership Committees emails show that Enron distributed senior governance through formal committees?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "domain_primary": "governance_leadership",
+      "domain_secondary": [
+        "communications_dynamics_temporal",
+        "governance_leadership"
+      ],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "case_synthesis",
+      "inputs/question": "How do the March 2001 Organizational Announcement and Leadership Committees emails show that Enron distributed senior governance through formal committees?",
+      "expectations/question_id": "enron-curated-cpc-and-leadership-committees-synthesis",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "case_synthesis",
+      "expectations/architecture_primary": "synthesis_provenance",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "expectations/domain_primary": "governance_leadership",
+      "expectations/domain_secondary": [
+        "communications_dynamics_temporal",
+        "governance_leadership"
+      ],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "How do the March 2001 Organizational Announcement and Leadership Committees emails show that Enron distributed senior governance through formal committees?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-cpc-and-leadership-committees-synthesis",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "case_synthesis",
+        "architecture_primary": "synthesis_provenance",
+        "architecture_secondary": [
+          "evidence_drilldown"
+        ],
+        "domain_primary": "governance_leadership",
+        "domain_secondary": [
+          "communications_dynamics_temporal",
+          "governance_leadership"
+        ],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "case_synthesis"
+      },
+      "response_text": "### Answer\nI can't answer this confidently from the retrieved Enron graph data. No query-relevant email evidence was retrieved for the requested documentary claim.\n\n### Evidence Reviewed\n- [2002-02-05, From: joanne.rozycki@enron.com, Subject: Discretionary holiday] \u2014 Discretionary holiday I will be here thru the 15th but I need to take my discretionary holiday so I would like to take this Friday, the 8...\n\n### Caveats\n- Evidence strength was moderate; unsupported details should be treated as unverified.\n- No query-relevant email evidence was retrieved for the requested documentary claim.\n\n### Provenance\n- **Path**: question -> evidence retrieval -> no claim-supporting records -> abstention or narrow hedge\n- **Grounding**: Partially grounded \u2014 broad graph context was retrieved, but query-specific email support was not verified\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians. Evidence strength was moderate; unsupported details should be treated as unverified. No query-relevant email evidence was retrieved for the requested documentary claim.\n- **Sources**: search_emails({\"keywords\": \"senior governance, formal committees, organizational announcement, leadership committees, How, March, Organizational, Announcement\", \"limit\": 8, \"date_from\": \"2001-03-01\", \"date_to\": \"2001-04-01\"}) \u2192 8 emails; semantic_search_emails({\"query\": \"senior governance formal committees organizational announcement leadership committees How March Organizational Announcement\", \"limit\": 5}) \u2192 1 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 2095.4,
+      "evidence_quality/value": 0.2,
+      "evidence_quality/rationale": "The response correctly abstains from making unsupported claims, which is appropriate behavior. However, it provides almost no useful evidence. The one email cited (a discretionary holiday request) is clearly irrelevant to the query about governance/organizational announcements. The provenance section does show tool calls were made with relevant keywords, but the agent fails to extract any meaningful signal from the 8+1 emails retrieved. The response is honest about its limitations but provides minimal investigative value \u2014 it doesn't attempt to characterize what was found in those 9 emails, doesn't confirm whether any partial matches existed, and the single 'evidence reviewed' item actively undermines confidence by being obviously off-topic. A slightly higher score than 0.0 is warranted because there is a provenance section with actual tool citations and the abstention is appropriately hedged rather than fabricated.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.5,
+      "organizational_accuracy/rationale": "The agent appropriately abstained from making unsupported organizational claims when no relevant evidence was found, which avoids fabrication penalties. However, the response provides essentially no organizational information despite the question apparently relating to Enron's organizational structure. The agent did attempt searches but retrieved irrelevant results (a discretionary holiday email). The abstention is the correct behavior when evidence is absent, but the score is moderate because: (1) no org hierarchy claims were made that could be verified against the curated org table, (2) the agent did not attempt to leverage the curated org hierarchy table which contains 24 entries from public record that might have been relevant, and (3) the response structure is internally consistent with no contradictions. The agent neither fabricated relationships nor found real ones, resulting in a neutral but incomplete response.",
+      "grounding_integrity/value": 0.7,
+      "grounding_integrity/rationale": "The response includes a Provenance section with explicit tool call citations (search_emails and semantic_search_emails with parameters and result counts), states a grounding level ('Partially grounded'), and correctly abstains from making unsupported claims. The agent appropriately flags that no query-relevant evidence was found and does not fabricate information. However, the provenance section has some inconsistencies: the 'Caveats' section contradicts itself by saying 'evidence strength was moderate' while also saying no relevant evidence was retrieved, and the single retrieved email about a discretionary holiday is clearly irrelevant yet is listed under 'Evidence Reviewed' without clear explanation of why it doesn't support the query. The grounding label 'Partially grounded' is slightly misleading when the honest characterization is 'not grounded due to absence of relevant evidence.' These minor attribution and consistency issues prevent a full 1.0 score.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.85,
+      "hallucination_detection/rationale": "The agent largely abstains from making unsupported claims, which is appropriate given no relevant evidence was retrieved. The one minor concern is the inclusion of an email citation (2002-02-05, joanne.rozycki@enron.com, 'Discretionary holiday') that is clearly irrelevant to the query about governance/organizational announcements \u2014 it appears to have been retrieved incidentally and is presented under 'Evidence Reviewed' in a potentially misleading way, as if it were reviewed for relevance. However, the agent does not fabricate any claims from this email or present it as supporting evidence. The caveats and provenance sections are honest about the lack of relevant findings. No relationships, statistics, or external knowledge are fabricated. The score is slightly below 1.0 due to the inclusion of an irrelevant email citation in the evidence section without clearly flagging it as irrelevant, which could cause minor confusion.",
+      "answer_completeness/value": 0.2,
+      "answer_completeness/rationale": "The agent made a reasonable attempt to search for the relevant emails using both keyword and semantic search, but failed to find the specific March 2001 Organizational Announcement and Leadership Committees emails. The response essentially abstains from answering the question, providing no substantive information about how Enron distributed senior governance through formal committees. The only email cited (a discretionary holiday email) is completely irrelevant. The agent could have tried additional search strategies - different keywords like 'office of the chairman', 'executive committee', 'management committee', or broader date ranges - before giving up. The response does acknowledge the limitation honestly rather than fabricating information, which prevents a score of 0.0, but the failure to find relevant information that may well exist in the graph, combined with no substantive answer to the question, warrants a low score."
+    },
+    {
+      "question_id": "enron-curated-fastow-removal-leadership-reshuffle-synthesis",
+      "question_text": "How do the Fastow removal record and the late-October hierarchy rows show a crisis-driven reshaping of Kenneth Lay's leadership team?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "case_synthesis",
+      "architecture_primary": "synthesis_provenance",
+      "architecture_secondary": [
+        "timeline_retrieval",
+        "evidence_drilldown"
+      ],
+      "domain_primary": "governance_leadership",
+      "domain_secondary": [
+        "financial_structures_risk"
+      ],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "case_synthesis",
+      "inputs/question": "How do the Fastow removal record and the late-October hierarchy rows show a crisis-driven reshaping of Kenneth Lay's leadership team?",
+      "expectations/question_id": "enron-curated-fastow-removal-leadership-reshuffle-synthesis",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "case_synthesis",
+      "expectations/architecture_primary": "synthesis_provenance",
+      "expectations/architecture_secondary": [
+        "timeline_retrieval",
+        "evidence_drilldown"
+      ],
+      "expectations/domain_primary": "governance_leadership",
+      "expectations/domain_secondary": [
+        "financial_structures_risk"
+      ],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "How do the Fastow removal record and the late-October hierarchy rows show a crisis-driven reshaping of Kenneth Lay's leadership team?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-fastow-removal-leadership-reshuffle-synthesis",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "case_synthesis",
+        "architecture_primary": "synthesis_provenance",
+        "architecture_secondary": [
+          "timeline_retrieval",
+          "evidence_drilldown"
+        ],
+        "domain_primary": "governance_leadership",
+        "domain_secondary": [
+          "financial_structures_risk"
+        ],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "case_synthesis"
+      },
+      "response_text": "### Answer\nThe late-October hierarchy rows show Kenneth Lay's crisis-era leadership team in a new configuration: Lay is back as CEO, Greg Whalley is the operating lieutenant, and Jeff McMahon holds the CFO seat by October 25.\n\n1. **Lay resumes direct operational control**: Kenneth Lay's role changes to `Chairman & CEO (reinstated)` effective `2001-08-14`.\n2. **Whalley becomes the operating lieutenant**: Greg Whalley appears as `President & COO` reporting to Lay from `2001-08-14`.\n3. **The finance seat changes hands by late October**: Jeff McMahon appears as `CFO` reporting to Lay effective `2001-10-25`, which shows the post-Fastow finance lineup.\n4. **The surrounding team shifts rather than staying static**: Jeff Skilling's CEO line under Lay ends `2001-08-14`; James Derrick remains General Counsel through `2002-01-23`.\n\n#### Evidence\n- Structured org role: Kenneth Lay \u2014 `Chairman & CEO (reinstated)` (`2001-08-14` to `2002-01-23`)\n- Structured direct report: Greg Whalley \u2014 `President & COO` (`2001-08-14` to `2002-01-23`)\n- Structured direct report: Jeff McMahon \u2014 `CFO` (`2001-10-25` to `2002-01-28`)\n- Earlier direct report: Jeff Skilling \u2014 `CEO` (`2001-02-12` to `2001-08-14`)\n- Continuing direct report: James Derrick \u2014 `General Counsel` (`1999-01-01` to `2002-01-23`)\n\n#### Conclusion\nSo by late October the hierarchy shows a reshaped Lay leadership team centered on Whalley and McMahon, not the earlier Skilling-era configuration.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: query_org_hierarchy({\"entity_name\": \"Kenneth Lay\"}) \u2192 structured result; find_connections({\"entity_name\": \"Kenneth Lay\", \"relationship_type\": \"REPORTS_TO\"}) \u2192 structured result; find_connections({\"entity_name\": \"Kenneth Lay\", \"relationship_type\": \"MANAGES\"}) \u2192 structured result; get_entity_summary({\"entity_name\": \"Kenneth Lay\"}) \u2192 structured result; get_source_evidence({\"entity_name\": \"Kenneth Lay\"}) \u2192 10 emails; get_hierarchy_evidence({\"person_name\": \"Kenneth Lay\"}) \u2192 3 evidence rows; get_email_full_body({\"message_id\": \"<24254865.1075860847134.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<27094377.1075860836751.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<24316812.1075862884459.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<26112614.1075852812307.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 2101.7,
+      "evidence_quality/value": 0.72,
+      "evidence_quality/rationale": "The response provides well-structured claims about the late-October 2001 Enron leadership hierarchy, with most key claims supported by specific dates and role titles drawn from the curated org hierarchy table. The provenance section lists specific tool calls including query_org_hierarchy, find_connections, and get_entity_summary, lending credibility to the sourcing. Date ranges for each role (e.g., McMahon as CFO from 2001-10-25, Whalley as COO from 2001-08-14) are precise and consistent with the curated org table. However, the response loses points because: (1) the email message IDs cited in the provenance are not connected to any specific claims in the answer body \u2014 no email dates, subject lines, or sender/recipient pairs are surfaced to corroborate the narrative; (2) the claim that 'the surrounding team shifts rather than staying static' is asserted without direct email evidence; (3) the provenance mentions 10 emails from get_source_evidence but none of their content is used to support claims. The structured org data is well-cited, but the email evidence retrieved is essentially unused, leaving the answer reliant solely on the curated table rather than demonstrating triangulation with email corpus data.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.9,
+      "organizational_accuracy/rationale": "The response accurately represents the organizational hierarchy from the curated org table, correctly identifying Kenneth Lay as Chairman & CEO (reinstated) from 2001-08-14, Greg Whalley as President & COO reporting to Lay, Jeff McMahon as CFO effective 2001-10-25, Jeff Skilling's prior CEO role ending 2001-08-14, and James Derrick as General Counsel. Dates and titles are consistent with the curated hierarchy data. Relationship types (direct reports, reporting lines) are clearly articulated. The response is internally consistent with no contradictions. Minor deduction for not explicitly labeling relationship types using formal graph notation (REPORTS_TO, MANAGES) as requested in the rubric, though the hierarchical relationships are clearly implied and structurally correct.",
+      "grounding_integrity/value": 1.0,
+      "grounding_integrity/rationale": "The response has a complete and well-structured Provenance section that includes: (1) explicit tool call citations with function names and parameters (query_org_hierarchy, find_connections, get_entity_summary, get_source_evidence, get_hierarchy_evidence, get_email_full_body), (2) a clear grounding level statement ('All claims grounded in graph data'), (3) specific message IDs cited for email evidence, and (4) coverage context about the corpus. Every factual claim in the answer body is directly tied to structured org hierarchy data with specific date ranges and role titles that match the curated org hierarchy table described in the system context. No external knowledge is presented as graph evidence, and no fabricated entities or relationships are introduced. The response correctly distinguishes between the curated org hierarchy table entries and email corpus evidence, and all dates and role transitions cited are consistent with what would be in the curated 24-entry org hierarchy table.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.85,
+      "hallucination_detection/rationale": "The response draws on the curated org hierarchy table (24 entries from public record) and presents dates and roles that are consistent with known Enron history. No fabricated email citations are used as evidence for the org claims \u2014 the email message IDs listed in provenance are cited as supplementary retrieval steps, not as direct proof of the hierarchy facts. The core claims (Lay reinstated as CEO 2001-08-14, Whalley as President & COO, McMahon as CFO effective 2001-10-25, Skilling's tenure ending 2001-08-14, Derrick as General Counsel) are all plausible entries from the curated org hierarchy table and align with historical ground truth. The response appropriately attributes claims to 'structured org role' and 'structured direct report' rather than fabricating email evidence. Minor concern: the response states 'All claims grounded in graph data' with high confidence, and lists specific message IDs that were retrieved but not directly quoted \u2014 this is acceptable tool usage rather than fabrication. No invented entity names, no contradicted facts, no external knowledge falsely presented as graph-derived. The slight deduction is for the possibility that some specific date precision (e.g., McMahon CFO effective exactly 2001-10-25) could be from the curated table vs. email evidence, but this is consistent with the allowed curated sources.",
+      "answer_completeness/value": 0.5,
+      "answer_completeness/rationale": "The response correctly identifies the late-October hierarchy rows (Lay reinstated as CEO, Whalley as COO, McMahon as CFO effective 2001-10-25) and contrasts them with the earlier Skilling-era configuration. However, the question specifically asks about the 'Fastow removal record' as a key element \u2014 the investigation timeline entry for Fastow's removal (around October 24, 2001) \u2014 and the response never explicitly addresses this event or connects it causally to McMahon's appointment. The answer treats McMahon's appearance as a data point but doesn't explain the Fastow removal record itself (e.g., the timeline event, the circumstances, the date of removal vs. McMahon's start date). The 'crisis-driven reshaping' narrative is partially constructed but lacks the explicit linkage between Fastow's departure and the hierarchy change that the question demands. The response also doesn't draw on the investigation timeline tool to surface the Fastow removal event, which is a missed data source. Overall, the main structural facts are present but the analytical synthesis connecting the Fastow removal record to the hierarchy reshaping is incomplete."
+    }
+  ]
+}

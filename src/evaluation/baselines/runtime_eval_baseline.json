@@ -41,6 +41,33 @@
       "run_name": "v11_gpt54_nano_synthesis",
       "notes": "V11: GPT-5.4-nano synthesis + temperature=0 + anti-fabrication preamble + evidence pre-digest (email+hierarchy+timeline+entity). Overall +7.6% vs control baseline (0.6875). Fabrication rate reduced by structural grounding. 5/40 cell regressions (quant GI -0.09, person AC -0.05, rel GI -0.05, doc AC -0.03, rel EQ -0.02) far outweighed by 19 major improvements."
     },
+    "deployed_v11_validation": {
+      "slice": "full_governed",
+      "question_count": 93,
+      "error_count": 0,
+      "judge_endpoint": "databricks-claude-sonnet-4-6",
+      "overall_score_current": 0.752,
+      "overall_score_local_reference": 0.7397,
+      "delta_from_local": 0.0123,
+      "synthesis_endpoint": "databricks-gpt-5-4-nano",
+      "synthesis_temperature": 0.0,
+      "data_backend": "databricks_sql",
+      "warehouse_id": "399215661843ad19",
+      "model_version": 77,
+      "endpoint_name": "graphrag-enron-agent",
+      "per_metric": {
+        "evidence_quality": 0.664,
+        "participant_verification": 0.9469,
+        "organizational_accuracy": 0.6134,
+        "grounding_integrity": 0.7914,
+        "factual_accuracy": 0.9382,
+        "hallucination_detection": 0.8486,
+        "answer_completeness": 0.4617
+      },
+      "wall_time_seconds": 1648,
+      "run_name": "v11_deployed_validation",
+      "notes": "V11 deployed to Model Serving (v77). Backend: databricks_sql (Lakebase unreachable from serving env). 93/93 questions passed, 0 errors. Score delta +0.0123 from local — within tolerance. Evidence quality improved +0.11 over local (likely warehouse returns more complete results than DuckDB)."
+    },
     "genie_quantitative_iteration0": {
       "slice": "governed_genie_iteration0",
       "question_count": 6,

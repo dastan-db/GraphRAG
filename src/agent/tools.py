@@ -13,6 +13,7 @@
 import json
 import time
 import logging
+import os
 
 from langchain_core.tools import tool
 from functools import partial, wraps
@@ -37,6 +38,21 @@ _latency_log = logging.getLogger(__name__ + ".latency")
 _tool_latency_buffer: list[dict] = []
 
 
+def _mlflow_trace_capture_enabled() -> bool:
+    raw_sampling_ratio = os.environ.get("MLFLOW_TRACE_SAMPLING_RATIO")
+    if raw_sampling_ratio is not None:
+        try:
+            return float(raw_sampling_ratio) > 0.0
+        except ValueError:
+            pass
+    return os.environ.get("GRAPHRAG_ENABLE_MLFLOW_TRACING", "1").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+
+
 def _instrument_tool(fn, tool_name: str):
     """Wrap a tool implementation to record per-invocation latency.
 
@@ -51,17 +67,18 @@ def _instrument_tool(fn, tool_name: str):
 
         start = time.perf_counter()
         span = None
-        try:
-            span = mlflow.start_span(name=f"tool.{tool_name}")
-            span.set_attributes({
-                "tool.name": tool_name,
-                "tool.args": json.dumps(
-                    {k: str(v)[:200] for k, v in (kwargs or {}).items()},
-                    default=str,
-                ),
-            })
-        except Exception:
-            span = None
+        if _mlflow_trace_capture_enabled():
+            try:
+                span = mlflow.start_span(name=f"tool.{tool_name}")
+                span.set_attributes({
+                    "tool.name": tool_name,
+                    "tool.args": json.dumps(
+                        {k: str(v)[:200] for k, v in (kwargs or {}).items()},
+                        default=str,
+                    ),
+                })
+            except Exception:
+                span = None
 
         try:
             result = fn(*args, **kwargs)

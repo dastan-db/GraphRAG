@@ -1,0 +1,1510 @@
+{
+  "score_columns": [
+    "evidence_quality",
+    "participant_verification",
+    "organizational_accuracy",
+    "grounding_integrity",
+    "factual_accuracy",
+    "hallucination_detection",
+    "answer_completeness"
+  ],
+  "overall_metrics": {
+    "evidence_quality": 0.635,
+    "participant_verification": 0.9643,
+    "organizational_accuracy": 0.5714,
+    "grounding_integrity": 0.7964,
+    "factual_accuracy": 0.9571,
+    "hallucination_detection": 0.8393,
+    "answer_completeness": 0.5464
+  },
+  "overall_score": 0.7586,
+  "score_matrix_by_category": {
+    "topic_investigation": {
+      "evidence_quality": 0.64,
+      "participant_verification": 0.96,
+      "organizational_accuracy": 0.57,
+      "grounding_integrity": 0.8,
+      "factual_accuracy": 0.96,
+      "hallucination_detection": 0.84,
+      "answer_completeness": 0.55
+    }
+  },
+  "worst_questions": [
+    {
+      "category": "topic_investigation",
+      "question": "What themes dominated the internal 'Enron Mentions' briefing emails during late October 2001?",
+      "avg_score": 0.6071
+    },
+    {
+      "category": "topic_investigation",
+      "question": "What themes dominated the October 19, 2001 'Enron Mentions' digest?",
+      "avg_score": 0.7143
+    },
+    {
+      "category": "topic_investigation",
+      "question": "What themes dominated the October 29, 2001 'Enron Mentions' digest?",
+      "avg_score": 0.7143
+    },
+    {
+      "category": "topic_investigation",
+      "question": "What themes dominate the Arthur Andersen-related audit and investigation messages in the local Enron corpus?",
+      "avg_score": 0.7286
+    },
+    {
+      "category": "topic_investigation",
+      "question": "What themes dominate Enron's January 24, 2002 'Cooperation with the FBI' notice?",
+      "avg_score": 0.7286
+    }
+  ],
+  "slice_question_count": 14,
+  "successful_question_count": 14,
+  "error_question_count": 0,
+  "elapsed_s": 566.8,
+  "version": "1.0",
+  "created_at": "2026-04-04T20:54:39Z",
+  "run_name": "topic_investigation_slice_postfix_v2",
+  "run_id": "2c55b777cb6a4f01b0f01617e2ee8e52",
+  "judge_endpoint": "databricks-claude-sonnet-4-6",
+  "category": null,
+  "attorney_category": "topic_investigation",
+  "split": null,
+  "baseline_registry": {
+    "version": "1.0",
+    "enron": {
+      "local_core_eval": {
+        "slice": "balanced_test",
+        "question_count": 9,
+        "judge_endpoint": "databricks-claude-sonnet-4-6",
+        "overall_score_min": 0.64,
+        "elapsed_s_max": 240.0,
+        "score_delta_tolerance": 0.08,
+        "notes": "Frozen from the current Enron factual QA slice before modular cutover."
+      },
+      "deployed_core_eval": {
+        "slice": "balanced_test",
+        "question_count": 9,
+        "judge_endpoint": "databricks-claude-sonnet-4-6",
+        "overall_score_min": 0.58,
+        "elapsed_s_max": 320.0,
+        "score_delta_tolerance": 0.1,
+        "notes": "Deployment parity gate relative to the in-process local runtime."
+      },
+      "genie_quantitative_iteration0": {
+        "slice": "governed_genie_iteration0",
+        "question_count": 6,
+        "artifact_path": "src/evaluation/baselines/genie_iteration0_baseline.json",
+        "sql_correctness_current": 0.5,
+        "benchmark_pass_rate_current": 0.5,
+        "failure_rate_current": 0.5,
+        "target_sql_correctness": 0.95,
+        "target_benchmark_pass_rate": 0.9,
+        "target_failure_rate_max": 0.02,
+        "target_latency_p95_multiplier_max": 1.1,
+        "notes": "Iteration 0 frozen benchmark and scorecard for the governed Enron quantitative/Genie slice."
+      }
+    },
+    "bible": {
+      "local_quality_gate": {
+        "entity_recall_min": 0.6,
+        "citations_min": 1.0,
+        "success_rate_min": 0.8,
+        "notes": "Existing local validation suite remains the frozen Bible runtime baseline."
+      },
+      "local_databricks_parity": {
+        "recall_parity_min": 0.8,
+        "tool_match_rate_min": 0.6,
+        "notes": "Parity guard between DuckDB local-fast and Databricks-backed local-integration."
+      }
+    }
+  },
+  "max_concurrent_questions": 1,
+  "max_concurrent_judge_calls": 1,
+  "question_count": 14,
+  "summary": {
+    "score_columns": [
+      "evidence_quality",
+      "participant_verification",
+      "organizational_accuracy",
+      "grounding_integrity",
+      "factual_accuracy",
+      "hallucination_detection",
+      "answer_completeness"
+    ],
+    "overall_metrics": {
+      "evidence_quality": 0.635,
+      "participant_verification": 0.9643,
+      "organizational_accuracy": 0.5714,
+      "grounding_integrity": 0.7964,
+      "factual_accuracy": 0.9571,
+      "hallucination_detection": 0.8393,
+      "answer_completeness": 0.5464
+    },
+    "overall_score": 0.7586,
+    "score_matrix_by_category": {
+      "topic_investigation": {
+        "evidence_quality": 0.64,
+        "participant_verification": 0.96,
+        "organizational_accuracy": 0.57,
+        "grounding_integrity": 0.8,
+        "factual_accuracy": 0.96,
+        "hallucination_detection": 0.84,
+        "answer_completeness": 0.55
+      }
+    },
+    "worst_questions": [
+      {
+        "category": "topic_investigation",
+        "question": "What themes dominated the internal 'Enron Mentions' briefing emails during late October 2001?",
+        "avg_score": 0.6071
+      },
+      {
+        "category": "topic_investigation",
+        "question": "What themes dominated the October 19, 2001 'Enron Mentions' digest?",
+        "avg_score": 0.7143
+      },
+      {
+        "category": "topic_investigation",
+        "question": "What themes dominated the October 29, 2001 'Enron Mentions' digest?",
+        "avg_score": 0.7143
+      },
+      {
+        "category": "topic_investigation",
+        "question": "What themes dominate the Arthur Andersen-related audit and investigation messages in the local Enron corpus?",
+        "avg_score": 0.7286
+      },
+      {
+        "category": "topic_investigation",
+        "question": "What themes dominate Enron's January 24, 2002 'Cooperation with the FBI' notice?",
+        "avg_score": 0.7286
+      }
+    ]
+  },
+  "rows": [
+    {
+      "question_id": "enron-curated-pacheco-summary-topics",
+      "question_text": "What topics recur in the EnronOnline executive summaries that Leonardo Pacheco sent to Kenneth Lay?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "topic_investigation",
+      "architecture_primary": "topic_keyword_retrieval",
+      "architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "domain_primary": "trading_markets_platforms",
+      "domain_secondary": [
+        "communications_dynamics_temporal"
+      ],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "rubric_seed",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [
+        "Leonardo Pacheco",
+        "Kenneth Lay",
+        "EnronOnline"
+      ],
+      "category": "topic_investigation",
+      "inputs/question": "What topics recur in the EnronOnline executive summaries that Leonardo Pacheco sent to Kenneth Lay?",
+      "expectations/question_id": "enron-curated-pacheco-summary-topics",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "topic_investigation",
+      "expectations/architecture_primary": "topic_keyword_retrieval",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "expectations/domain_primary": "trading_markets_platforms",
+      "expectations/domain_secondary": [
+        "communications_dynamics_temporal"
+      ],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "rubric_seed",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [
+        "Leonardo Pacheco",
+        "Kenneth Lay",
+        "EnronOnline"
+      ],
+      "inputs": {
+        "question": "What topics recur in the EnronOnline executive summaries that Leonardo Pacheco sent to Kenneth Lay?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-pacheco-summary-topics",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "topic_investigation",
+        "architecture_primary": "topic_keyword_retrieval",
+        "architecture_secondary": [
+          "evidence_drilldown"
+        ],
+        "domain_primary": "trading_markets_platforms",
+        "domain_secondary": [
+          "communications_dynamics_temporal"
+        ],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "rubric_seed",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [
+          "Leonardo Pacheco",
+          "Kenneth Lay",
+          "EnronOnline"
+        ],
+        "graph_ground_truth": "Pacheco's EnronOnline summaries to Lay repeatedly cover transaction counts, 30-day trailing averages, notional value, business-unit percentage mix, and user/counterparty activity.",
+        "historical_ground_truth": "Pacheco sent EnronOnline executive summaries to Kenneth Lay covering trading and transaction activity.",
+        "evidence_required": true,
+        "category": "topic_investigation"
+      },
+      "response_text": "### Answer\nThe recurring themes in these Pacheco EnronOnline packets are daily trading-performance dashboards rather than narrative status updates.\n\n1. **Transaction and volume dashboards**: The summaries repeatedly track daily transaction counts, 30-day averages, and life-to-date totals. [2000-12-13, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for December 12, 2000]\n2. **Value rollups**: They report gross notional value for the day, month-to-date, and life-to-date, which makes the packet a recurring performance scoreboard. [2000-12-12, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for December 11, 2000]\n3. **Business mix and activity metrics**: The packet also breaks activity down by business-unit share and user or counterparty metrics. [2000-06-23, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 22, 2000]\n\n#### Evidence\n- [2000-12-13, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for December 12, 2000] \u2014 EnronOnline Executive Summary for December 12, 2000 Following please find the Daily EnronOnline Executive Summary. EnronOnline Executive Summary for 12/12/00 Transaction Summary...\n- [2000-12-12, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for December 11, 2000] \u2014 EnronOnline Executive Summary for December 11, 2000 Following please find the Daily EnronOnline Executive Summary. EnronOnline Executive Summary for 12/11/00 Transaction Summary...\n- [2000-06-23, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 22, 2000] \u2014 EnronOnline Management Report for June 22, 2000 Please see the attached Management Report for June 22, 2000: Total Today Year To Date Life To Date Number of Transactions 2,412 1...\n\n#### Conclusion\nTaken together, the recurring topics are transaction volume, notional-value performance, business-unit mix, and participation metrics, so the summaries function as operating dashboards for EnronOnline.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"EnronOnline Executive Summary\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-12-12\", \"date_to\": \"2000-12-14\", \"limit\": 6}) \u2192 2 emails; search_emails({\"keywords\": \"EnronOnline Management Report for June 22, 2000\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-06-22\", \"date_to\": \"2000-06-24\", \"limit\": 6}) \u2192 1 emails; search_emails({\"keywords\": \"EnronOnline Management Report for June 28, 2000\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-06-28\", \"date_to\": \"2000-06-30\", \"limit\": 6}) \u2192 2 emails; search_emails({\"keywords\": \"EnronOnline, executive summaries, Leonardo Pacheco, Kenneth Lay\", \"date_from\": \"\", \"date_to\": \"\"}) \u2192 15 emails; semantic_search_emails({\"query\": \"What topics recur in the EnronOnline executive summaries that Leonardo Pacheco sent to Kenneth Lay?\"}) \u2192 3 emails; browse_topics({}) \u2192 structured result; query_timeline({\"person_name\": \"\", \"date_from\": \"\", \"date_to\": \"\"}) \u2192 structured result; find_connections({\"entity_name\": \"Leonardo Pacheco\", \"relationship_type\": \"DISCUSSES\"}) \u2192 structured result; browse_topics({\"entity_name\": \"Leonardo Pacheco\"}) \u2192 10 topics; get_entity_context({\"entity_name\": \"Leonardo Pacheco\"}) \u2192 structured result; get_source_evidence({\"entity_name\": \"Leonardo Pacheco\"}) \u2192 2 emails; find_entity({\"name\": \"Leonardo Pacheco\"}) \u2192 1 records; get_email_full_body({\"message_id\": \"<22140261.1075855882502.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<25136751.1075855865692.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<4221705.1075840085621.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<20747567.1075840071853.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 6397.1,
+      "evidence_quality/value": 0.82,
+      "evidence_quality/rationale": "The response provides solid evidence for its main claims, including specific email dates, sender identities, and subject lines for three distinct emails cited in both the body and the Evidence section. The provenance section includes actual tool calls with result counts, which adds credibility. The three identified themes (transaction/volume dashboards, value rollups, business mix metrics) are each tied to a specific email citation. Minor deductions apply because: (1) the claims about 'business-unit share' and 'user or counterparty metrics' in point 3 are only loosely supported by the June 2000 email snippet shown, which doesn't explicitly confirm those sub-elements; (2) the email content snippets are truncated and don't fully verify all claimed details; (3) the provenance tool query string is cut off mid-entry, suggesting incomplete transparency. Overall, the key claims are well-grounded with specific dates, sender/recipient pairs, and subject lines, meeting the threshold for strong evidence with minor gaps.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "Found 3/3: ['Leonardo Pacheco', 'Kenneth Lay', 'EnronOnline']. Missing: []",
+      "organizational_accuracy/value": 0.7,
+      "organizational_accuracy/rationale": "The agent accurately identifies the core content themes of Pacheco's EnronOnline summaries \u2014 transaction counts, 30-day trailing averages, notional value, business-unit percentage mix, and user/counterparty activity \u2014 which aligns well with the graph ground truth. The email citations are plausible and grounded in the corpus data. However, the response notably omits the key organizational relationship: that these summaries were sent TO Kenneth Lay. The question context and ground truth emphasize the REPORTS_TO/communication relationship between Pacheco and Lay, but the agent focuses only on content themes without explicitly stating the recipient or the organizational reporting relationship. No relationship types (REPORTS_TO, MANAGES, etc.) are shown. No contradictions are present, and the content accuracy is solid, but the missing organizational relationship detail (Pacheco \u2192 Lay) is a significant omission given the evaluation criteria focus on organizational structure and relationships.",
+      "grounding_integrity/value": 0.0,
+      "grounding_integrity/rationale": "Judge failed: Expecting ',' delimiter: line 3 column 618 (char 636)",
+      "factual_accuracy/value": 0.9,
+      "factual_accuracy/rationale": "The agent correctly identified all the key recurring themes found in the graph ground truth: transaction counts, 30-day trailing averages, notional value, business-unit percentage mix, and user/counterparty activity metrics. The agent cited specific emails from Pacheco with plausible dates and subjects that align with the graph data, and characterized the summaries accurately as daily trading-performance dashboards sent to Lay. The response does not fabricate entities or contradict graph data. A minor deduction is warranted because the agent did not explicitly mention that these summaries were directed to Kenneth Lay (a detail present in both ground truths), though this omission is minor and the overall coverage is strong.",
+      "hallucination_detection/value": 0.85,
+      "hallucination_detection/rationale": "The response's core claims about recurring themes (transaction counts, 30-day averages, notional value, business-unit mix, user/counterparty metrics) align well with the graph ground truth and historical ground truth. The email citations appear plausible and consistent with the tool results described in the provenance section (the December 2000 summaries and June 2000 management report are cited with matching sender, dates, and subjects that correspond to retrieved results). The partial email body snippets shown in the Evidence section are consistent with what such dashboards would contain. Minor concerns: the response does not explicitly confirm these were sent TO Kenneth Lay (the historical ground truth specifies this), and the claim about 'business-unit share and user or counterparty metrics' attributed specifically to the June 2000 email is not fully verifiable from the snippet shown. However, these are minor gaps rather than outright fabrications. No invented entities, no external knowledge presented as graph-derived, and no statistics are cited beyond what the tool results plausibly support. Overall, the response is well-grounded with only minor unsupported specificity.",
+      "answer_completeness/value": 0.85,
+      "answer_completeness/rationale": "The agent's response covers the main recurring topics well: transaction counts/volume, notional value (gross and period-based), business-unit mix, and user/counterparty metrics. These align closely with the ground truth topics (transaction counts, 30-day trailing averages, notional value, business-unit percentage mix, and user/counterparty activity). The response is grounded in actual email citations from the graph, uses multiple search queries, and provides a coherent synthesis. Minor gaps include not explicitly calling out '30-day trailing averages' as a distinct recurring metric (though it's implied in the 'averages' mention), and the answer could be slightly more comprehensive in enumerating all five distinct topic categories from the ground truth. Overall, the main question is answered well with good evidence, warranting a score near the top of the 'main question answered well, minor aspects missing' range."
+    },
+    {
+      "question_id": "enron-curated-bankruptcy-week-communication-themes",
+      "question_text": "What themes dominated Enron employee communications in the days surrounding the bankruptcy filing in late November and early December 2001?",
+      "corpus": "enron",
+      "eval_split": "test",
+      "attorney_category": "topic_investigation",
+      "architecture_primary": "topic_keyword_retrieval",
+      "architecture_secondary": [
+        "evidence_drilldown",
+        "timeline_retrieval"
+      ],
+      "domain_primary": "communications_dynamics_temporal",
+      "domain_secondary": [],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [
+        "Enron Savings Plan",
+        "layoffs",
+        "severance",
+        "bankruptcy",
+        "Home Contact Information",
+        "Enron Credit Inc."
+      ],
+      "category": "topic_investigation",
+      "inputs/question": "What themes dominated Enron employee communications in the days surrounding the bankruptcy filing in late November and early December 2001?",
+      "expectations/question_id": "enron-curated-bankruptcy-week-communication-themes",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "test",
+      "expectations/attorney_category": "topic_investigation",
+      "expectations/architecture_primary": "topic_keyword_retrieval",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown",
+        "timeline_retrieval"
+      ],
+      "expectations/domain_primary": "communications_dynamics_temporal",
+      "expectations/domain_secondary": [],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [
+        "Enron Savings Plan",
+        "layoffs",
+        "severance",
+        "bankruptcy",
+        "Home Contact Information",
+        "Enron Credit Inc."
+      ],
+      "inputs": {
+        "question": "What themes dominated Enron employee communications in the days surrounding the bankruptcy filing in late November and early December 2001?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-bankruptcy-week-communication-themes",
+        "corpus": "enron",
+        "eval_split": "test",
+        "attorney_category": "topic_investigation",
+        "architecture_primary": "topic_keyword_retrieval",
+        "architecture_secondary": [
+          "evidence_drilldown",
+          "timeline_retrieval"
+        ],
+        "domain_primary": "communications_dynamics_temporal",
+        "domain_secondary": [],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [
+          "Enron Savings Plan",
+          "layoffs",
+          "severance",
+          "bankruptcy",
+          "Home Contact Information",
+          "Enron Credit Inc."
+        ],
+        "graph_ground_truth": "The local email slice around the bankruptcy filing clusters around employee-benefit fallout, layoff and severance logistics, emergency contact coordination, and bankruptcy structuring concerns.",
+        "historical_ground_truth": "In the days around Enron's bankruptcy, employee communications were dominated by workforce fallout and operational survival rather than ordinary business-as-usual topics.",
+        "evidence_required": true,
+        "category": "topic_investigation"
+      },
+      "response_text": "### Answer\nThe bankruptcy-week employee packet is dominated by workforce fallout and crisis logistics rather than ordinary business updates.\n\n1. **Benefits and savings-plan disruption**: Messages explain how the savings plan and related employee benefits were being handled under the crisis. [2001-11-30, From: no.address@enron.com, Subject: PLEASE READ - IMPORTANT INFORMATION FOR PARTICIPANTS IN THE ENRON\n SAVINGS PLAN]\n2. **Layoff and severance planning**: The packet includes discussion of layoffs, severance packages, and retention concerns. [2001-11-29, From: olalekan.oladeji@enron.com, Subject: Just a suggestion]\n3. **Emergency contact and employee logistics**: HR-focused messages push home-contact updates so the company could reach employees with critical information. [2001-12-03, From: robert.jones@mailman.enron.com, Subject: Home Contact Information]\n4. **Bankruptcy structuring and legal issues**: Counsel messages show parallel concern with structuring questions and bankruptcy lawyers. [2001-12-07, From: sara.shackleton@enron.com, Subject: Enron Credit Inc.]\n\n#### Evidence\n- [2001-11-30, From: no.address@enron.com, Subject: PLEASE READ - IMPORTANT INFORMATION FOR PARTICIPANTS IN THE ENRON\n SAVINGS PLAN] \u2014 PLEASE READ - IMPORTANT INFORMATION FOR PARTICIPANTS IN THE ENRON SAVINGS PLAN Due to current business circumstances, on November 28, 2001, Enron's Board of Directors adopted an...\n- [2001-11-29, From: olalekan.oladeji@enron.com, Subject: Just a suggestion] \u2014 Just a suggestion Dear Ken, I am a second year associate with RAC underwriting group. In the past few days, I have been watching fellow staff packing their personal items in an ...\n- [2001-12-03, From: robert.jones@mailman.enron.com, Subject: Home Contact Information] \u2014 Home Contact Information Please review the home addresss and phone number shown on this eMail. DO NOT RESPOND if the information is correct. However, if incorrect then reply to ...\n- [2001-12-07, From: sara.shackleton@enron.com, Subject: Enron Credit Inc.] \u2014 Enron Credit Inc. Edmund: I have not received anything from anyone in London or anywhere else regarding positions, etc. I did speak with a Weil bankruptcy lawyer and there were ...\n\n#### Conclusion\nTaken together, those messages show communications shifting toward employee-benefit fallout, layoffs and severance, contact coordination, and bankruptcy structuring concerns.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"Enron Mentions, SEC inquiry, liquidity pressure\", \"date_from\": \"2001-10-22\", \"date_to\": \"2001-10-24\", \"limit\": 3}) \u2192 1 emails; search_emails({\"keywords\": \"Enron Mentions, credit lines, financing pressure\", \"date_from\": \"2001-10-28\", \"date_to\": \"2001-10-30\", \"limit\": 3}) \u2192 1 emails; search_emails({\"keywords\": \"savings plan, current business circumstances\", \"date_from\": \"2001-11-29\", \"date_to\": \"2001-12-01\", \"limit\": 3}) \u2192 1 emails; search_emails({\"keywords\": \"Home Contact Information, critical company information\", \"sender\": \"robert.jones@mailman.enron.com\", \"date_from\": \"2001-12-03\", \"date_to\": \"2001-12-04\", \"limit\": 3}) \u2192 1 emails; search_emails({\"keywords\": \"Just a suggestion, massive layoff, bankruptcy\", \"sender\": \"olalekan.oladeji@enron.com\", \"date_from\": \"2001-11-29\", \"date_to\": \"2001-11-30\", \"limit\": 3}) \u2192 1 emails; search_emails({\"keywords\": \"Severance re Canada, severance packages, retention\", \"sender\": \"david.oxley@enron.com\", \"date_from\": \"2001-12-07\", \"date_to\": \"2001-12-08\", \"limit\": 3}) \u2192 1 emails; search_emails({\"keywords\": \"Enron Credit Inc., Weil bankruptcy lawyer, structuring issues\", \"sender\": \"sara.shackleton@enron.com\", \"date_from\": \"2001-12-07\", \"date_to\": \"2001-12-08\", \"limit\": 3}) \u2192 1 emails; search_emails({\"keywords\": \"Enron, bankruptcy, filing, November, December, 2001, Chapter 11, Dynegy, creditors\", \"date_from\": \"2001-11-21\", \"date_to\": \"2001-12-10\"}) \u2192 15 emails; semantic_search_emails({\"query\": \"What themes dominated Enron employee communications in the days surrounding the bankruptcy filing in late November and early December 2001?\"}) \u2192 3 emails; browse_topics({}) \u2192 structured result; query_timeline({\"person_name\": \"\", \"date_from\": \"2001-11-21\", \"date_to\": \"2001-12-10\"}) \u2192 structured result; find_connections({\"entity_name\": \"Enron\", \"relationship_type\": \"DISCUSSES\"}) \u2192 structured result; browse_topics({\"entity_name\": \"Enron\"}) \u2192 20 topics; get_entity_context({\"entity_name\": \"Enron\"}) \u2192 structured result; get_source_evidence({\"entity_name\": \"Enron\"}) \u2192 20 emails; find_entity({\"name\": \"Enron\"}) \u2192 10 records; get_email_full_body({\"message_id\": \"<14005297.1075855398619.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<12345698.1075860836727.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<18977901.1075840836746.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<18608210.1075855396807.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 13376.5,
+      "evidence_quality/value": 0.7,
+      "evidence_quality/rationale": "The response provides reasonable evidence for its claims, with four specific email citations including dates, senders, and subject lines, plus excerpt snippets that confirm the content described. The four thematic claims (benefits disruption, layoffs, emergency contacts, bankruptcy structuring) are each matched to a specific email with metadata. The provenance section is present and references tool calls. However, some weaknesses reduce the score: the provenance section's tool citations appear mismatched to the actual question (referencing SEC inquiry and credit lines searches from October 2001 rather than bankruptcy-week searches), suggesting the sourcing transparency is partially fabricated or copy-pasted incorrectly. Additionally, the claim about 'employee packet' as a coherent collection is an interpretive framing not directly supported by evidence of a formal packet. The evidence snippets are brief but do confirm the email content aligns with the described themes. Overall, key claims have specific email-level support, but the provenance inconsistency and minor unsupported framing prevent a higher score.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "Found 6/6: ['Enron Savings Plan', 'layoffs', 'severance', 'bankruptcy', 'Home Contact Information', 'Enron Credit Inc.']. Missing: []",
+      "organizational_accuracy/value": 0.7,
+      "organizational_accuracy/rationale": "The agent's response accurately captures the core thematic clusters around the bankruptcy filing period \u2014 employee-benefit disruption, layoff/severance planning, emergency contact coordination, and bankruptcy structuring \u2014 which aligns well with the graph ground truth. The four cited emails appear plausible and consistent with known Enron corpus content (savings plan freeze notice, employee suggestion letter to Ken Lay, home contact update, Sara Shackleton's bankruptcy lawyer communication). No contradictions are present within the response. However, the question asks specifically about organizational structure and relationships (reporting lines, titles, REPORTS_TO/MANAGES relationship types), and the response does not address these at all \u2014 it focuses entirely on email topic clusters. Since the rubric explicitly evaluates organizational claims, the absence of any org hierarchy content, relationship types, or reporting line information is a meaningful gap. The response is internally consistent and well-grounded in email evidence, but it does not fulfill the organizational structure dimension of the evaluation criteria, warranting a moderate rather than high score.",
+      "grounding_integrity/value": 0.7,
+      "grounding_integrity/rationale": "The response includes a Provenance section with Sources, Grounding level, and Confidence indicators, and most claims are tied to specific email citations with dates, senders, and subjects. The grounding level is explicitly stated as 'All claims grounded in graph data.' However, there are notable issues: the tool call citations in the Sources section appear mismatched to the actual query (they reference SEC inquiry, liquidity pressure, credit lines keywords from what seems like a different question), suggesting the provenance was partially copy-pasted or not fully aligned with the actual retrieval performed for this answer. The email snippets provided do support the claims made, which is positive, but the disconnect between the stated tool calls and the actual emails cited reduces confidence in full attribution transparency. The response does not fabricate entities and the cited emails appear plausible and consistent with the corpus, but the provenance section's tool call citations don't cleanly map to the evidence presented.",
+      "factual_accuracy/value": 0.9,
+      "factual_accuracy/rationale": "The agent correctly identified all four major themes present in the graph ground truth: employee-benefit/savings-plan disruption, layoff and severance planning, emergency contact coordination, and bankruptcy structuring concerns. Each theme is supported by specific, plausible email citations with dates, senders, and subjects that align with the graph data. The email snippets provided are consistent with the described content and do not appear fabricated. The agent correctly characterized the communications as workforce fallout and crisis logistics rather than business-as-usual. No historical facts are presented as graph-derived evidence in a way that constitutes a grounding violation. Minor deduction for the slightly inconsistent provenance section (search keywords mention 'SEC inquiry, liquidity pressure' which seem unrelated to the bankruptcy-week query), but this does not affect the substantive accuracy of the answer.",
+      "hallucination_detection/value": 0.85,
+      "hallucination_detection/rationale": "The response is largely well-grounded and aligns with the graph ground truth about bankruptcy-week communications focusing on employee-benefit fallout, layoffs, contact coordination, and bankruptcy structuring. The four cited emails appear plausible and consistent with known corpus content \u2014 the savings plan notice, the employee suggestion letter to Ken Lay, the home contact information request, and Sara Shackleton's bankruptcy lawyer communication are all credible email citations from the Enron corpus. The email content snippets provided are internally consistent and match known Enron bankruptcy-period communications. Minor concerns: (1) The 'Sources' section at the bottom references search queries about 'SEC inquiry' and 'liquidity pressure' from October 2001, which are unrelated to the bankruptcy-week topic being answered \u2014 this is a minor provenance inconsistency but not a fabrication. (2) The sender 'robert.jones@mailman.enron.com' is a somewhat unusual address format but not clearly fabricated. No outright hallucinations of relationships, statistics, or external knowledge presented as graph-derived are detected. All claims are appropriately qualified and sourced to specific emails.",
+      "answer_completeness/value": 0.7,
+      "answer_completeness/rationale": "The response correctly identifies the four main themes that dominated communications around the bankruptcy filing: benefits/savings-plan disruption, layoff/severance planning, emergency contact logistics, and bankruptcy structuring concerns. These align well with the reference answer's clusters. The response provides specific email citations with dates, senders, and subjects to ground each theme, and includes actual email content snippets as evidence. However, the answer is somewhat thin in depth \u2014 each theme gets only one supporting email rather than multiple corroborating examples, and the analysis doesn't explore the emotional tone or volume patterns of communications. The provenance section also reveals some search queries that appear misaligned with the question (searching for 'SEC inquiry' and 'liquidity pressure' in October rather than focusing on the November-December bankruptcy period), suggesting the retrieval strategy wasn't fully optimized. Still, the core question is answered with reasonable completeness and all four major themes are covered with grounded evidence."
+    },
+    {
+      "question_id": "enron-curated-pacheco-summary-metrics-holdout",
+      "question_text": "What trading-performance metrics dominate Leonardo Pacheco's EnronOnline executive summaries to Kenneth Lay in December 2000?",
+      "corpus": "enron",
+      "eval_split": "holdout",
+      "attorney_category": "topic_investigation",
+      "architecture_primary": "topic_keyword_retrieval",
+      "architecture_secondary": [
+        "analytics_sql_genie",
+        "evidence_drilldown"
+      ],
+      "domain_primary": "trading_markets_platforms",
+      "domain_secondary": [],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [
+        "Leonardo Pacheco",
+        "Kenneth Lay",
+        "EnronOnline",
+        "transaction summary",
+        "gross notional value"
+      ],
+      "category": "topic_investigation",
+      "inputs/question": "What trading-performance metrics dominate Leonardo Pacheco's EnronOnline executive summaries to Kenneth Lay in December 2000?",
+      "expectations/question_id": "enron-curated-pacheco-summary-metrics-holdout",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "holdout",
+      "expectations/attorney_category": "topic_investigation",
+      "expectations/architecture_primary": "topic_keyword_retrieval",
+      "expectations/architecture_secondary": [
+        "analytics_sql_genie",
+        "evidence_drilldown"
+      ],
+      "expectations/domain_primary": "trading_markets_platforms",
+      "expectations/domain_secondary": [],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [
+        "Leonardo Pacheco",
+        "Kenneth Lay",
+        "EnronOnline",
+        "transaction summary",
+        "gross notional value"
+      ],
+      "inputs": {
+        "question": "What trading-performance metrics dominate Leonardo Pacheco's EnronOnline executive summaries to Kenneth Lay in December 2000?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-pacheco-summary-metrics-holdout",
+        "corpus": "enron",
+        "eval_split": "holdout",
+        "attorney_category": "topic_investigation",
+        "architecture_primary": "topic_keyword_retrieval",
+        "architecture_secondary": [
+          "analytics_sql_genie",
+          "evidence_drilldown"
+        ],
+        "domain_primary": "trading_markets_platforms",
+        "domain_secondary": [],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [
+          "Leonardo Pacheco",
+          "Kenneth Lay",
+          "EnronOnline",
+          "transaction summary",
+          "gross notional value"
+        ],
+        "graph_ground_truth": "Pacheco's December 2000 EnronOnline summaries are dominated by transaction volume, notional value, business-unit share, and counterparty/user/product metrics.",
+        "historical_ground_truth": "These messages function as daily market-performance dashboards for EnronOnline trading activity.",
+        "evidence_required": true,
+        "category": "topic_investigation"
+      },
+      "response_text": "### Answer\nThe recurring themes in these Pacheco EnronOnline packets are daily trading-performance dashboards rather than narrative status updates.\n\n1. **Transaction and volume dashboards**: The summaries repeatedly track daily transaction counts, 30-day averages, and life-to-date totals. [2000-12-11, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for December 8, 2000]\n2. **Value rollups**: They report gross notional value for the day, month-to-date, and life-to-date, which makes the packet a recurring performance scoreboard. [2000-12-04, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for December 1, 2000]\n3. **Business mix and activity metrics**: The packet also breaks activity down by business-unit share and user or counterparty metrics. [2000-12-13, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for December 12, 2000]\n\n#### Evidence\n- [2000-12-11, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for December 8, 2000] \u2014 EnronOnline Management Report for December 8, 2000 Following please find the Weekly Management Report and the Daily Executive Summary. EnronOnline Executive Summary for 12/08/00...\n- [2000-12-04, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for December 1, 2000] \u2014 EnronOnline Management Report for December 1, 2000 Following please find the Weekly Management Report and the Daily Executive Summary. EnronOnline Executive Summary for 12/01/00...\n- [2000-12-13, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for December 12, 2000] \u2014 EnronOnline Executive Summary for December 12, 2000 Following please find the Daily EnronOnline Executive Summary. EnronOnline Executive Summary for 12/12/00 Transaction Summary...\n\n#### Conclusion\nTaken together, the recurring topics are transaction volume, notional-value performance, business-unit mix, and participation metrics, so the summaries function as operating dashboards for EnronOnline.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"trading-performance metrics, executive summaries, EnronOnline, Kenneth Lay, Leonardo Pacheco\", \"date_from\": \"2000-12-01\", \"date_to\": \"2001-01-01\", \"sender\": \"Leonardo Pacheco\", \"recipient\": \"Kenneth Lay\"}) \u2192 6 emails; search_emails({\"keywords\": \"EnronOnline Executive Summary\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-12-12\", \"date_to\": \"2000-12-14\", \"limit\": 6}) \u2192 2 emails; search_emails({\"keywords\": \"EnronOnline Management Report for June 22, 2000\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-06-22\", \"date_to\": \"2000-06-24\", \"limit\": 6}) \u2192 1 emails; search_emails({\"keywords\": \"EnronOnline Management Report for June 28, 2000\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-06-28\", \"date_to\": \"2000-06-30\", \"limit\": 6}) \u2192 2 emails; search_emails({\"keywords\": \"trading-performance metrics, executive summaries, EnronOnline, Kenneth Lay, Leonardo Pacheco\", \"date_from\": \"2000-12-01\", \"date_to\": \"2001-01-01\"}) \u2192 15 emails; get_source_evidence({\"entity_name\": \"Leonardo Pacheco\"}) \u2192 2 emails; semantic_search_emails({\"query\": \"What trading-performance metrics dominate Leonardo Pacheco's EnronOnline executive summaries to Kenneth Lay in December 2000?\"}) \u2192 10 emails; get_email_full_body({\"message_id\": \"<22140261.1075855882502.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<25136751.1075855865692.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<14051109.1075840228887.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<12449042.1075855864352.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_communication_timeline({\"entity_name\": \"Leonardo Pacheco\", \"entity_b\": \"Kenneth Lay\", \"date_from\": \"2000-12-01\", \"date_to\": \"2001-01-01\"}) \u2192 2 time periods; query_timeline({\"person_name\": \"\", \"date_from\": \"2000-12-01\", \"date_to\": \"2001-01-01\"}) \u2192 no matching records; query_timeline({\"person_name\": \"Leonardo Pacheco\", \"date_from\": \"2000-12-01\", \"date_to\": \"2001-01-01\"}) \u2192 no matching records; get_communication_stats({\"entity_name\": \"Leonardo Pacheco\", \"group_by\": \"month\"}) \u2192 text result",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 2023.5,
+      "evidence_quality/value": 0.85,
+      "evidence_quality/rationale": "The response provides strong evidence for its main claims, with three specific email citations including dates, sender addresses, and subject lines. Each thematic claim (transaction dashboards, value rollups, business mix metrics) is tied to a specific email. The provenance section includes actual tool calls with parameters and result counts, which adds credibility. The evidence section includes partial email body text supporting the characterization of these as operational dashboards. Minor deductions: some claims about specific metrics (e.g., '30-day averages,' 'life-to-date totals,' 'counterparty metrics') are asserted without direct quotes from email bodies confirming those exact terms, and the provenance section is slightly truncated at the end. Overall, the response is well-grounded with specific, verifiable citations and a clear methodology trail.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "Found 5/5: ['Leonardo Pacheco', 'Kenneth Lay', 'EnronOnline', 'transaction summary', 'gross notional value']. Missing: []",
+      "organizational_accuracy/value": 0.7,
+      "organizational_accuracy/rationale": "The agent's response accurately identifies the core themes from Pacheco's December 2000 EnronOnline summaries: transaction volume, notional value, business-unit share, and counterparty/user/product metrics. These align well with the graph ground truth. The response correctly characterizes the messages as daily market-performance dashboards, matching the historical ground truth. Email citations appear plausible and grounded in the corpus data with specific dates and subjects. However, the rubric asks specifically about organizational structure, reporting lines, titles, and relationship types (REPORTS_TO, MANAGES, etc.), which the agent does not address at all \u2014 there is no org hierarchy information, no relationship types shown, and no reporting line claims made. The question appears to be about email content themes rather than org structure, so the agent's focus on content is appropriate, but the scoring rubric explicitly evaluates organizational claims. Since the agent makes no org structure claims (neither correct nor incorrect), it avoids contradictions but also provides no org-relevant content. The content accuracy regarding email themes is solid, warranting a moderate-to-good score, but the absence of any organizational structure analysis as required by the rubric limits the score.",
+      "grounding_integrity/value": 0.9,
+      "grounding_integrity/rationale": "The response has a well-structured Provenance section with explicit tool call citations (search_emails with parameters), grounding level stated as 'All claims grounded in graph data', and coverage notes. Each of the three main claims is directly attributed to specific emails with dates, sender, and subject lines. The Evidence section reinforces grounding with quoted email content snippets. Tool calls are listed with result counts. Minor deductions: the provenance source list appears truncated (cut off mid-entry), and the 'Path' description ('question -> active retrieval tools -> answer') is somewhat vague rather than listing specific tool names. Overall, this is a well-grounded response that systematically attributes claims to graph data with specific email citations.",
+      "factual_accuracy/value": 0.9,
+      "factual_accuracy/rationale": "The agent correctly identified the core themes present in the graph: transaction volume metrics, notional value rollups, business-unit share/mix, and counterparty/user/participation metrics. These align well with the Graph Ground Truth. The agent cited specific emails with plausible dates and subjects from Pacheco's December 2000 EnronOnline summaries, and the characterization as 'daily trading-performance dashboards' matches the Historical Ground Truth without presenting external facts as graph-derived evidence. Minor deduction for not explicitly mentioning 'product metrics' as a distinct category (listed in Graph Ground Truth), but otherwise the coverage is strong, no fabrications are apparent, and no contradictions exist.",
+      "hallucination_detection/value": 0.85,
+      "hallucination_detection/rationale": "The response is largely well-grounded and consistent with the graph ground truth. The three cited emails (December 8, December 1, and December 12, 2000 EnronOnline reports from leonardo.pacheco@enron.com) are plausible and consistent with the known corpus of Pacheco's December 2000 EnronOnline summaries. The thematic claims about transaction volume, notional value, business-unit share, and counterparty/user/product metrics align precisely with the graph ground truth. The email subjects and dates are internally consistent with the described content. Minor concerns: the specific quoted snippet text ('Following please find the Weekly Management Report and the Daily Executive Summary') cannot be verified as exact quotes from the graph data versus reconstructed paraphrases, and the provenance section references a search for 'EnronOnline Management Report for June 22, 2000' which is outside the stated December 2000 scope and slightly suspicious. However, no outright fabrication of entities, relationships, or statistics is detected, and the core analytical claims are well-supported by the ground truth context.",
+      "answer_completeness/value": 0.85,
+      "answer_completeness/rationale": "The agent correctly identifies the four main trading-performance metric categories that dominate Pacheco's December 2000 EnronOnline summaries to Kenneth Lay: transaction volume, notional value, business-unit share/mix, and counterparty/user/product metrics. These align well with the reference answer. The response is grounded in actual email citations from the corpus, uses multiple search queries, and provides specific email subjects and dates as evidence. Minor deductions: the agent doesn't explicitly mention 'product metrics' as a distinct category (it's somewhat subsumed under 'participation metrics'), and the framing of some metrics (e.g., '30-day averages and life-to-date totals') goes slightly beyond what the reference specifies without clear grounding. Overall, the main question is answered comprehensively with good use of available data sources."
+    },
+    {
+      "question_id": "enron-curated-enron-mentions-crisis-themes",
+      "question_text": "What themes dominated the internal 'Enron Mentions' briefing emails during late October 2001?",
+      "corpus": "enron",
+      "eval_split": "holdout",
+      "attorney_category": "topic_investigation",
+      "architecture_primary": "topic_keyword_retrieval",
+      "architecture_secondary": [
+        "evidence_drilldown",
+        "timeline_retrieval"
+      ],
+      "domain_primary": "communications_dynamics_temporal",
+      "domain_secondary": [],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [
+        "Enron Mentions",
+        "SEC",
+        "LJM",
+        "credit lines",
+        "stock decline",
+        "lawsuits"
+      ],
+      "category": "topic_investigation",
+      "inputs/question": "What themes dominated the internal 'Enron Mentions' briefing emails during late October 2001?",
+      "expectations/question_id": "enron-curated-enron-mentions-crisis-themes",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "holdout",
+      "expectations/attorney_category": "topic_investigation",
+      "expectations/architecture_primary": "topic_keyword_retrieval",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown",
+        "timeline_retrieval"
+      ],
+      "expectations/domain_primary": "communications_dynamics_temporal",
+      "expectations/domain_secondary": [],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [
+        "Enron Mentions",
+        "SEC",
+        "LJM",
+        "credit lines",
+        "stock decline",
+        "lawsuits"
+      ],
+      "inputs": {
+        "question": "What themes dominated the internal 'Enron Mentions' briefing emails during late October 2001?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-enron-mentions-crisis-themes",
+        "corpus": "enron",
+        "eval_split": "holdout",
+        "attorney_category": "topic_investigation",
+        "architecture_primary": "topic_keyword_retrieval",
+        "architecture_secondary": [
+          "evidence_drilldown",
+          "timeline_retrieval"
+        ],
+        "domain_primary": "communications_dynamics_temporal",
+        "domain_secondary": [],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [
+          "Enron Mentions",
+          "SEC",
+          "LJM",
+          "credit lines",
+          "stock decline",
+          "lawsuits"
+        ],
+        "graph_ground_truth": "The late-October 'Enron Mentions' digests are dominated by partnership scrutiny, SEC investigation, liquidity pressure, share-price decline, and litigation headlines.",
+        "historical_ground_truth": "Internal media-monitoring communications in late October 2001 centered on the rapidly escalating financial and regulatory crisis rather than normal business topics.",
+        "evidence_required": true,
+        "category": "topic_investigation"
+      },
+      "response_text": "### Answer\n#### Analysis of 'Enron Mentions' Briefing Emails in Late October 2001\n\nThe 'Enron Mentions' briefing emails during late October 2001 primarily focused on Enron's financial struggles, credit rating downgrades, and their impact on the company's stock price and overall market perception.\n\n#### Key Themes:\n1. **Credit Rating Downgrade**: The emails frequently mentioned Moody's downgrade of Enron's credit rating to Baa2, which is just two notches above junk status. This downgrade was a significant concern as it reflected the market's deteriorating confidence in Enron's financial health.\n\n2. **Financial Concerns and Stock Performance**: The emails highlighted Enron's discussions with banks to expand its credit lines to alleviate financial concerns. Despite these efforts, Enron's stock continued to plummet, reaching seven-year lows. The stock price was down $1.40 (9.03%) to $14.10 on the New York Stock Exchange.\n\n3. **Market and Analyst Reactions**: The briefing emails covered various news articles and analyst opinions. For example, there were mentions of Enron's lenders demanding harsher terms and concerns about the company's asset-light focus strategy.\n\n4. **Broadband and Energy Market**: There were references to Enron's involvement in the broadband sector and its implications, indicating that the company's activities in this area were still being monitored and discussed.\n\n#### Email Evidence:\nThe search results provided several emails that support these themes. For instance:\n- On 2001-10-29, an email titled \"Enron Mentions\" from m..schmidt@enron.com summarized various news articles about Enron's financial situation, including the Moody's downgrade and the company's talks with banks for new credit lines [2001-10-29, From: m..schmidt@enron.com, Subject: Enron Mentions].\n > \"...Enron Corp.'s share price hovered above seven-year lows touched in earlier trade Monday after Moody's Investor Service cut the credit status of its senior unsecured debt of North America's largest energy trader to two ratings above junk status. Enron, the largest electricity and natural gas trader in North America, also on Monday said it was in talks with banks to expand its credit lines to ease financial concerns that have sent its stock slumping more than 50 percent in the past two weeks...\" \u2014 [2001-10-29, From: m..schmidt@enron.com]\n\n#### Volume of Evidence:\nThe search results returned a total of 5 emails related to 'Enron Mentions' during the specified period, with at least one email directly addressing the themes mentioned.\n\n#### Related Entities and People:\nThe emails mention various Enron executives and employees, though specific names are not provided in the search results. The key entities involved include Enron Corp., Moody's Investor Service, and various banking institutions Enron was in talks with.\n\n#### Cross-Referencing with Timeline Events:\nThe period of late October 2001 is significant in Enron's timeline due to the unfolding financial crisis. The credit rating downgrade and the company's efforts to secure new credit lines are consistent with the events leading up to Enron's bankruptcy filing in December 2001.\n\n### Caveats\n- One retrieval step failed, so coverage may be partial.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians. One retrieval step failed, so coverage may be partial.\n- **Sources**: search_emails({\"keywords\": \"Enron Mentions, briefing emails, internal, late October 2001\", \"date_from\": \"2001-10-21\", \"date_to\": \"2001-10-31\"}) \u2192 One retrieval step failed, so coverage may be partial.; semantic_search_emails({\"query\": \"What themes dominated the internal 'Enron Mentions' briefing emails during late October 2001?\"}) \u2192 3 emails; browse_topics({}) \u2192 structured result; query_timeline({\"person_name\": \"\", \"date_from\": \"2001-10-21\", \"date_to\": \"2001-10-31\"}) \u2192 structured result; find_connections({\"entity_name\": \"Enron\", \"relationship_type\": \"DISCUSSES\"}) \u2192 structured result; browse_topics({\"entity_name\": \"Enron\"}) \u2192 20 topics; get_entity_context({\"entity_name\": \"Enron\"}) \u2192 structured result; get_source_evidence({\"entity_name\": \"Enron\"}) \u2192 20 emails; find_entity({\"name\": \"Enron\"}) \u2192 10 records; get_email_full_body({\"message_id\": \"<12750121.1075840510246.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<1893801.1075840492626.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<15094689.1075840512154.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<9149938.1075840506654.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 22047.8,
+      "evidence_quality/value": 0.6,
+      "evidence_quality/rationale": "The response provides moderate evidence for its claims. It includes one specific email citation with a date (2001-10-29), sender (m..schmidt@enron.com), subject line ('Enron Mentions'), and a direct quote from the email content, which is meaningful evidence. The key themes (credit downgrade to Baa2, stock price at $14.10 down 9.03%, talks with banks) are supported by the quoted email text. However, the response falls short of a higher score for several reasons: only one email is cited despite claiming 5 were found, no other sender/recipient pairs or subject lines are provided for the remaining emails, the 'Related Entities and People' section explicitly admits specific names are not provided, the response appears truncated at the end, and there is no formal provenance section citing specific tools used. The evidence that is present is reasonably specific and credible, but the lack of breadth across the claimed 5 emails and missing provenance section limit the score.",
+      "participant_verification/value": 0.5,
+      "participant_verification/rationale": "Found 3/6: ['Enron Mentions', 'SEC', 'credit lines']. Missing: ['LJM', 'stock decline', 'lawsuits']",
+      "organizational_accuracy/value": 0.7,
+      "organizational_accuracy/rationale": "The agent's response accurately captures the core themes present in the late-October 'Enron Mentions' digests as established by the graph ground truth: partnership scrutiny (implied through financial concerns), SEC investigation context, liquidity pressure (credit line talks with banks), share-price decline (stock at seven-year lows, down 9.03%), and litigation/regulatory headlines (Moody's downgrade). The email citation appears plausible and consistent with the corpus (m..schmidt@enron.com, 2001-10-29), and the quoted content aligns with known email content patterns. However, the response does not explicitly mention SEC investigation or partnership scrutiny (LJM/Raptor partnerships), which are key elements of the graph ground truth. The question prompt asks about organizational structure and relationships, but the agent's response focuses on thematic content rather than org hierarchy \u2014 though this appears appropriate given the actual question being answered about media monitoring emails. No fabricated relationships or contradictions are present. Minor deductions for incomplete coverage of all ground truth themes (missing explicit SEC/partnership mentions) and the truncated final sentence suggesting an incomplete response.",
+      "grounding_integrity/value": 0.5,
+      "grounding_integrity/rationale": "The response includes some grounding indicators, such as citing a specific email with sender (m..schmidt@enron.com), date (2001-10-29), and subject ('Enron Mentions'), and even includes a direct quote. However, it lacks a formal Provenance section with Sources, Grounding level, and Confidence fields as required. The response does not explicitly label which claims come from graph data versus general knowledge (e.g., the Moody's downgrade details, stock price figures like '$14.10' and '9.03%' could be from training data rather than confirmed graph retrieval). There are no tool call citations (e.g., 'search_emails returned...'). The response also appears to be cut off mid-sentence, suggesting incompleteness. The volume claim ('5 emails') is stated without a tool citation. While the email citation is a positive grounding indicator, the absence of a systematic provenance section and the mixing of potentially external knowledge without flagging keeps this at a partial grounding level.",
+      "factual_accuracy/value": 0.7,
+      "factual_accuracy/rationale": "The agent correctly identifies the core direction of the late-October 'Enron Mentions' emails, capturing themes of financial crisis, stock price decline, and credit concerns (Moody's downgrade to Baa2). It provides a plausible email citation from 2001-10-29 with content that aligns with the graph ground truth about liquidity pressure and share-price decline. However, the agent misses some key themes explicitly in the graph ground truth \u2014 specifically partnership scrutiny (LJM/Raptor partnerships) and SEC investigation mentions, which were central to the late-October crisis coverage. The agent focuses heavily on credit ratings and stock price but underweights the regulatory/investigation and partnership scrutiny angles. The specific quote and email citation appear plausible and consistent with what would be in the corpus rather than fabricated from external sources. No clear hallucinations are detected \u2014 the content described is consistent with what would appear in such emails rather than presenting external historical facts as graph-derived evidence. Minor omissions of graph-derivable themes (SEC investigation, partnership scrutiny, litigation headlines) prevent a higher score.",
+      "hallucination_detection/value": 0.75,
+      "hallucination_detection/rationale": "The response largely aligns with the graph ground truth (partnership scrutiny, SEC investigation, liquidity pressure, share-price decline) and does not fabricate wildly. The email citation for 2001-10-29 from m..schmidt@enron.com with subject 'Enron Mentions' is plausible and consistent with known corpus structure, and the quoted passage about Moody's downgrade to Baa2, stock at $14.10 down 9.03%, and bank credit line talks contains very specific figures (exact price, exact percentage, exact rating) that read as either genuinely retrieved from the email corpus or presented with false precision as if graph-derived. These specific numerical details could be legitimate email content, but they are presented without clear tool-result attribution, creating mild hallucination risk. The claim of 'total of 5 emails' is an invented statistic with no tool result cited. The response omits SEC investigation and partnership scrutiny themes prominent in the ground truth, instead over-indexing on credit ratings. No outright fabricated entity names or impossible relationships are present. Overall: minor unsupported specificity and one invented count, but no severe fabrication.",
+      "answer_completeness/value": 0.5,
+      "answer_completeness/rationale": "The response partially addresses the question but has significant gaps compared to what the graph contains. The agent correctly identifies some themes like credit rating downgrades, stock price decline, and financial concerns, which align with 'liquidity pressure' and 'share-price decline' from the reference. However, the response notably misses two of the most critical themes explicitly present in the graph: partnership scrutiny (the LJM/Raptor partnerships that were central to the scandal) and SEC investigation (which was a dominant headline in late October 2001). Litigation headlines are also absent. The response focuses heavily on the Moody's downgrade and credit lines, which are real but secondary themes, while omitting the partnership/SEC investigation themes that were arguably the most newsworthy and dominant aspects of the late October 2001 coverage. The response does provide some email evidence and specific details, which adds value, but the thematic coverage is incomplete, missing roughly 3 of the 5 key themes identified in the reference."
+    },
+    {
+      "question_id": "enron-curated-andersen-legal-pressure-themes",
+      "question_text": "What themes dominate the Arthur Andersen-related audit and investigation messages in the local Enron corpus?",
+      "corpus": "enron",
+      "eval_split": "test",
+      "attorney_category": "topic_investigation",
+      "architecture_primary": "topic_keyword_retrieval",
+      "architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "domain_primary": "legal_audit_external_stakeholders",
+      "domain_secondary": [],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "topic_investigation",
+      "inputs/question": "What themes dominate the Arthur Andersen-related audit and investigation messages in the local Enron corpus?",
+      "expectations/question_id": "enron-curated-andersen-legal-pressure-themes",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "test",
+      "expectations/attorney_category": "topic_investigation",
+      "expectations/architecture_primary": "topic_keyword_retrieval",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "expectations/domain_primary": "legal_audit_external_stakeholders",
+      "expectations/domain_secondary": [],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "What themes dominate the Arthur Andersen-related audit and investigation messages in the local Enron corpus?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-andersen-legal-pressure-themes",
+        "corpus": "enron",
+        "eval_split": "test",
+        "attorney_category": "topic_investigation",
+        "architecture_primary": "topic_keyword_retrieval",
+        "architecture_secondary": [
+          "evidence_drilldown"
+        ],
+        "domain_primary": "legal_audit_external_stakeholders",
+        "domain_secondary": [],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "topic_investigation"
+      },
+      "response_text": "### Answer\nThe Arthur Andersen packet is dominated by three themes: audit-control work, secure handling of sensitive material, and later investigation pressure.\n\n1. **Audit-control discipline**: The early packet frames Andersen as Enron's external audit party for review and control work. [2001-02-06, From: sally.beck@enron.com, Subject: Doorstep Review Process]\n2. **Secure handling of sensitive audit information**: The secure-folder message emphasizes controlled transfer of confidential materials to Arthur Andersen. [2001-04-10, From: beth.apollo@enron.com, Subject: Confidential Folder to safely pass information to  Arthur Andersen]\n3. **Cooperation with investigators over document-destruction allegations**: By January 2002 the theme shifts to FBI searches, employee interviews, and legal exposure. [2002-01-24, From: jr..legal@enron.com, Subject: Cooperation with the FBI]\n\n#### Evidence\n- [2001-02-06, From: sally.beck@enron.com, Subject: Doorstep Review Process] \u2014 Doorstep Review Process Doorstep reviews are by design a quick look at commercial activities and the mid and back office support for those activities in our wholesale businesses...\n- [2001-04-10, From: beth.apollo@enron.com, Subject: Confidential Folder to safely pass information to  Arthur Andersen] \u2014 Confidential Folder to safely pass information to Arthur Andersen We have become increasingly concerned about confidential information (dpr/position info, curves, validations/st...\n- [2002-01-24, From: jr..legal@enron.com, Subject: Cooperation with the FBI] \u2014 Cooperation with the FBI Enron has consented to allow the Federal Bureau of Investigation to search the Enron Building and to interview employees regarding allegations of docume...\n\n#### Conclusion\nSo the message cluster moves from ordinary audit-control coordination, to secure information handling, to direct cooperation with investigators over document-destruction allegations.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"Doorstep Review Process, Arthur Andersen, audit party, controls\", \"sender\": \"sally.beck@enron.com\", \"date_from\": \"2001-02-06\", \"date_to\": \"2001-02-07\", \"limit\": 4}) \u2192 2 emails; search_emails({\"keywords\": \"Confidential Folder to safely pass information to Arthur Andersen, confidential folder, safely pass information\", \"sender\": \"beth.apollo@enron.com\", \"date_from\": \"2001-04-10\", \"date_to\": \"2001-04-11\", \"limit\": 4}) \u2192 1 emails; search_emails({\"keywords\": \"Cooperation with the FBI, allegations of document destruction, Arthur Andersen\", \"sender\": \"jr..legal@enron.com\", \"date_from\": \"2002-01-24\", \"date_to\": \"2002-01-25\", \"limit\": 4}) \u2192 1 emails; search_emails({\"keywords\": \"Arthur Andersen, audit, investigation, local Enron corpus, audit committee, accounting, review, SEC\", \"date_from\": \"\", \"date_to\": \"\"}) \u2192 1 emails; semantic_search_emails({\"query\": \"What themes dominate the Arthur Andersen-related audit and investigation messages in the local Enron corpus?\"}) \u2192 2 emails; browse_topics({}) \u2192 structured result; query_timeline({\"person_name\": \"\", \"date_from\": \"\", \"date_to\": \"\"}) \u2192 structured result; find_connections({\"entity_name\": \"Arthur Andersen\", \"relationship_type\": \"DISCUSSES\"}) \u2192 structured result; browse_topics({\"entity_name\": \"Arthur Andersen\"}) \u2192 6 topics; get_entity_context({\"entity_name\": \"Arthur Andersen\"}) \u2192 structured result; get_source_evidence({\"entity_name\": \"Arthur Andersen\"}) \u2192 19 emails; find_entity({\"name\": \"Arthur Andersen\"}) \u2192 2 records; get_email_full_body({\"message_id\": \"<31460383.1075856036613.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<16881150.1075856076435.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<29155691.1075849829279.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<22132458.1075840490333.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 1872.0,
+      "evidence_quality/value": 0.7,
+      "evidence_quality/rationale": "The response provides specific email citations with dates, senders, and subject lines for all three main claims, which is solid evidence. The provenance section includes actual tool calls with result counts, demonstrating grounded retrieval. However, several weaknesses prevent a higher score: (1) The thematic framing ('audit-control discipline,' 'secure handling,' 'investigation pressure') is asserted as a coherent narrative but only one email supports each theme, making the 'dominant themes' claim somewhat overstated. (2) The email excerpts are truncated and don't fully substantiate the interpretive claims made about them. (3) 'beth.apollo@enron.com' is an unusual sender address that raises questions about authenticity, though it's not definitively fabricated. (4) The provenance section is cut off mid-sentence, suggesting incomplete tool coverage. (5) The connection between the emails and Arthur Andersen specifically is explicit in two cases but the FBI cooperation email's link to Andersen is asserted rather than shown in the excerpt. Overall, key claims have specific email-level evidence with dates and senders, meeting the threshold for a 0.7 score.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.5,
+      "organizational_accuracy/rationale": "The response does not address organizational structure, reporting lines, titles, or relationship types (REPORTS_TO, MANAGES, etc.) at all. The question appears to be about Arthur Andersen's relationship to Enron in the context of email themes, and the agent provides a thematic analysis of email content rather than any organizational hierarchy information. Since the Graph Ground Truth and Historical Ground Truth fields are both empty, there is no specific org structure to validate against. The response makes no fabricated org claims, but it also provides no org structure content whatsoever. The email citations appear plausible and internally consistent, with no contradictions. The score reflects that the core task of representing organizational structure and relationships is largely absent, though the thematic analysis itself is coherent and grounded in cited emails without obvious fabrication.",
+      "grounding_integrity/value": 0.9,
+      "grounding_integrity/rationale": "The response has a well-structured Provenance section that includes specific tool call citations with parameters and result counts, states 'All claims grounded in graph data,' and specifies a grounding level and coverage note. Each claim in the answer body is directly tied to a specific email citation (sender, date, subject line), and the evidence section reproduces partial email content. The tool calls are explicitly listed with their search parameters and return counts. Minor deductions: the provenance section is slightly truncated (the last search_emails call appears cut off), and there is a minor question about whether 'beth.apollo@enron.com' and 'jr..legal@enron.com' are verified corpus entities or potentially hallucinated sender addresses \u2014 these unusual email addresses could warrant a flag rather than full confidence. However, the overall grounding methodology is systematic and transparent, meeting the highest tier criteria.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.5,
+      "hallucination_detection/rationale": "The response cites three specific emails with dates, senders, and subjects as if retrieved from the graph, but there is no Graph Ground Truth or Historical Ground Truth provided to verify these citations. The sender 'beth.apollo@enron.com' is suspicious \u2014 'Apollo' is not a recognized Enron employee name and may be fabricated. The sender 'jr..legal@enron.com' with a double-dot is also unusual and potentially fabricated. The sally.beck@enron.com citation is plausible as Beck was a real Enron employee, but cannot be verified against provided ground truth. Since no ground truth is supplied for verification, the fabricated-looking entity names (beth.apollo) and unusual email addresses raise significant hallucination concerns. The thematic narrative itself is plausible and aligns with known Enron/Andersen history, but presenting these specific email citations as graph-derived facts when at least one sender appears invented constitutes a meaningful hallucination risk. The response does not clearly distinguish between what was actually retrieved versus inferred.",
+      "answer_completeness/value": 0.5,
+      "answer_completeness/rationale": "The response identifies three thematic clusters (audit-control work, secure handling of sensitive material, and investigation cooperation) and grounds each in specific email citations, which is a reasonable partial answer. However, the coverage is quite thin \u2014 only 4 emails total were retrieved across very narrow targeted searches, and the thematic analysis is based on just 3-4 messages rather than a broader corpus sweep. The agent did not attempt broader keyword searches (e.g., 'Arthur Andersen' alone across the full date range, or terms like 'shredding,' 'document retention,' 'audit committee,' 'restatement,' 'SPE,' 'accounting') that would likely surface more emails and richer themes. The three themes identified are plausible but may not reflect the dominant themes across all Arthur Andersen-related emails in the corpus. The agent also did not use entity-relationship tools or communication statistics to identify who was most active in AA-related correspondence, which would strengthen thematic analysis. The answer is coherent and grounded but leaves significant gaps in comprehensiveness given the available tools."
+    },
+    {
+      "question_id": "enron-curated-pacheco-management-report-themes",
+      "question_text": "What themes dominate Leonardo Pacheco's June 2000 EnronOnline management reports?",
+      "corpus": "enron",
+      "eval_split": "test",
+      "attorney_category": "topic_investigation",
+      "architecture_primary": "topic_keyword_retrieval",
+      "architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "domain_primary": "trading_markets_platforms",
+      "domain_secondary": [],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "topic_investigation",
+      "inputs/question": "What themes dominate Leonardo Pacheco's June 2000 EnronOnline management reports?",
+      "expectations/question_id": "enron-curated-pacheco-management-report-themes",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "test",
+      "expectations/attorney_category": "topic_investigation",
+      "expectations/architecture_primary": "topic_keyword_retrieval",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "expectations/domain_primary": "trading_markets_platforms",
+      "expectations/domain_secondary": [],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "What themes dominate Leonardo Pacheco's June 2000 EnronOnline management reports?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-pacheco-management-report-themes",
+        "corpus": "enron",
+        "eval_split": "test",
+        "attorney_category": "topic_investigation",
+        "architecture_primary": "topic_keyword_retrieval",
+        "architecture_secondary": [
+          "evidence_drilldown"
+        ],
+        "domain_primary": "trading_markets_platforms",
+        "domain_secondary": [],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "topic_investigation"
+      },
+      "response_text": "### Answer\nThe June 2000 management reports are recurring operating scorecards for EnronOnline rather than narrative market commentary.\n\n1. **Transaction-scale tracking**: The reports foreground daily, year-to-date, and life-to-date transaction counts so leadership can monitor platform throughput. [2000-06-23, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 22, 2000]\n2. **Notional value and physical-flow economics**: They pair transaction counts with gross notional value and revenue from physical flows, framing EnronOnline as a measurable revenue engine. [2000-06-29, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 28, 2000]\n3. **Counterparty adoption**: The packets repeatedly track how many counterparties were transacting, showing management's focus on customer participation and platform reach. [2000-06-28, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 27, 2000]\n4. **Public-domain and product-breadth metrics**: The attached public-domain summary highlights average daily performance and products offered each day, so the reports double as external-facing performance snapshots. [2000-06-08, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 7, 2000]\n\n#### Evidence\n- [2000-06-23, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 22, 2000] \u2014 EnronOnline Management Report for June 22, 2000 Please see the attached Management Report for June 22, 2000: Total Today Year To Date Life To Date Number of Transactions 2,412 1...\n- [2000-06-29, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 28, 2000] \u2014 EnronOnline Management Report for June 28, 2000 Please see the attached Management Report for June 28, 2000: Total Today Year To Date Life To Date Number of Transactions 2,529 1...\n- [2000-06-28, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 27, 2000] \u2014 EnronOnline Management Report for June 27, 2000 Please see the attached Management Report for June 27, 2000: Total Today Year To Date Life To Date Number of Transactions 2,820 1...\n- [2000-06-08, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 7, 2000] \u2014 EnronOnline Management Report for June 7, 2000 Please see the attached Management Report for June 7, 2000: Total Today Year To Date Life To Date Number of Transactions 2,449 137...\n\n#### Conclusion\nOverall, the dominant themes are operational scale, financial throughput, customer adoption, and outward-facing product breadth, making the June reports KPI dashboards for EnronOnline's growth.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"EnronOnline Executive Summary\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-12-12\", \"date_to\": \"2000-12-14\", \"limit\": 6}) \u2192 2 emails; search_emails({\"keywords\": \"EnronOnline Management Report for June 22, 2000\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-06-22\", \"date_to\": \"2000-06-24\", \"limit\": 6}) \u2192 1 emails; search_emails({\"keywords\": \"EnronOnline Management Report for June 28, 2000\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-06-28\", \"date_to\": \"2000-06-30\", \"limit\": 6}) \u2192 2 emails; search_emails({\"keywords\": \"Leonardo Pacheco, EnronOnline, management reports, June 2000\", \"date_from\": \"2000-06-01\", \"date_to\": \"2000-07-01\"}) \u2192 15 emails; semantic_search_emails({\"query\": \"What themes dominate Leonardo Pacheco's June 2000 EnronOnline management reports?\"}) \u2192 9 emails; browse_topics({}) \u2192 structured result; query_timeline({\"person_name\": \"\", \"date_from\": \"2000-06-01\", \"date_to\": \"2000-07-01\"}) \u2192 no matching records; find_connections({\"entity_name\": \"Leonardo Pacheco\", \"relationship_type\": \"DISCUSSES\"}) \u2192 structured result; browse_topics({\"entity_name\": \"Leonardo Pacheco\"}) \u2192 10 topics; get_entity_context({\"entity_name\": \"Leonardo Pacheco\"}) \u2192 structured result; get_source_evidence({\"entity_name\": \"Leonardo Pacheco\"}) \u2192 2 emails; find_entity({\"name\": \"Leonardo Pacheco\"}) \u2192 1 records; get_email_full_body({\"message_id\": \"<22140261.1075855882502.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<25136751.1075855865692.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<4221705.1075840085621.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<20747567.1075840071853.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 1710.6,
+      "evidence_quality/value": 0.85,
+      "evidence_quality/rationale": "The response provides strong evidence for its claims with four specific email citations, each including exact dates, sender (leonardo.pacheco@enron.com), and subject lines. The Evidence section includes partial email body content showing the actual data structure (transaction counts with Today/YTD/LTD columns), which directly supports the claims about transaction-scale tracking and operational metrics. Each of the four thematic claims (transaction tracking, notional value, counterparty adoption, public-domain metrics) is tied to a specific email citation. The provenance section acknowledges the tool used (search_emails) and grounding methodology. Minor deductions: the email body excerpts are truncated and don't fully substantiate all sub-claims (e.g., 'revenue from physical flows' and 'products offered each day' aren't directly visible in the quoted snippets), and the provenance section is cut off mid-sentence. The response does not fabricate entities and the citations appear consistent and plausible. Overall, this is a well-evidenced response with specific, verifiable citations supporting the main analytical claims.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.5,
+      "organizational_accuracy/rationale": "The response does not address organizational structure, reporting lines, titles, or relationship types (REPORTS_TO, MANAGES, etc.) at all. The question appears to have been about EnronOnline management reports content/themes, not org hierarchy, so the agent answered a different question than what the rubric is designed to evaluate. However, the response does correctly cite real email metadata (sender leonardo.pacheco@enron.com, accurate dates and subjects) and makes no fabricated organizational claims or contradictions. Since the rubric specifically asks to evaluate organizational structure accuracy and the response contains essentially no org structure content to evaluate \u2014 neither correct nor incorrect \u2014 a middle score is appropriate. The email citations appear consistent and grounded, but the complete absence of org hierarchy information (reporting lines, titles, relationship types) means the response cannot score highly on this dimension.",
+      "grounding_integrity/value": 0.9,
+      "grounding_integrity/rationale": "The response has a clear Provenance section that states grounding level ('All claims grounded in graph data'), references tool calls (search_emails), and notes coverage limitations. Each of the four analytical claims is directly tied to a specific email citation with date, sender, and subject line. The Evidence section reproduces actual email content snippets that corroborate the claims. The tool call citation is partially truncated but still present. Minor deductions: the tool call citation is cut off mid-string, and the 'Path' description ('question -> active retrieval tools -> answer') is somewhat vague rather than listing specific tool names and parameters. Overall, this is a well-grounded response with systematic attribution.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.85,
+      "hallucination_detection/rationale": "The response cites four specific emails from leonardo.pacheco@enron.com with plausible dates and subjects that are consistent with the described EnronOnline Management Report series. The email content snippets shown (transaction counts with Today/YTD/LTD columns) are internally consistent and plausible for such reports. The claims made about report contents (transaction counts, notional value, counterparty tracking, public-domain summaries) are modest and well-aligned with what such operational reports would contain. No external knowledge is falsely presented as graph-derived, no invented relationships are claimed, and no implausible entity names appear. Minor concern: the specific email dates and transaction numbers (e.g., 2,412 on June 22; 2,529 on June 28; 2,820 on June 27; 2,449 on June 7) cannot be verified against provided ground truth, but they are internally consistent and not contradicted by any provided facts. The truncated provenance line is a minor presentation issue, not a hallucination. Overall, the response appears well-grounded with no clear fabrications, warranting a high but not perfect score due to unverifiable specifics.",
+      "answer_completeness/value": 0.85,
+      "answer_completeness/rationale": "The response does a solid job answering the question by identifying four coherent themes from Leonardo Pacheco's June 2000 EnronOnline management reports: transaction-scale tracking, notional value/physical-flow economics, counterparty adoption, and product-breadth metrics. Each theme is supported by specific email citations with dates and subjects that are plausible and consistent with the described content. The agent correctly characterizes these as KPI dashboards rather than narrative reports. Minor gaps include: not quantifying how many such reports were found in June 2000 (giving a sense of coverage), not noting whether all June reports follow the same template or if any deviate, and the evidence snippets are truncated so we can't fully verify the claims about 'revenue from physical flows' or 'public-domain summary.' The themes identified are reasonable and well-grounded in the cited emails, making this a strong but not fully exhaustive answer."
+    },
+    {
+      "question_id": "enron-curated-oct19-enron-mentions-themes",
+      "question_text": "What themes dominated the October 19, 2001 'Enron Mentions' digest?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "topic_investigation",
+      "architecture_primary": "topic_keyword_retrieval",
+      "architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "domain_primary": "communications_dynamics_temporal",
+      "domain_secondary": [],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "topic_investigation",
+      "inputs/question": "What themes dominated the October 19, 2001 'Enron Mentions' digest?",
+      "expectations/question_id": "enron-curated-oct19-enron-mentions-themes",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "topic_investigation",
+      "expectations/architecture_primary": "topic_keyword_retrieval",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "expectations/domain_primary": "communications_dynamics_temporal",
+      "expectations/domain_secondary": [],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "What themes dominated the October 19, 2001 'Enron Mentions' digest?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-oct19-enron-mentions-themes",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "topic_investigation",
+        "architecture_primary": "topic_keyword_retrieval",
+        "architecture_secondary": [
+          "evidence_drilldown"
+        ],
+        "domain_primary": "communications_dynamics_temporal",
+        "domain_secondary": [],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "topic_investigation"
+      },
+      "response_text": "### Answer\nI can't answer this confidently from the retrieved Enron graph data. No email evidence was retrieved inside the requested date window for this topical summary.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"Enron, October 19, 2001, Enron Mentions\", \"date_from\": \"2001-10-19\", \"date_to\": \"2001-10-19\"}) \u2192 no matching records; semantic_search_emails({\"query\": \"What themes dominated the October 19, 2001 'Enron Mentions' digest?\"}) \u2192 3 emails; browse_topics({}) \u2192 structured result; query_timeline({\"person_name\": \"\", \"date_from\": \"2001-10-19\", \"date_to\": \"2001-10-19\"}) \u2192 no matching records; find_connections({\"entity_name\": \"Enron\", \"relationship_type\": \"DISCUSSES\"}) \u2192 structured result; browse_topics({\"entity_name\": \"Enron\"}) \u2192 20 topics; get_entity_context({\"entity_name\": \"Enron\"}) \u2192 structured result; get_source_evidence({\"entity_name\": \"Enron\"}) \u2192 20 emails; find_entity({\"name\": \"Enron\"}) \u2192 10 records; get_email_full_body({\"message_id\": \"<12750121.1075840510246.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<1893801.1075840492626.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<15094689.1075840512154.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<9149938.1075840506654.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 10965.3,
+      "evidence_quality/value": 0.3,
+      "evidence_quality/rationale": "The response admits it cannot answer the question but does include a detailed provenance section showing multiple tool calls were made. The agent retrieved 3 emails via semantic search and retrieved full bodies of 4 specific emails (with message IDs cited), yet still concluded no answer was possible. The provenance section lists specific tool calls with parameters and results, which is a positive indicator of effort. However, the final answer provides zero substantive claims about the actual email content retrieved \u2014 the 3 semantic search results and 4 full email bodies are never summarized or used to support any claims. The message IDs are cited but their content is not discussed. This represents a failure to synthesize available evidence into an answer, even a partial one. The score is above 0.0 because the provenance section shows genuine tool usage with specific message IDs, but the complete absence of any content-level claims from the retrieved emails prevents a higher score.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.5,
+      "organizational_accuracy/rationale": "The agent's response does not make any organizational claims, so there are no incorrect relationships, fabricated entities, or contradictions to penalize. However, the question appears to be about organizational structure and relationships, and the agent failed to retrieve or present any relevant org hierarchy information despite having access to a curated org hierarchy table with 24 entries. The agent focused entirely on email content search and did not attempt to query the org hierarchy or relationship data that should be available. The response is honest about its limitations and shows extensive tool usage, but the failure to leverage the curated org hierarchy table for what appears to be an org-structure question represents a significant gap. Since no false claims were made but relevant available data sources were not utilized, a middle score is appropriate.",
+      "grounding_integrity/value": 0.9,
+      "grounding_integrity/rationale": "The response has a well-structured Provenance section that includes specific tool call citations with parameters and return counts, states grounding level explicitly ('All claims grounded in graph data'), and clearly explains why no confident answer can be given (no matching records in the date window). The tool calls are enumerated with their results, providing full transparency. The response appropriately declines to fabricate information when retrieval returns insufficient data. Minor deduction because the semantic_search returned 3 emails and get_source_evidence returned 20 emails, yet the agent doesn't explain why those results were insufficient to form even a partial answer \u2014 a brief characterization of why those retrieved emails didn't address the question would strengthen the grounding. Overall, this is a well-grounded, honest non-answer with strong provenance documentation.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 1.0,
+      "hallucination_detection/rationale": "The agent's response contains no hallucinations. It explicitly states it cannot answer confidently due to lack of retrieved email evidence for the requested date window. The provenance section lists specific tool calls with their actual results (including message IDs that appear to be real graph identifiers), and the agent does not fabricate any email content, relationships, statistics, or external knowledge. The response is appropriately cautious and transparent about data limitations, which is the correct behavior when evidence is insufficient.",
+      "answer_completeness/value": 0.3,
+      "answer_completeness/rationale": "The agent made a genuine attempt to find the information, deploying multiple search tools (keyword search, semantic search, timeline query, entity lookups, and full email body retrievals). However, the final answer fails to synthesize the results from the semantic search that returned 3 emails and the source evidence that returned 20 emails. The agent retrieved email bodies but then concluded it 'can't answer confidently' without reporting what those emails actually contained. If the graph contains emails related to the October 19, 2001 'Enron Mentions' digest, the agent should have reported the themes found in those retrieved emails rather than returning a non-answer. The provenance shows data was retrieved but not used to construct a substantive response, which is a significant gap between effort and output."
+    },
+    {
+      "question_id": "enron-curated-oct23-enron-mentions-themes",
+      "question_text": "What themes dominated the October 23, 2001 'Enron Mentions' digests?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "topic_investigation",
+      "architecture_primary": "topic_keyword_retrieval",
+      "architecture_secondary": [
+        "evidence_drilldown",
+        "timeline_retrieval"
+      ],
+      "domain_primary": "communications_dynamics_temporal",
+      "domain_secondary": [],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "topic_investigation",
+      "inputs/question": "What themes dominated the October 23, 2001 'Enron Mentions' digests?",
+      "expectations/question_id": "enron-curated-oct23-enron-mentions-themes",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "topic_investigation",
+      "expectations/architecture_primary": "topic_keyword_retrieval",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown",
+        "timeline_retrieval"
+      ],
+      "expectations/domain_primary": "communications_dynamics_temporal",
+      "expectations/domain_secondary": [],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "What themes dominated the October 23, 2001 'Enron Mentions' digests?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-oct23-enron-mentions-themes",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "topic_investigation",
+        "architecture_primary": "topic_keyword_retrieval",
+        "architecture_secondary": [
+          "evidence_drilldown",
+          "timeline_retrieval"
+        ],
+        "domain_primary": "communications_dynamics_temporal",
+        "domain_secondary": [],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "topic_investigation"
+      },
+      "response_text": "### Answer\nI can't answer this confidently from the retrieved Enron graph data. No email evidence was retrieved inside the requested date window for this topical summary.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"Enron Mentions, October 23, 2001\", \"date_from\": \"2001-10-23\", \"date_to\": \"2001-10-23\"}) \u2192 no matching records; semantic_search_emails({\"query\": \"What themes dominated the October 23, 2001 'Enron Mentions' digests?\"}) \u2192 3 emails; browse_topics({}) \u2192 structured result; query_timeline({\"person_name\": \"\", \"date_from\": \"2001-10-23\", \"date_to\": \"2001-10-23\"}) \u2192 no matching records; find_connections({\"entity_name\": \"Enron Mentions\", \"relationship_type\": \"DISCUSSES\"}) \u2192 no matching records; browse_topics({\"entity_name\": \"Enron Mentions\"}) \u2192 0 topics; get_entity_context({\"entity_name\": \"Enron Mentions\"}) \u2192 structured result; get_source_evidence({\"entity_name\": \"Enron Mentions\"}) \u2192 1 emails; find_entity({\"name\": \"Enron Mentions\"}) \u2192 no matching records; get_email_full_body({\"message_id\": \"<2933468.1075857636990.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 1760.4,
+      "evidence_quality/value": 0.4,
+      "evidence_quality/rationale": "The agent appropriately admits it cannot answer the question confidently, which is honest. The provenance section is detailed and shows genuine tool usage with specific citations including a message_id, multiple tool calls with parameters, and explicit 'no matching records' results. However, the response contradicts itself: it claims 'no email evidence was retrieved' yet the provenance shows semantic_search returned 3 emails, get_source_evidence returned 1 email, and get_email_full_body returned 1 email. The agent failed to synthesize or report on those retrieved emails, which likely contained relevant information. This represents a failure to use available data rather than a true absence of data. The provenance section itself is strong evidence of tool usage, but the final answer does not leverage the partial results that were apparently found.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.5,
+      "organizational_accuracy/rationale": "The agent correctly abstains from fabricating organizational claims when data is insufficient, which avoids penalization for hallucination. However, the question appears to be about organizational structure and relationships, and the agent made no attempt to query the curated org hierarchy table (24 entries) or use relationship-specific tools like find_connections with REPORTS_TO/MANAGES relationship types. The agent focused entirely on email content search for a specific date, missing the opportunity to retrieve org hierarchy data that is explicitly available in the knowledge graph. The response is honest but incomplete in its retrieval effort for organizational structure questions.",
+      "grounding_integrity/value": 0.9,
+      "grounding_integrity/rationale": "The response has a well-structured Provenance section that includes specific tool call citations with parameters and return results (e.g., search_emails, semantic_search_emails, query_timeline, find_connections, get_email_full_body), states grounding level explicitly as 'All claims grounded in graph data', and honestly reports null/empty results rather than fabricating information. The answer appropriately declines to answer when evidence is insufficient. Minor deduction because the 'Sources' section lists tool calls but doesn't fully reconcile why semantic_search returned 3 emails and get_email_full_body returned 1 email yet the answer concludes no evidence was found \u2014 a brief explanation of why those results were insufficient would strengthen the grounding. Overall, this is a high-quality grounded response with proper provenance attribution.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.95,
+      "hallucination_detection/rationale": "The agent appropriately declines to answer due to insufficient data, which is the correct behavior when evidence is lacking. The provenance section lists actual tool calls with plausible-looking results and does not fabricate email content, relationships, or statistics. The one minor concern is that the agent lists a specific message_id in the get_email_full_body call, which could imply fabrication, but it is presented as a tool input/output rather than a cited fact used to support a claim. No invented entities, relationships, or statistics are presented as factual findings. The response is appropriately hedged throughout.",
+      "answer_completeness/value": 0.4,
+      "answer_completeness/rationale": "The agent made a genuine attempt to answer the question, deploying multiple tools including keyword search, semantic search, timeline queries, entity lookups, and even retrieving a specific email body. However, the final answer is essentially 'I don't know,' despite the fact that the agent did retrieve 3 emails via semantic search and 1 email via get_source_evidence, and actually fetched the full body of a specific email. The agent failed to synthesize or report what was actually found in those retrieved emails. A complete answer would have examined the content of the retrieved emails (especially the full email body that was fetched) and reported whatever themes were present, even if partial. The agent's conclusion that it 'can't answer confidently' appears to contradict its own tool results showing retrieved content. This represents a failure to use available data rather than a genuine absence of data."
+    },
+    {
+      "question_id": "enron-curated-oct29-enron-mentions-themes",
+      "question_text": "What themes dominated the October 29, 2001 'Enron Mentions' digest?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "topic_investigation",
+      "architecture_primary": "topic_keyword_retrieval",
+      "architecture_secondary": [
+        "evidence_drilldown",
+        "timeline_retrieval"
+      ],
+      "domain_primary": "communications_dynamics_temporal",
+      "domain_secondary": [],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "topic_investigation",
+      "inputs/question": "What themes dominated the October 29, 2001 'Enron Mentions' digest?",
+      "expectations/question_id": "enron-curated-oct29-enron-mentions-themes",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "topic_investigation",
+      "expectations/architecture_primary": "topic_keyword_retrieval",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown",
+        "timeline_retrieval"
+      ],
+      "expectations/domain_primary": "communications_dynamics_temporal",
+      "expectations/domain_secondary": [],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "What themes dominated the October 29, 2001 'Enron Mentions' digest?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-oct29-enron-mentions-themes",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "topic_investigation",
+        "architecture_primary": "topic_keyword_retrieval",
+        "architecture_secondary": [
+          "evidence_drilldown",
+          "timeline_retrieval"
+        ],
+        "domain_primary": "communications_dynamics_temporal",
+        "domain_secondary": [],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "topic_investigation"
+      },
+      "response_text": "### Answer\nI can't answer this confidently from the retrieved Enron graph data. No email evidence was retrieved inside the requested date window for this topical summary.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"Enron, October 29, 2001, Enron Mentions\", \"date_from\": \"2001-10-29\", \"date_to\": \"2001-10-29\"}) \u2192 no matching records; semantic_search_emails({\"query\": \"What themes dominated the October 29, 2001 'Enron Mentions' digest?\"}) \u2192 3 emails; browse_topics({}) \u2192 structured result; query_timeline({\"person_name\": \"\", \"date_from\": \"2001-10-29\", \"date_to\": \"2001-10-29\"}) \u2192 no matching records; find_connections({\"entity_name\": \"Enron\", \"relationship_type\": \"DISCUSSES\"}) \u2192 structured result; browse_topics({\"entity_name\": \"Enron\"}) \u2192 20 topics; get_entity_context({\"entity_name\": \"Enron\"}) \u2192 structured result; get_source_evidence({\"entity_name\": \"Enron\"}) \u2192 20 emails; find_entity({\"name\": \"Enron\"}) \u2192 10 records; get_email_full_body({\"message_id\": \"<12750121.1075840510246.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<1893801.1075840492626.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<15094689.1075840512154.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<9149938.1075840506654.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 11332.1,
+      "evidence_quality/value": 0.3,
+      "evidence_quality/rationale": "The agent provides a provenance section with multiple specific tool calls, including message IDs and date parameters, which shows genuine retrieval effort. However, the final answer contains no substantive claims supported by evidence. The agent retrieved 3 emails via semantic search and retrieved full bodies of 4 specific emails (with real message IDs cited), yet drew no usable information from them to answer the question. The response essentially says 'I found nothing' despite the tool log showing emails were retrieved. This is a partial failure: the provenance is detailed and the tool citations are specific, but the agent failed to synthesize available retrieved content into an answer. The score is above 0.0 due to the genuine tool-call evidence in the provenance, but well below 0.5 because no actual claims or findings from the retrieved emails are presented.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.5,
+      "organizational_accuracy/rationale": "The agent's response does not make any organizational claims, so there are no fabricated relationships, contradictions, or incorrect reporting lines to penalize. The agent appropriately acknowledges it cannot answer confidently from the retrieved data and provides detailed provenance showing genuine retrieval attempts. However, the question appears to be about organizational structure and relationships, and the agent made no attempt to query the org hierarchy table or use relationship-specific tools (like find_connections with REPORTS_TO/MANAGES relationship types) that are explicitly available in the system. The agent focused entirely on email content retrieval rather than leveraging the curated org hierarchy table (24 entries) which could have provided relevant structural information. This represents a significant missed opportunity to use available graph resources, warranting a mid-range score rather than a high one, but the absence of fabrication or contradictions prevents a lower score.",
+      "grounding_integrity/value": 0.9,
+      "grounding_integrity/rationale": "The response has a well-structured Provenance section with explicit tool call citations including function names, parameters, and return counts. It clearly states 'All claims grounded in graph data' and explains why no confident answer can be given (no matching records in the date window). The grounding level is stated, sources are enumerated with specific message IDs and result counts, and the coverage limitation is acknowledged. The response appropriately returns a null/uncertain answer rather than fabricating content. Minor deduction because the semantic_search returning '3 emails' and get_source_evidence returning '20 emails' could have been explored further to see if any of those emails touched on the requested topic, but the agent's decision to not answer rather than speculate is defensible and honest. Overall, this is a well-grounded, properly attributed response.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 1.0,
+      "hallucination_detection/rationale": "The agent's response contains no hallucinations. It explicitly states it cannot answer confidently due to lack of retrieved email evidence for the requested date window. The provenance section lists specific tool calls with their actual results (including message IDs for emails that were retrieved), and the agent does not fabricate any email content, relationships, statistics, or external knowledge. The agent appropriately declines to provide a substantive answer rather than inventing information, and all cited tool calls and message IDs appear to be genuine retrieval attempts rather than fabricated citations.",
+      "answer_completeness/value": 0.3,
+      "answer_completeness/rationale": "The agent made a genuine attempt to find the information using multiple tools (keyword search, semantic search, timeline query, entity lookups, and full email body retrieval). However, the final answer fails to actually answer the question. The agent retrieved 3 emails via semantic search and retrieved full bodies of 4 emails, yet still concluded it 'can't answer confidently' without reporting what those emails actually contained. If the semantic search returned relevant emails, the agent should have analyzed their content to identify themes, even if partial. The agent essentially abandoned the answer despite having potentially relevant data in hand. This represents a failure to synthesize available evidence rather than a true data gap, warranting a low but non-zero score since the agent did attempt multiple retrieval strategies."
+    },
+    {
+      "question_id": "enron-curated-june22-management-report-themes",
+      "question_text": "What themes dominate the EnronOnline Management Report for June 22, 2000 that Leonardo Pacheco sent to Kenneth Lay?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "topic_investigation",
+      "architecture_primary": "topic_keyword_retrieval",
+      "architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "domain_primary": "trading_markets_platforms",
+      "domain_secondary": [],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "topic_investigation",
+      "inputs/question": "What themes dominate the EnronOnline Management Report for June 22, 2000 that Leonardo Pacheco sent to Kenneth Lay?",
+      "expectations/question_id": "enron-curated-june22-management-report-themes",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "topic_investigation",
+      "expectations/architecture_primary": "topic_keyword_retrieval",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "expectations/domain_primary": "trading_markets_platforms",
+      "expectations/domain_secondary": [],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "What themes dominate the EnronOnline Management Report for June 22, 2000 that Leonardo Pacheco sent to Kenneth Lay?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-june22-management-report-themes",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "topic_investigation",
+        "architecture_primary": "topic_keyword_retrieval",
+        "architecture_secondary": [
+          "evidence_drilldown"
+        ],
+        "domain_primary": "trading_markets_platforms",
+        "domain_secondary": [],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "topic_investigation"
+      },
+      "response_text": "### Answer\nThe recurring themes in these Pacheco EnronOnline packets are daily trading-performance dashboards rather than narrative status updates.\n\n1. **Transaction and volume dashboards**: The summaries repeatedly track daily transaction counts, 30-day averages, and life-to-date totals. [2000-12-13, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for December 12, 2000]\n2. **Value rollups**: They report gross notional value for the day, month-to-date, and life-to-date, which makes the packet a recurring performance scoreboard. [2000-06-23, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 22, 2000]\n3. **Business mix and activity metrics**: The packet also breaks activity down by business-unit share and user or counterparty metrics. [2000-06-29, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 28, 2000]\n\n#### Evidence\n- [2000-12-13, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for December 12, 2000] \u2014 EnronOnline Executive Summary for December 12, 2000 Following please find the Daily EnronOnline Executive Summary. EnronOnline Executive Summary for 12/12/00 Transaction Summary...\n- [2000-06-23, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 22, 2000] \u2014 EnronOnline Management Report for June 22, 2000 Please see the attached Management Report for June 22, 2000: Total Today Year To Date Life To Date Number of Transactions 2,412 1...\n- [2000-06-29, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 28, 2000] \u2014 EnronOnline Management Report for June 28, 2000 Please see the attached Management Report for June 28, 2000: Total Today Year To Date Life To Date Number of Transactions 2,529 1...\n\n#### Conclusion\nTaken together, the recurring topics are transaction volume, notional-value performance, business-unit mix, and participation metrics, so the summaries function as operating dashboards for EnronOnline.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"EnronOnline Executive Summary\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-12-12\", \"date_to\": \"2000-12-14\", \"limit\": 6}) \u2192 2 emails; search_emails({\"keywords\": \"EnronOnline Management Report for June 22, 2000\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-06-22\", \"date_to\": \"2000-06-24\", \"limit\": 6}) \u2192 1 emails; search_emails({\"keywords\": \"EnronOnline Management Report for June 28, 2000\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-06-28\", \"date_to\": \"2000-06-30\", \"limit\": 6}) \u2192 2 emails; search_emails({\"keywords\": \"EnronOnline, Management Report, June 22, 2000, themes\", \"date_from\": \"2000-06-22\", \"date_to\": \"2000-06-22\"}) \u2192 no matching records; semantic_search_emails({\"query\": \"What themes dominate the EnronOnline Management Report for June 22, 2000 that Leonardo Pacheco sent to Kenneth Lay?\"}) \u2192 3 emails; browse_topics({}) \u2192 structured result; query_timeline({\"person_name\": \"\", \"date_from\": \"2000-06-22\", \"date_to\": \"2000-06-22\"}) \u2192 no matching records; find_connections({\"entity_name\": \"Leonardo Pacheco\", \"relationship_type\": \"DISCUSSES\"}) \u2192 structured result; browse_topics({\"entity_name\": \"Leonardo Pacheco\"}) \u2192 10 topics; get_entity_context({\"entity_name\": \"Leonardo Pacheco\"}) \u2192 structured result; get_source_evidence({\"entity_name\": \"Leonardo Pacheco\"}) \u2192 2 emails; find_entity({\"name\": \"Leonardo Pacheco\"}) \u2192 1 records; get_email_full_body({\"message_id\": \"<22140261.1075855882502.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<25136751.1075855865692.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<4221705.1075840085621.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<20747567.1075840071853.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 1828.0,
+      "evidence_quality/value": 0.85,
+      "evidence_quality/rationale": "The response provides strong evidence for its main claims, with specific email dates, sender identities, and subject lines cited for each of the three recurring themes identified. The provenance section includes actual tool calls with result counts, demonstrating genuine retrieval rather than fabrication. Email snippets with partial content are included in the Evidence section, further grounding the claims. The three themes (transaction/volume dashboards, value rollups, business-unit mix) are each tied to specific email citations. Minor deductions apply because: (1) the business-unit mix claim is supported by only one email citation and no content snippet is shown for it; (2) the provenance section is cut off mid-tool-call ('semantic_search_em...'), suggesting incomplete documentation; (3) the conclusion introduces 'participation metrics' as a fourth theme without a dedicated citation. Overall, key claims are well-supported with specific dates, sender/recipient pairs, subject lines, and tool result counts, meeting the criteria for a strong evidence score.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.5,
+      "organizational_accuracy/rationale": "The response does not address organizational structure, reporting lines, titles, or relationship types (REPORTS_TO, MANAGES, etc.) at all. The question appears to be about recurring themes in Pacheco's EnronOnline packets, which the agent answers reasonably using grounded email citations. However, evaluated against the rubric for organizational structure accuracy, the response is largely neutral \u2014 it neither makes correct org claims nor incorrect ones, simply because it makes no org claims whatsoever. The email citations appear plausible and consistent with the corpus, and no fabricated relationships are present. The score of 0.5 reflects that the core content is factually grounded and internally consistent, but the response entirely omits the organizational dimension that this rubric evaluates, representing a significant gap in coverage of the evaluation criteria.",
+      "grounding_integrity/value": 0.95,
+      "grounding_integrity/rationale": "The response has a well-structured Provenance section that includes specific tool call citations with parameters and result counts, states 'All claims grounded in graph data,' and provides a grounding level and coverage note. Each claim in the answer body is directly tied to a specific email citation with date, sender, and subject line. The Evidence section reproduces actual email content snippets that corroborate the claims. Tool calls are explicitly listed with their return counts. The only minor deduction is that the Sources field appears to be cut off mid-sentence ('semantic_search_em...'), suggesting incomplete logging of all tool calls used, which slightly undermines full transparency. Otherwise, the response exemplifies strong grounding practice with no apparent fabrication and clear attribution throughout.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.85,
+      "hallucination_detection/rationale": "The agent cites three specific emails with dates, senders, and subjects that appear plausible and consistent with the described tool results (the provenance section shows actual search queries returning 1-2 emails each). The email subjects and content snippets align with what would be expected from EnronOnline management reports. The agent does not fabricate relationships, org hierarchy claims, or external knowledge as graph-derived. Minor concern: the content snippets shown (e.g., 'Number of Transactions 2,412' and '2,529') are presented as direct quotes from emails, and while these could be genuine retrieved content, there is no way to fully verify the exact figures without ground truth. However, the overall structure \u2014 daily dashboards tracking transaction counts, notional value, and business-unit metrics \u2014 is a reasonable and internally consistent characterization. No outright fabrication of entities, relationships, or statistics is evident, and the provenance section transparently documents the tool calls and their return counts, which adds credibility. The small deduction reflects the unverifiable nature of the specific numeric snippets presented as direct email content.",
+      "answer_completeness/value": 0.6,
+      "answer_completeness/rationale": "The agent found the specific email in question (June 22, 2000 Management Report from Pacheco) and extracted some actual content from it, showing transaction counts and year-to-date/life-to-date figures. The response correctly identifies the main themes of transaction volume, notional value performance, and business metrics. However, the answer is incomplete in several ways: (1) it doesn't fully extract and present the specific data from the June 22 email itself - the snippet shows 'Number of Transactions 2,412 1...' but the rest is truncated; (2) the question specifically asks about the report sent TO Kenneth Lay, but the agent never confirms or addresses the recipient; (3) the agent pads the answer with data from other emails (December 2000, June 28) rather than focusing on the specific email asked about; (4) the themes identified are somewhat generic and inferred from multiple emails rather than specifically derived from the June 22 content. The agent did locate the correct email and extracted partial content, but failed to fully mine the available data from that specific email and didn't address the Kenneth Lay recipient aspect."
+    },
+    {
+      "question_id": "enron-curated-dec7-executive-summary-themes",
+      "question_text": "What themes dominate the EnronOnline Executive Summary for December 7, 2000 that Leonardo Pacheco sent to Kenneth Lay?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "topic_investigation",
+      "architecture_primary": "topic_keyword_retrieval",
+      "architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "domain_primary": "trading_markets_platforms",
+      "domain_secondary": [],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "topic_investigation",
+      "inputs/question": "What themes dominate the EnronOnline Executive Summary for December 7, 2000 that Leonardo Pacheco sent to Kenneth Lay?",
+      "expectations/question_id": "enron-curated-dec7-executive-summary-themes",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "topic_investigation",
+      "expectations/architecture_primary": "topic_keyword_retrieval",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "expectations/domain_primary": "trading_markets_platforms",
+      "expectations/domain_secondary": [],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "What themes dominate the EnronOnline Executive Summary for December 7, 2000 that Leonardo Pacheco sent to Kenneth Lay?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-dec7-executive-summary-themes",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "topic_investigation",
+        "architecture_primary": "topic_keyword_retrieval",
+        "architecture_secondary": [
+          "evidence_drilldown"
+        ],
+        "domain_primary": "trading_markets_platforms",
+        "domain_secondary": [],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "topic_investigation"
+      },
+      "response_text": "### Answer\nThe recurring themes in these Pacheco EnronOnline packets are daily trading-performance dashboards rather than narrative status updates.\n\n1. **Transaction and volume dashboards**: The summaries repeatedly track daily transaction counts, 30-day averages, and life-to-date totals. [2000-12-13, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for December 12, 2000]\n2. **Value rollups**: They report gross notional value for the day, month-to-date, and life-to-date, which makes the packet a recurring performance scoreboard. [2000-12-12, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for December 11, 2000]\n3. **Business mix and activity metrics**: The packet also breaks activity down by business-unit share and user or counterparty metrics. [2000-06-23, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 22, 2000]\n\n#### Evidence\n- [2000-12-13, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for December 12, 2000] \u2014 EnronOnline Executive Summary for December 12, 2000 Following please find the Daily EnronOnline Executive Summary. EnronOnline Executive Summary for 12/12/00 Transaction Summary...\n- [2000-12-12, From: leonardo.pacheco@enron.com, Subject: EnronOnline Executive Summary for December 11, 2000] \u2014 EnronOnline Executive Summary for December 11, 2000 Following please find the Daily EnronOnline Executive Summary. EnronOnline Executive Summary for 12/11/00 Transaction Summary...\n- [2000-06-23, From: leonardo.pacheco@enron.com, Subject: EnronOnline Management Report for June 22, 2000] \u2014 EnronOnline Management Report for June 22, 2000 Please see the attached Management Report for June 22, 2000: Total Today Year To Date Life To Date Number of Transactions 2,412 1...\n\n#### Conclusion\nTaken together, the recurring topics are transaction volume, notional-value performance, business-unit mix, and participation metrics, so the summaries function as operating dashboards for EnronOnline.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"EnronOnline Executive Summary\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-12-12\", \"date_to\": \"2000-12-14\", \"limit\": 6}) \u2192 2 emails; search_emails({\"keywords\": \"EnronOnline Management Report for June 22, 2000\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-06-22\", \"date_to\": \"2000-06-24\", \"limit\": 6}) \u2192 1 emails; search_emails({\"keywords\": \"EnronOnline Management Report for June 28, 2000\", \"sender\": \"leonardo.pacheco@enron.com\", \"date_from\": \"2000-06-28\", \"date_to\": \"2000-06-30\", \"limit\": 6}) \u2192 2 emails; search_emails({\"keywords\": \"EnronOnline, Executive Summary, December 7, 2000, Leonardo Pacheco, Kenneth Lay\", \"date_from\": \"2000-12-07\", \"date_to\": \"2000-12-07\"}) \u2192 no matching records; semantic_search_emails({\"query\": \"What themes dominate the EnronOnline Executive Summary for December 7, 2000 that Leonardo Pacheco sent to Kenneth Lay?\"}) \u2192 3 emails; browse_topics({}) \u2192 structured result; query_timeline({\"person_name\": \"\", \"date_from\": \"2000-12-07\", \"date_to\": \"2000-12-07\"}) \u2192 no matching records; find_connections({\"entity_name\": \"Leonardo Pacheco\", \"relationship_type\": \"DISCUSSES\"}) \u2192 structured result; browse_topics({\"entity_name\": \"Leonardo Pacheco\"}) \u2192 10 topics; get_entity_context({\"entity_name\": \"Leonardo Pacheco\"}) \u2192 structured result; get_source_evidence({\"entity_name\": \"Leonardo Pacheco\"}) \u2192 2 emails; find_entity({\"name\": \"Leonardo Pacheco\"}) \u2192 1 records; get_email_full_body({\"message_id\": \"<22140261.1075855882502.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<25136751.1075855865692.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<4221705.1075840085621.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<20747567.1075840071853.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 1785.0,
+      "evidence_quality/value": 0.8,
+      "evidence_quality/rationale": "The response provides solid evidence for its main claims, including specific email dates, sender identities, and subject lines for three distinct emails. The provenance section includes actual tool calls with result counts, which adds credibility. The three identified themes (transaction/volume dashboards, value rollups, business mix metrics) are each tied to a specific cited email. Minor weaknesses include: the body text excerpts are truncated and don't fully demonstrate the 'business mix' claim from the third bullet, and the provenance section shows one failed/truncated search result. However, the overall structure is well-supported with concrete citations and tool call documentation, meeting the standard for key claims having specific evidence.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.5,
+      "organizational_accuracy/rationale": "The response does not address organizational structure, reporting lines, titles, or relationship types (REPORTS_TO, MANAGES, etc.) at all. The question appears to be about recurring themes in Pacheco's EnronOnline packets, which the agent answers reasonably with email-grounded evidence. However, evaluated against the rubric for organizational structure accuracy, the response is largely neutral \u2014 it neither fabricates nor confirms org relationships. There are no contradictions, but there is also no organizational content to evaluate. The score reflects that the core task (identifying email themes) is handled with reasonable grounding, but the org-structure dimension of the rubric cannot be assessed positively since no such claims are made. No fabricated relationships or contradictions are present, but the absence of any org-structure content means it cannot score highly on this dimension.",
+      "grounding_integrity/value": 0.95,
+      "grounding_integrity/rationale": "The response has a well-structured Provenance section that includes specific tool call citations with parameters and result counts, states 'All claims grounded in graph data,' and specifies coverage scope. Each claim in the answer body is directly attributed to a specific email with date, sender, and subject line. The evidence section reproduces partial email content supporting the claims. Tool calls are explicitly listed with their return counts. Minor deduction for the truncated last tool call result ('\u2192 no ma') which appears cut off, creating a small gap in provenance completeness, and the 'Path' description ('question -> active retrieval tools -> answer') is somewhat generic rather than descriptive. Overall, this is a strong grounding example with systematic attribution throughout.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.85,
+      "hallucination_detection/rationale": "The agent's claims are largely grounded in tool results that are explicitly cited in the provenance section. The three email citations (December 12, December 11, and June 22 summaries) correspond to search results the agent reports retrieving (2 emails from the December search, 1 from the June 22 search). The content descriptions \u2014 transaction counts, notional value rollups, business-unit mix \u2014 are plausible summaries of what EnronOnline executive summary emails would contain and are consistent with the partial email body shown for the June 22 email ('Total Today Year To Date Life To Date Number of Transactions 2,412 1...'). No external knowledge is presented as graph-derived, no invented relationships are claimed, and no fabricated entity names appear. A minor concern is that the agent presents specific structural details (e.g., '30-day averages,' 'life-to-date totals,' 'counterparty metrics') as recurring themes across all packets without showing retrieved content from all three emails confirming each detail \u2014 some generalization may go slightly beyond what the retrieved snippets strictly support. However, this is modest extrapolation rather than outright fabrication, and the core citations and claims appear consistent with the tool outputs described.",
+      "answer_completeness/value": 0.3,
+      "answer_completeness/rationale": "The agent failed to find the specific email asked about (EnronOnline Executive Summary for December 7, 2000 from Leonardo Pacheco to Kenneth Lay), as evidenced by the search returning no matches for that date. Instead of clearly stating this limitation, the agent substituted content from different dates (December 11, December 12, and June 22) and presented themes derived from those emails as if they answered the question about December 7. This is misleading - the agent should have clearly stated the specific email was not found in the graph and that the themes described are inferred from similar emails on nearby dates. The answer does touch on the general topic (EnronOnline executive summary themes) and the inferred themes (transaction volume, notional value, business mix) are plausible generalizations from the series, but the response never directly addresses the December 7 email specifically requested, never mentions Kenneth Lay as recipient, and obscures the fact that the target email wasn't found. The approach of inferring from similar emails is reasonable but should have been explicitly framed as such rather than presented as a direct answer."
+    },
+    {
+      "question_id": "enron-curated-andersen-audit-folder-themes",
+      "question_text": "What themes dominate Beth Apollo's April 10, 2001 email about passing information to Arthur Andersen?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "topic_investigation",
+      "architecture_primary": "topic_keyword_retrieval",
+      "architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "domain_primary": "legal_audit_external_stakeholders",
+      "domain_secondary": [
+        "communications_dynamics_temporal"
+      ],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "topic_investigation",
+      "inputs/question": "What themes dominate Beth Apollo's April 10, 2001 email about passing information to Arthur Andersen?",
+      "expectations/question_id": "enron-curated-andersen-audit-folder-themes",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "topic_investigation",
+      "expectations/architecture_primary": "topic_keyword_retrieval",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "expectations/domain_primary": "legal_audit_external_stakeholders",
+      "expectations/domain_secondary": [
+        "communications_dynamics_temporal"
+      ],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "What themes dominate Beth Apollo's April 10, 2001 email about passing information to Arthur Andersen?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-andersen-audit-folder-themes",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "topic_investigation",
+        "architecture_primary": "topic_keyword_retrieval",
+        "architecture_secondary": [
+          "evidence_drilldown"
+        ],
+        "domain_primary": "legal_audit_external_stakeholders",
+        "domain_secondary": [
+          "communications_dynamics_temporal"
+        ],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "topic_investigation"
+      },
+      "response_text": "### Answer\nThe Arthur Andersen packet is dominated by three themes: audit-control work, secure handling of sensitive material, and later investigation pressure.\n\n1. **Audit-control discipline**: The early packet frames Andersen as Enron's external audit party for review and control work. [2001-02-06, From: sally.beck@enron.com, Subject: Doorstep Review Process]\n2. **Secure handling of sensitive audit information**: The secure-folder message emphasizes controlled transfer of confidential materials to Arthur Andersen. [2001-04-10, From: beth.apollo@enron.com, Subject: Confidential Folder to safely pass information to  Arthur Andersen]\n3. **Cooperation with investigators over document-destruction allegations**: By January 2002 the theme shifts to FBI searches, employee interviews, and legal exposure. [2002-01-24, From: jr..legal@enron.com, Subject: Cooperation with the FBI]\n\n#### Evidence\n- [2001-02-06, From: sally.beck@enron.com, Subject: Doorstep Review Process] \u2014 Doorstep Review Process Doorstep reviews are by design a quick look at commercial activities and the mid and back office support for those activities in our wholesale businesses...\n- [2001-04-10, From: beth.apollo@enron.com, Subject: Confidential Folder to safely pass information to  Arthur Andersen] \u2014 Confidential Folder to safely pass information to Arthur Andersen We have become increasingly concerned about confidential information (dpr/position info, curves, validations/st...\n- [2002-01-24, From: jr..legal@enron.com, Subject: Cooperation with the FBI] \u2014 Cooperation with the FBI Enron has consented to allow the Federal Bureau of Investigation to search the Enron Building and to interview employees regarding allegations of docume...\n\n#### Conclusion\nSo the message cluster moves from ordinary audit-control coordination, to secure information handling, to direct cooperation with investigators over document-destruction allegations.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"Doorstep Review Process, Arthur Andersen, audit party, controls\", \"sender\": \"sally.beck@enron.com\", \"date_from\": \"2001-02-06\", \"date_to\": \"2001-02-07\", \"limit\": 4}) \u2192 2 emails; search_emails({\"keywords\": \"Confidential Folder to safely pass information to Arthur Andersen, confidential folder, safely pass information\", \"sender\": \"beth.apollo@enron.com\", \"date_from\": \"2001-04-10\", \"date_to\": \"2001-04-11\", \"limit\": 4}) \u2192 1 emails; search_emails({\"keywords\": \"Cooperation with the FBI, allegations of document destruction, Arthur Andersen\", \"sender\": \"jr..legal@enron.com\", \"date_from\": \"2002-01-24\", \"date_to\": \"2002-01-25\", \"limit\": 4}) \u2192 1 emails; search_emails({\"keywords\": \"Beth Apollo,Arthur Andersen,passing information,information sharing\", \"date_from\": \"2001-04-10\", \"date_to\": \"2001-04-10\"}) \u2192 no matching records; semantic_search_emails({\"query\": \"What themes dominate Beth Apollo's April 10, 2001 email about passing information to Arthur Andersen?\"}) \u2192 10 emails; browse_topics({}) \u2192 structured result; query_timeline({\"person_name\": \"\", \"date_from\": \"2001-04-10\", \"date_to\": \"2001-04-10\"}) \u2192 no matching records; find_connections({\"entity_name\": \"Beth Apollo\", \"relationship_type\": \"DISCUSSES\"}) \u2192 no matching records; browse_topics({\"entity_name\": \"Beth Apollo\"}) \u2192 0 topics; get_entity_context({\"entity_name\": \"Beth Apollo\"}) \u2192 structured result; get_source_evidence({\"entity_name\": \"Beth Apollo\"}) \u2192 20 emails; find_entity({\"name\": \"Beth Apollo\"}) \u2192 1 records; get_email_full_body({\"message_id\": \"<31460383.1075856036613.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<16881150.1075856076435.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<29155691.1075849829279.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<22132458.1075840490333.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 1661.3,
+      "evidence_quality/value": 0.7,
+      "evidence_quality/rationale": "The response provides specific email citations with dates, senders, and subject lines for all three main claims, which is solid evidence. The provenance section includes actual tool calls with result counts, adding credibility. However, some weaknesses prevent a higher score: the email snippets are truncated and don't fully substantiate the thematic interpretations made (e.g., the 'Doorstep Review' email's connection to Arthur Andersen specifically isn't confirmed in the excerpt shown). The sender 'beth.apollo@enron.com' is an unusual address that may raise authenticity questions, and 'jr..legal@enron.com' is similarly atypical. The thematic narrative (audit-control \u2192 secure handling \u2192 investigation cooperation) is a reasonable interpretation but relies on only three emails with minimal content shown. The provenance section is present and cites specific tool calls with result counts, which is a positive indicator. Overall, key claims have evidence but the supporting excerpts are too brief to fully validate the interpretive claims made.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.5,
+      "organizational_accuracy/rationale": "The response does not address organizational structure, reporting lines, titles, or relationship types (REPORTS_TO, MANAGES, etc.) at all \u2014 the rubric's core evaluation criteria. The question appears to have been about Arthur Andersen's relationship to Enron, but the response focuses entirely on thematic email content analysis rather than organizational hierarchy. No org chart claims, reporting relationships, or entity roles are stated, so there are no contradictions or fabrications in that domain, but there is also no meaningful organizational structure content to evaluate. The email citations appear plausible and grounded in the graph data with reasonable provenance metadata. The score reflects that the core structure of what was asked (organizational relationships) is partially addressed implicitly (Andersen as external auditor) but lacks any formal relationship typing, hierarchy details, or structured org claims that the rubric requires.",
+      "grounding_integrity/value": 0.95,
+      "grounding_integrity/rationale": "The response has a well-structured Provenance section with explicit tool call citations including parameters and result counts, a stated grounding level ('All claims grounded in graph data'), and clear source attribution for each claim. Every substantive claim is tied to a specific email citation with sender, date, and subject line. The tool calls are documented with their exact query parameters and return counts, which is exemplary grounding practice. Minor deduction for the truncated last tool call entry ('\u2192 no m') suggesting a formatting artifact, and the fact that 'beth.apollo@enron.com' is an unusual Enron email address that could raise authenticity questions, but the agent does not fabricate narrative beyond what the cited emails support. The three-theme structure is directly derived from the cited emails rather than from external knowledge. Overall, this is a well-grounded response that meets nearly all criteria for full marks.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.7,
+      "hallucination_detection/rationale": "The response cites three specific emails with dates, senders, and subjects that appear to be retrieved via actual tool calls documented in the provenance section. The tool calls are shown with parameters and result counts, lending credibility to the citations. However, there are some concerns: 'beth.apollo@enron.com' is an unusual email address format for an Enron employee and cannot be verified against the ground truth provided. The sender 'jr..legal@enron.com' also has an unusual double-dot format that raises questions. Without graph ground truth to verify these specific emails, these could be fabricated or misattributed citations. The thematic claims (audit coordination, secure document handling, FBI cooperation over document destruction) are historically plausible and consistent with known Enron/Andersen events, but the response explicitly claims these are 'grounded in graph data' rather than external knowledge. The tool call results showing non-zero email counts (2, 1, 1) suggest actual retrieval occurred, but the unusual sender addresses and lack of verifiable ground truth prevent a higher confidence score. No obviously invented statistics or clearly fabricated relationships are present, but the unverifiable sender addresses represent a moderate hallucination risk.",
+      "answer_completeness/value": 0.5,
+      "answer_completeness/rationale": "The agent does retrieve the specific Beth Apollo email from April 10, 2001 and identifies its core theme of secure/confidential information handling for Arthur Andersen. However, the response pads the answer with two unrelated emails (Sally Beck's February 2001 Doorstep Review and a January 2002 FBI cooperation email) and presents them as part of a 'theme cluster' around the target email, which is misleading. The question asks specifically about themes in Beth Apollo's April 10 email, not a broader narrative arc. The agent does quote the beginning of the actual email content ('We have become increasingly concerned about confidential information (dpr/position info, curves, validations/st...') which is relevant, but fails to fully extract and analyze the themes present in that single email. The inclusion of tangential emails dilutes the answer and suggests the agent didn't deeply analyze the actual email content. A complete answer would focus exclusively on the Beth Apollo email and enumerate its specific themes (confidentiality concerns, information security protocols, audit relationship management, etc.) based on the full email text."
+    },
+    {
+      "question_id": "enron-curated-fbi-cooperation-notice-themes",
+      "question_text": "What themes dominate Enron's January 24, 2002 'Cooperation with the FBI' notice?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "topic_investigation",
+      "architecture_primary": "topic_keyword_retrieval",
+      "architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "domain_primary": "legal_audit_external_stakeholders",
+      "domain_secondary": [],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "topic_investigation",
+      "inputs/question": "What themes dominate Enron's January 24, 2002 'Cooperation with the FBI' notice?",
+      "expectations/question_id": "enron-curated-fbi-cooperation-notice-themes",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "topic_investigation",
+      "expectations/architecture_primary": "topic_keyword_retrieval",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown"
+      ],
+      "expectations/domain_primary": "legal_audit_external_stakeholders",
+      "expectations/domain_secondary": [],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "What themes dominate Enron's January 24, 2002 'Cooperation with the FBI' notice?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-fbi-cooperation-notice-themes",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "topic_investigation",
+        "architecture_primary": "topic_keyword_retrieval",
+        "architecture_secondary": [
+          "evidence_drilldown"
+        ],
+        "domain_primary": "legal_audit_external_stakeholders",
+        "domain_secondary": [],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "topic_investigation"
+      },
+      "response_text": "### Answer\nI can't answer this confidently from the retrieved Enron graph data. No substantive rows were retrieved for this question. The count/ranking request has limited supporting rows. Only limited supporting evidence was retrieved.\n\n### Caveats\n- One retrieval step failed, so coverage may be partial.\n- Evidence strength was limited; unsupported details should be treated as unverified.\n- No email-level records were retrieved for direct quotation.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: Not found in graph\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians. One retrieval step failed, so coverage may be partial. Evidence strength was limited; unsupported details should be treated as unverified.\n- **Sources**: query_and_enrich({\"question\": \"What themes dominate Enron's January 24, 2002 'Cooperation with the FBI' notice?\"}) \u2192 One retrieval step failed, so coverage may be partial.",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 1132.8,
+      "evidence_quality/value": 0.3,
+      "evidence_quality/rationale": "The response honestly acknowledges it could not find the requested information in the graph, which is appropriate transparency. It includes a provenance section with a specific tool call cited (query_and_enrich with the exact question), which provides some minimal evidence of effort. However, the response contains no actual data, no email citations, no entity relationships, and no substantive findings. The score is above 0.0 because the agent did not fabricate information and did provide a provenance section with a tool citation, but it remains low because there is essentially no evidence supporting any claim about the actual question content.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.7,
+      "organizational_accuracy/rationale": "The agent correctly declines to fabricate organizational information when the data is not available in the graph, appropriately stating 'Not found in graph' and noting retrieval failures. There are no contradictions or fabricated relationships. The response is honest about its limitations. The score is not higher because the agent provides no organizational content at all, but since the Graph Ground Truth appears empty (no specific org facts were provided to verify against), the agent's cautious non-answer is appropriate and avoids penalizable errors.",
+      "grounding_integrity/value": 0.8,
+      "grounding_integrity/rationale": "The response has a clear Provenance section with Sources, Grounding level, and Confidence indicators. It includes a specific tool call citation (query_and_enrich with the exact question parameter), states 'Not found in graph' as the grounding level, and explicitly acknowledges retrieval failure. The caveats section properly flags limitations. The response does not fabricate any claims or present training data as graph evidence. Minor deductions because the provenance section lacks explicit confidence score and the 'Path' entry is somewhat vague ('active retrieval tools' rather than specific tool names), but overall the grounding is systematic and transparent.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 1.0,
+      "hallucination_detection/rationale": "The agent makes no factual claims about the Enron corpus or any external sources. It explicitly states the information was 'Not found in graph' and appropriately qualifies all statements with caveats about limited retrieval. There are no fabricated email citations, invented relationships, made-up statistics, or external knowledge presented as graph-derived data. The response is a properly hedged non-answer, which is the correct behavior when data is unavailable.",
+      "answer_completeness/value": 0.3,
+      "answer_completeness/rationale": "The agent correctly acknowledges it cannot find the specific document in the graph and avoids fabricating content, which is appropriate behavior. However, the response is largely a non-answer that only explains what wasn't found rather than attempting to use available tools more thoroughly. The agent could have tried searching for related emails around January 24, 2002, searched for FBI-related communications, or checked the investigation timeline (which contains 28 curated events and likely includes this notice). The agent made minimal effort to triangulate from available data sources before giving up. The response gets partial credit for being honest about limitations and not fabricating information, but loses significant points for insufficient exploration of available data sources that might have yielded relevant context."
+    },
+    {
+      "question_id": "enron-curated-restatement-message-themes",
+      "question_text": "What themes dominate Kenneth Lay's November 8, 2001 'SEC Information/Earnings Restatement' message?",
+      "corpus": "enron",
+      "eval_split": "train",
+      "attorney_category": "topic_investigation",
+      "architecture_primary": "topic_keyword_retrieval",
+      "architecture_secondary": [
+        "evidence_drilldown",
+        "synthesis_provenance"
+      ],
+      "domain_primary": "legal_audit_external_stakeholders",
+      "domain_secondary": [
+        "financial_structures_risk"
+      ],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [],
+      "category": "topic_investigation",
+      "inputs/question": "What themes dominate Kenneth Lay's November 8, 2001 'SEC Information/Earnings Restatement' message?",
+      "expectations/question_id": "enron-curated-restatement-message-themes",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "train",
+      "expectations/attorney_category": "topic_investigation",
+      "expectations/architecture_primary": "topic_keyword_retrieval",
+      "expectations/architecture_secondary": [
+        "evidence_drilldown",
+        "synthesis_provenance"
+      ],
+      "expectations/domain_primary": "legal_audit_external_stakeholders",
+      "expectations/domain_secondary": [
+        "financial_structures_risk"
+      ],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [],
+      "inputs": {
+        "question": "What themes dominate Kenneth Lay's November 8, 2001 'SEC Information/Earnings Restatement' message?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-restatement-message-themes",
+        "corpus": "enron",
+        "eval_split": "train",
+        "attorney_category": "topic_investigation",
+        "architecture_primary": "topic_keyword_retrieval",
+        "architecture_secondary": [
+          "evidence_drilldown",
+          "synthesis_provenance"
+        ],
+        "domain_primary": "legal_audit_external_stakeholders",
+        "domain_secondary": [
+          "financial_structures_risk"
+        ],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [],
+        "graph_ground_truth": "",
+        "historical_ground_truth": "",
+        "evidence_required": true,
+        "category": "topic_investigation"
+      },
+      "response_text": "### Answer\nLay's November 8 note is dominated by controlled crisis disclosure rather than routine investor messaging.\n\n1. **Disclosure of related-party and off-balance-sheet problems**: The message centers on newly released details about related-party transactions, off-balance-sheet entities, and the SEC-facing Form 8-K filing. [2001-11-08, From: chairman.ken@enron.com, Subject: SEC Information/Earnings Restatement]\n2. **Formal earnings restatement mechanics**: A second theme is the concrete restatement itself, including the need to consolidate entities such as JEDI and Chewco and restate prior periods. [2001-11-08, From: chairman.ken@enron.com, Subject: SEC Information/Earnings Restatement]\n3. **Board and regulator oversight**: Lay emphasizes the Board's Special Committee and Enron's ongoing cooperation with the SEC investigation, framing the issue as an active governance review. [2001-11-08, From: chairman.ken@enron.com, Subject: SEC Information/Earnings Restatement]\n4. **Reassurance amid damage control**: Even while acknowledging the crisis, the note tries to reassure employees and investors that Enron's current position and core businesses remain intact. [2001-11-08, From: chairman.ken@enron.com, Subject: SEC Information/Earnings Restatement]\n\n#### Evidence\n- [2001-11-08, From: chairman.ken@enron.com, Subject: SEC Information/Earnings Restatement] \u2014 SEC Information/Earnings Restatement Today we released additional information about our related party and off-balance sheet transactions. We have made this information available...\n\n#### Conclusion\nSo the dominant themes are disclosure, restatement, oversight, and reassurance: the email explains the accounting damage while trying to stabilize confidence.\n\n### Provenance\n- **Path**: question -> active retrieval tools -> answer\n- **Grounding**: All claims grounded in graph data\n- **Coverage**: Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.\n- **Sources**: search_emails({\"keywords\": \"SEC Information/Earnings Restatement\", \"sender\": \"chairman.ken@enron.com\", \"date_from\": \"2001-11-08\", \"date_to\": \"2001-11-09\", \"limit\": 4}) \u2192 1 emails; search_emails({\"keywords\": \"Kenneth Lay, SEC Information/Earnings Restatement, November 8, 2001\", \"date_from\": \"2001-11-08\", \"date_to\": \"2001-11-08\"}) \u2192 no matching records; semantic_search_emails({\"query\": \"What themes dominate Kenneth Lay's November 8, 2001 'SEC Information/Earnings Restatement' message?\"}) \u2192 10 emails; browse_topics({}) \u2192 structured result; query_timeline({\"person_name\": \"\", \"date_from\": \"2001-11-08\", \"date_to\": \"2001-11-08\"}) \u2192 structured result; find_connections({\"entity_name\": \"Kenneth Lay\", \"relationship_type\": \"DISCUSSES\"}) \u2192 structured result; browse_topics({\"entity_name\": \"Kenneth Lay\"}) \u2192 20 topics; get_entity_context({\"entity_name\": \"Kenneth Lay\"}) \u2192 structured result; get_source_evidence({\"entity_name\": \"Kenneth Lay\"}) \u2192 10 emails; find_entity({\"name\": \"Kenneth Lay\"}) \u2192 2 records; get_email_full_body({\"message_id\": \"<17649557.1075862886763.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<24254865.1075860847134.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<27094377.1075860836751.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails; get_email_full_body({\"message_id\": \"<24316812.1075862884459.JavaMail.evans@thyme>\", \"limit\": 2}) \u2192 1 emails",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 1612.4,
+      "evidence_quality/value": 0.72,
+      "evidence_quality/rationale": "The response provides moderate-to-good evidence for its claims. Key strengths: a specific email citation is provided (2001-11-08, From: chairman.ken@enron.com, Subject: SEC Information/Earnings Restatement) and a direct quote fragment from the email body is included, grounding the thematic claims. The provenance section lists multiple tool calls with result counts, showing genuine retrieval effort. The four identified themes (disclosure, restatement, oversight, reassurance) are all tied back to the same specific email citation. Weaknesses: all four claims reference the same single email citation rather than corroborating evidence from multiple sources; the quote fragment is partial and truncated; the semantic_search returning 10 emails is mentioned but none of those results are cited to support or enrich the thematic analysis; the get_email_full_body tool call appears cut off, suggesting incomplete retrieval. The response does not fabricate entities and stays grounded in what appears to be a real email, but the evidence depth is limited to one source document with a partial quote.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "No expected entities to verify",
+      "organizational_accuracy/value": 0.5,
+      "organizational_accuracy/rationale": "The question appears to be about email content/themes rather than organizational structure, making the rubric somewhat misaligned. However, evaluating what organizational claims are present: the response correctly identifies Kenneth Lay as using 'chairman.ken@enron.com' (consistent with his Chairman role), references the Board's Special Committee (accurate governance structure), and mentions SEC oversight relationships. No fabricated org relationships are present. The response does not make explicit REPORTS_TO or MANAGES claims, which is appropriate given the question is about email themes. The core content analysis is grounded in an actual email citation. Minor issues include the response being cut off mid-sentence in the Sources section, and the organizational structure details are minimal rather than comprehensive. Since the rubric asks about org structure accuracy and the response makes few org claims (none contradictory, none fabricated), a middle score reflects that the response is accurate but thin on organizational relationship detail.",
+      "grounding_integrity/value": 0.9,
+      "grounding_integrity/rationale": "The response has a well-structured Provenance section that lists specific tool calls with their parameters and return counts (e.g., 'search_emails(...) \u2192 1 emails', 'semantic_search_emails(...) \u2192 10 emails'). All four thematic claims are attributed to a specific email citation [2001-11-08, From: chairman.ken@enron.com, Subject: SEC Information/Earnings Restatement], and direct evidence is quoted in the Evidence section. The grounding level is explicitly stated as 'All claims grounded in graph data.' The response does not introduce external knowledge without flagging it. The only minor deduction is that the get_email_full_body tool call appears truncated, leaving one citation incomplete, and the semantic_search and browse_topics results are described as 'structured result' without specifying how they contributed to the thematic analysis. These are minor gaps in attribution transparency but do not undermine the overall strong grounding discipline.",
+      "factual_accuracy/value": 1.0,
+      "factual_accuracy/rationale": "No ground truth provided",
+      "hallucination_detection/value": 0.75,
+      "hallucination_detection/rationale": "The agent cites a real email that plausibly exists in the Enron corpus (Ken Lay's November 8, 2001 'SEC Information/Earnings Restatement' message from chairman.ken@enron.com), and the thematic claims about disclosure, restatement, Board oversight, and reassurance are consistent with what such an email would contain. The agent also shows its tool calls transparently, including one that returned 1 email matching the query. However, there are minor concerns: the agent repeats the same citation four times as if it were four separate pieces of evidence, which is slightly misleading. The quoted snippet ('Today we released additional information about our related party and off-balance sheet transactions...') could be a genuine excerpt or a plausible reconstruction \u2014 without ground truth confirmation it cannot be fully verified. The specific mention of JEDI and Chewco as entities to be consolidated is plausible and historically accurate, but it's unclear whether this detail came from the retrieved email or from external knowledge being presented as graph-derived. No outright fabricated entities, invented relationships, or clearly false statistics are present. Overall, the response is mostly well-grounded with minor risks of external knowledge blending into graph-derived claims.",
+      "answer_completeness/value": 0.7,
+      "answer_completeness/rationale": "The agent identifies four reasonable thematic categories from the email (disclosure of related-party/off-balance-sheet issues, earnings restatement mechanics, board/regulator oversight, and reassurance messaging) and provides a partial quote from the email as evidence. The response is grounded in an actual retrieved email and uses multiple tools. However, the evidence section only shows a truncated snippet, and the thematic analysis feels somewhat generic/inferred rather than deeply supported by specific quoted content from the email body. The agent found the email but doesn't demonstrate comprehensive extraction of all themes present in the full message. The answer is solid but not exhaustive - it covers the main themes adequately without fully mining the email's content for nuance or additional themes that might be present."
+    }
+  ]
+}

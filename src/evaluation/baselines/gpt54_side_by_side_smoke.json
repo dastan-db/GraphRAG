@@ -1,0 +1,254 @@
+{
+  "score_columns": [
+    "evidence_quality",
+    "participant_verification",
+    "organizational_accuracy",
+    "grounding_integrity",
+    "factual_accuracy",
+    "hallucination_detection",
+    "answer_completeness"
+  ],
+  "overall_metrics": {
+    "evidence_quality": 0.0,
+    "participant_verification": 1.0,
+    "organizational_accuracy": 0.3,
+    "grounding_integrity": 0.0,
+    "factual_accuracy": 0.1,
+    "hallucination_detection": 0.7,
+    "answer_completeness": 0.1
+  },
+  "overall_score": 0.3143,
+  "score_matrix_by_category": {
+    "relationship_analysis": {
+      "evidence_quality": 0.0,
+      "participant_verification": 1.0,
+      "organizational_accuracy": 0.3,
+      "grounding_integrity": 0.0,
+      "factual_accuracy": 0.1,
+      "hallucination_detection": 0.7,
+      "answer_completeness": 0.1
+    }
+  },
+  "worst_questions": [
+    {
+      "category": "relationship_analysis",
+      "question": "What path connects Arthur Andersen to the FBI document-destruction investigation in the local Enron evidence?",
+      "avg_score": 0.3143
+    }
+  ],
+  "slice_question_count": 1,
+  "successful_question_count": 1,
+  "error_question_count": 0,
+  "elapsed_s": 36.1,
+  "version": "1.0",
+  "created_at": "2026-04-04T21:27:37Z",
+  "run_name": "gpt54_side_by_side_smoke",
+  "run_id": "3cd39a27dd27455abe5558926e03ed41",
+  "judge_endpoint": "databricks-claude-sonnet-4-6",
+  "category": null,
+  "attorney_category": "relationship_analysis",
+  "split": null,
+  "baseline_registry": {
+    "version": "1.0",
+    "enron": {
+      "local_core_eval": {
+        "slice": "balanced_test",
+        "question_count": 9,
+        "judge_endpoint": "databricks-claude-sonnet-4-6",
+        "overall_score_min": 0.64,
+        "elapsed_s_max": 240.0,
+        "score_delta_tolerance": 0.08,
+        "notes": "Frozen from the current Enron factual QA slice before modular cutover."
+      },
+      "deployed_core_eval": {
+        "slice": "balanced_test",
+        "question_count": 9,
+        "judge_endpoint": "databricks-claude-sonnet-4-6",
+        "overall_score_min": 0.58,
+        "elapsed_s_max": 320.0,
+        "score_delta_tolerance": 0.1,
+        "notes": "Deployment parity gate relative to the in-process local runtime."
+      },
+      "genie_quantitative_iteration0": {
+        "slice": "governed_genie_iteration0",
+        "question_count": 6,
+        "artifact_path": "src/evaluation/baselines/genie_iteration0_baseline.json",
+        "sql_correctness_current": 0.5,
+        "benchmark_pass_rate_current": 0.5,
+        "failure_rate_current": 0.5,
+        "target_sql_correctness": 0.95,
+        "target_benchmark_pass_rate": 0.9,
+        "target_failure_rate_max": 0.02,
+        "target_latency_p95_multiplier_max": 1.1,
+        "notes": "Iteration 0 frozen benchmark and scorecard for the governed Enron quantitative/Genie slice."
+      }
+    },
+    "bible": {
+      "local_quality_gate": {
+        "entity_recall_min": 0.6,
+        "citations_min": 1.0,
+        "success_rate_min": 0.8,
+        "notes": "Existing local validation suite remains the frozen Bible runtime baseline."
+      },
+      "local_databricks_parity": {
+        "recall_parity_min": 0.8,
+        "tool_match_rate_min": 0.6,
+        "notes": "Parity guard between DuckDB local-fast and Databricks-backed local-integration."
+      }
+    }
+  },
+  "max_concurrent_questions": 1,
+  "max_concurrent_judge_calls": 1,
+  "question_count": 1,
+  "summary": {
+    "score_columns": [
+      "evidence_quality",
+      "participant_verification",
+      "organizational_accuracy",
+      "grounding_integrity",
+      "factual_accuracy",
+      "hallucination_detection",
+      "answer_completeness"
+    ],
+    "overall_metrics": {
+      "evidence_quality": 0.0,
+      "participant_verification": 1.0,
+      "organizational_accuracy": 0.3,
+      "grounding_integrity": 0.0,
+      "factual_accuracy": 0.1,
+      "hallucination_detection": 0.7,
+      "answer_completeness": 0.1
+    },
+    "overall_score": 0.3143,
+    "score_matrix_by_category": {
+      "relationship_analysis": {
+        "evidence_quality": 0.0,
+        "participant_verification": 1.0,
+        "organizational_accuracy": 0.3,
+        "grounding_integrity": 0.0,
+        "factual_accuracy": 0.1,
+        "hallucination_detection": 0.7,
+        "answer_completeness": 0.1
+      }
+    },
+    "worst_questions": [
+      {
+        "category": "relationship_analysis",
+        "question": "What path connects Arthur Andersen to the FBI document-destruction investigation in the local Enron evidence?",
+        "avg_score": 0.3143
+      }
+    ]
+  },
+  "rows": [
+    {
+      "question_id": "enron-curated-arthur-andersen-fbi-document-destruction-path",
+      "question_text": "What path connects Arthur Andersen to the FBI document-destruction investigation in the local Enron evidence?",
+      "corpus": "enron",
+      "eval_split": "holdout",
+      "attorney_category": "relationship_analysis",
+      "architecture_primary": "relationship_path_retrieval",
+      "architecture_secondary": [
+        "timeline_retrieval",
+        "synthesis_provenance"
+      ],
+      "domain_primary": "legal_audit_external_stakeholders",
+      "domain_secondary": [],
+      "source_type": "manual_curated",
+      "coverage_policy": "required",
+      "suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expected_entities": [
+        "Arthur Andersen",
+        "FBI",
+        "document destruction",
+        "Enron"
+      ],
+      "category": "relationship_analysis",
+      "inputs/question": "What path connects Arthur Andersen to the FBI document-destruction investigation in the local Enron evidence?",
+      "expectations/question_id": "enron-curated-arthur-andersen-fbi-document-destruction-path",
+      "expectations/corpus": "enron",
+      "expectations/eval_split": "holdout",
+      "expectations/attorney_category": "relationship_analysis",
+      "expectations/architecture_primary": "relationship_path_retrieval",
+      "expectations/architecture_secondary": [
+        "timeline_retrieval",
+        "synthesis_provenance"
+      ],
+      "expectations/domain_primary": "legal_audit_external_stakeholders",
+      "expectations/domain_secondary": [],
+      "expectations/source_type": "manual_curated",
+      "expectations/coverage_policy": "required",
+      "expectations/suite_tags": [
+        "ground_truth_curated",
+        "gap_backlog_fill",
+        "enron_gap_fill"
+      ],
+      "expectations/expected_entities": [
+        "Arthur Andersen",
+        "FBI",
+        "document destruction",
+        "Enron"
+      ],
+      "inputs": {
+        "question": "What path connects Arthur Andersen to the FBI document-destruction investigation in the local Enron evidence?"
+      },
+      "expectations": {
+        "question_id": "enron-curated-arthur-andersen-fbi-document-destruction-path",
+        "corpus": "enron",
+        "eval_split": "holdout",
+        "attorney_category": "relationship_analysis",
+        "architecture_primary": "relationship_path_retrieval",
+        "architecture_secondary": [
+          "timeline_retrieval",
+          "synthesis_provenance"
+        ],
+        "domain_primary": "legal_audit_external_stakeholders",
+        "domain_secondary": [],
+        "source_type": "manual_curated",
+        "coverage_policy": "required",
+        "suite_tags": [
+          "ground_truth_curated",
+          "gap_backlog_fill",
+          "enron_gap_fill"
+        ],
+        "expected_entities": [
+          "Arthur Andersen",
+          "FBI",
+          "document destruction",
+          "Enron"
+        ],
+        "graph_ground_truth": "The local evidence connects Arthur Andersen to the FBI document-destruction investigation through a chain of document shredding, federal investigation into those allegations, and a later obstruction indictment.",
+        "historical_ground_truth": "Arthur Andersen is tied to the federal document-destruction investigation through the shredding episode and the later obstruction case, with Enron's legal notice showing the FBI investigating that document-destruction conduct.",
+        "evidence_required": true,
+        "category": "relationship_analysis"
+      },
+      "response_text": "I can\u2019t verify any \u201clocal Enron evidence\u201d or provide a specific path from your local dataset, because I don\u2019t have access to your corpus/knowledge graph.\n\nIn publicly known context, the connection is generally that **Arthur Andersen** was investigated by the **U.S. Department of Justice/FBI** in connection with **Enron-related document destruction** (often discussed in relation to the Andersen Enron matter). If you share the relevant snippet of your local evidence (e.g., the nodes/edges or the candidate paths), I can help you interpret which path corresponds to that FBI document-destruction investigation.",
+      "status": "ok",
+      "state": "OK",
+      "error": "",
+      "latency_ms": 2042.9,
+      "evidence_quality/value": 0.0,
+      "evidence_quality/rationale": "The agent explicitly states it cannot access the knowledge graph or corpus, and provides no evidence whatsoever from the available data sources. There are no email citations, no dates, no sender/recipient pairs, no relationship types, no email counts, and no provenance section. The response consists entirely of generic assertions about publicly known Enron/Arthur Andersen facts that could be found in any news article, with no grounding in the actual knowledge graph the system is supposed to query. This is a complete failure to utilize the available data sources.",
+      "participant_verification/value": 1.0,
+      "participant_verification/rationale": "Found 4/4: ['Arthur Andersen', 'FBI', 'document destruction', 'Enron']. Missing: []",
+      "organizational_accuracy/value": 0.3,
+      "organizational_accuracy/rationale": "The agent partially acknowledges the correct connection between Arthur Andersen, document destruction, and the FBI/DOJ investigation, which aligns with the graph ground truth. However, the response is largely a deflection \u2014 the agent claims it cannot access the knowledge graph and asks the user to provide evidence, which contradicts its role as a QA system built on that graph. The agent should have queried and reported on the graph's evidence chain (document shredding \u2192 federal investigation \u2192 obstruction indictment) rather than deferring to the user. No relationship types (e.g., INVESTIGATED_BY, CONNECTED_TO) are provided, no entities are properly structured, and no org hierarchy or timeline data from the curated tables is referenced. The partial credit is awarded only because the agent correctly identifies the general thematic connection without fabricating incorrect relationships.",
+      "grounding_integrity/value": 0.0,
+      "grounding_integrity/rationale": "The response has no provenance section, no grounding level statement, no confidence indicator, and no tool call citations. The agent explicitly admits it cannot access the knowledge graph and then proceeds to present training data (Arthur Andersen, DOJ/FBI, document destruction) as general public knowledge without any systematic attribution. There is no attempt to query the available tools (find_connections, org hierarchy, investigation timeline, etc.), and the response does not distinguish between graph-sourced claims and external knowledge in any structured way. The agent essentially refuses to engage with the knowledge graph while offering ungrounded external context, which is the worst-case grounding failure.",
+      "factual_accuracy/value": 0.1,
+      "factual_accuracy/rationale": "The agent explicitly refused to access or query the knowledge graph, claiming it has no access to the corpus. This is a fundamental failure \u2014 the agent should have queried the graph and found the chain of evidence connecting Arthur Andersen to the FBI document-destruction investigation (shredding allegations, federal investigation, obstruction indictment). Instead, the agent provided only vague external/historical knowledge while disclaiming any graph access. The agent did not fabricate specific graph-derived evidence (avoiding a 0.0), but it completely failed to perform its core function of retrieving graph-available information, warranting a very low score.",
+      "hallucination_detection/value": 0.7,
+      "hallucination_detection/rationale": "The agent appropriately declines to fabricate graph-derived evidence and acknowledges it cannot access the corpus. The general claim about Arthur Andersen being investigated by DOJ/FBI in connection with Enron document destruction is historically accurate and is presented as 'publicly known context' rather than graph-derived fact, which is a reasonable qualification. However, the agent slightly conflates 'U.S. Department of Justice/FBI' as a combined entity in a way that is loosely stated but not outright fabricated. No specific email citations, invented relationships, or made-up statistics are present. The response is cautious and mostly avoids hallucination, though it does volunteer external knowledge without being asked, which is a minor issue. Overall, no outright fabrications are detected, warranting a score in the higher range with a small deduction for presenting external knowledge without clearer sourcing caveats.",
+      "answer_completeness/value": 0.1,
+      "answer_completeness/rationale": "The agent completely fails to use any of the available tools or data sources in the knowledge graph. Instead of querying the investigation timeline (which contains 28 curated events including the document destruction and obstruction indictment), the email corpus, or entity relationships, the agent claims it cannot access the local data and deflects to asking the user to share information. The agent had access to a curated investigation timeline that explicitly contains the chain: Arthur Andersen document shredding \u2192 FBI investigation \u2192 obstruction indictment, but made no attempt to retrieve it. This is a fundamental failure to use available resources, not a case of missing external information."
+    }
+  ],
+  "comparison_mode": "raw_model_baseline",
+  "raw_model_provider": "databricks",
+  "raw_model_endpoint": "databricks-gpt-5-4-nano",
+  "raw_model_corpus": "enron",
+  "raw_model_prompt_mode": "enron"
+}

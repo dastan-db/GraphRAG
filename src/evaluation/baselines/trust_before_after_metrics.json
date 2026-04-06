@@ -1,0 +1,50 @@
+{
+  "phase2_floor_run": "factual_baseline_quality.json",
+  "accepted_run": "factual_baseline_quality_crosscut_v3.json",
+  "candidate_run": "factual_baseline_quality_crosscut_v4.json",
+  "candidate_available": true,
+  "candidate_promoted": false,
+  "overall": {
+    "before": 0.6913,
+    "after": 0.7513,
+    "delta": 0.06
+  },
+  "split_averages": {
+    "train": {
+      "before": 0.6794,
+      "after": 0.7231,
+      "delta": 0.0437
+    },
+    "test": {
+      "before": 0.7068,
+      "after": 0.7648,
+      "delta": 0.058
+    },
+    "holdout": {
+      "before": 0.7139,
+      "after": 0.8308,
+      "delta": 0.1169
+    }
+  },
+  "metric_delta": {
+    "evidence_quality": 0.1243,
+    "participant_verification": 0.0354,
+    "organizational_accuracy": 0.0344,
+    "grounding_integrity": 0.0618,
+    "factual_accuracy": 0.0398,
+    "hallucination_detection": 0.0444,
+    "answer_completeness": 0.0798
+  },
+  "category_delta": {
+    "access_control_probe": -0.0643,
+    "case_synthesis": 0.1357,
+    "corroboration_challenge": -0.0114,
+    "documentary_evidence": 0.0629,
+    "org_structure": 0.1786,
+    "person_profile": 0.0457,
+    "quantitative_analysis": 0.0014,
+    "relationship_analysis": 0.0143,
+    "timeline_reconstruction": 0.01,
+    "topic_investigation": 0.0843
+  }
+}
