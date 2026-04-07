@@ -12,7 +12,6 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _ROOT_DIR = os.path.join(_SCRIPT_DIR, "..")
 _SRC_DIR = os.path.join(_ROOT_DIR, "src")
 
-PARITY_THRESHOLD = 0.80
 ENRON_PARITY_THRESHOLD = 0.67
 
 
@@ -37,7 +36,7 @@ sys.path.insert(0, _SRC_DIR)
 sys.path.insert(0, _ROOT_DIR)
 
 from runtime import RuntimeQuery, SharedRuntimeOrchestrator
-from test_cases import ENRON_TEST_CASES, TEST_CASES, score_enron_response, score_response
+from test_cases import ENRON_TEST_CASES, score_enron_response
 
 
 def _apply_local_tool_cap():
@@ -63,69 +62,6 @@ def _safe_run_with_backend(backend: str, corpus: str, question: str):
         return text, tools, elapsed, ""
     except Exception as exc:
         return "", [], 0.0, str(exc)
-
-
-def _entity_parity(hits_a: list[str], hits_b: list[str], expected: list[str]) -> dict:
-    set_a = set(hit.lower() for hit in hits_a)
-    set_b = set(hit.lower() for hit in hits_b)
-    set_expected = set(exp.lower() for exp in expected)
-    recall_a = len(set_a & set_expected) / len(set_expected) if set_expected else 1.0
-    recall_b = len(set_b & set_expected) / len(set_expected) if set_expected else 1.0
-    return {
-        "both": sorted(set_a & set_b),
-        "local_only": sorted(set_a - set_b),
-        "databricks_only": sorted(set_b - set_a),
-        "recall_local": round(recall_a, 2),
-        "recall_databricks": round(recall_b, 2),
-        "recall_diff": round(abs(recall_a - recall_b), 2),
-    }
-
-
-def _run_bible_parity() -> dict:
-    results = []
-    parity_scores = []
-    for case in TEST_CASES:
-        question = case["question"]
-        local_text, local_tools, local_time, local_error = _safe_run_with_backend("local", "bible", question)
-        db_text, db_tools, db_time, db_error = _safe_run_with_backend("databricks", "bible", question)
-        local_scores = score_response(local_text, case["expected_entities"])
-        db_scores = score_response(db_text, case["expected_entities"])
-        parity = _entity_parity(
-            local_scores.get("entity_hits", []),
-            db_scores.get("entity_hits", []),
-            case["expected_entities"],
-        )
-        tool_match = set(local_tools) == set(db_tools)
-        parity_scores.append(1.0 - parity["recall_diff"])
-        results.append(
-            {
-                "question": question[:60],
-                "category": case["category"],
-                "local": {
-                    "entity_recall": local_scores.get("entity_recall", 0.0),
-                    "citations": local_scores.get("citations", 0),
-                    "tool_calls": local_tools,
-                    "latency": round(local_time, 1),
-                    "error": local_error,
-                },
-                "databricks": {
-                    "entity_recall": db_scores.get("entity_recall", 0.0),
-                    "citations": db_scores.get("citations", 0),
-                    "tool_calls": db_tools,
-                    "latency": round(db_time, 1),
-                    "error": db_error,
-                },
-                "parity": parity,
-                "tool_parity": tool_match,
-            }
-        )
-
-    return {
-        "threshold": PARITY_THRESHOLD,
-        "parity_ok": all(score >= PARITY_THRESHOLD for score in parity_scores),
-        "results": results,
-        "avg_score": round(sum(parity_scores) / len(parity_scores), 2) if parity_scores else 0.0,
-    }
 
 
 def _run_enron_parity() -> dict:
@@ -188,17 +124,15 @@ def main():
 
     print("=" * 80)
     print(f"  PARITY CHECK — local vs databricks, llm: {llm}")
-    print(f"  Bible threshold: {PARITY_THRESHOLD:.0%} | Enron threshold: {ENRON_PARITY_THRESHOLD:.0%}")
+    print(f"  Enron threshold: {ENRON_PARITY_THRESHOLD:.0%}")
     print("=" * 80)
 
-    bible_payload = _run_bible_parity()
     enron_payload = _run_enron_parity()
-    parity_ok = bible_payload["parity_ok"] and enron_payload["parity_ok"]
+    parity_ok = enron_payload["parity_ok"]
 
     print(f"\n{'=' * 80}")
     print("  PARITY SUMMARY")
     print(f"{'=' * 80}")
-    print(f"  Bible avg parity: {bible_payload['avg_score']:.2f}")
     print(f"  Enron avg parity: {enron_payload['avg_score']:.2f}")
     print(f"\n  {'PARITY OK' if parity_ok else 'PARITY FAILED'}")
 
@@ -208,7 +142,6 @@ def main():
         "llm": llm,
         "runtime_transport": os.environ.get("GRAPHRAG_RUNTIME_TRANSPORT", "direct"),
         "parity_ok": parity_ok,
-        "bible": bible_payload,
         "enron": enron_payload,
     }
     with open(args.output, "w") as f:

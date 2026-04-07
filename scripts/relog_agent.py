@@ -3,16 +3,24 @@ import mlflow
 from mlflow.models.resources import DatabricksServingEndpoint, DatabricksTable, DatabricksSQLWarehouse
 
 CATALOG = "serverless_8e8gyh_catalog"
-SCHEMA = "graphrag_bible"
-LLM_ENDPOINT = "databricks-meta-llama-3-3-70b-instruct"
+SCHEMA = "graphrag_enron"
+LLM_ENDPOINT = "databricks-llama-4-maverick"
 SMALL_LLM_ENDPOINT = "databricks-meta-llama-3-1-8b-instruct"
-REGISTERED_MODEL = f"{CATALOG}.{SCHEMA}.graphrag_agent"
-ENDPOINT_NAME = "graphrag-bible-agent"
+REGISTERED_MODEL = f"{CATALOG}.{SCHEMA}.graphrag_enron_agent"
+ENDPOINT_NAME = "graphrag-enron-agent"
 
 mlflow.set_registry_uri("databricks-uc")
 
-TABLE_NAMES = ["entities", "relationships", "verses", "agent_prompts",
-               "entity_analytics", "entity_paths"]
+TABLE_NAMES = [
+    "entities",
+    "relationships",
+    "agent_prompts",
+    "entity_analytics",
+    "entity_paths",
+    "emails",
+    "threads",
+    "participants",
+]
 
 resources = [
     DatabricksServingEndpoint(endpoint_name=LLM_ENDPOINT),
@@ -21,7 +29,7 @@ resources = [
     DatabricksSQLWarehouse(warehouse_id="399215661843ad19"),
 ]
 
-with mlflow.start_run(run_name="graphrag_agent_v27_table_resources"):
+with mlflow.start_run(run_name="graphrag_enron_agent_v27_table_resources"):
     model_info = mlflow.pyfunc.log_model(
         name="agent",
         python_model="src/agent/agent_serving.py",
@@ -35,7 +43,7 @@ with mlflow.start_run(run_name="graphrag_agent_v27_table_resources"):
             "databricks-sdk",
         ],
         input_example={
-            "input": [{"role": "user", "content": "Who is Abraham?"}]
+            "input": [{"role": "user", "content": "Who communicated most frequently with Kenneth Lay?"}]
         },
         registered_model_name=REGISTERED_MODEL,
     )

@@ -1,4 +1,4 @@
-"""Quick inference quality test for the graphrag-bible-agent endpoint.
+"""Quick inference quality test for the active Enron endpoint.
 
 Uses the same test cases and scoring as the local validation pipeline.
 """
@@ -10,9 +10,9 @@ import time
 from databricks.sdk import WorkspaceClient
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from test_cases import TEST_CASES, score_response, check_quality_gates
+from test_cases import ENRON_TEST_CASES, check_enron_quality_gates, score_enron_response
 
-ENDPOINT = "graphrag-bible-agent"
+ENDPOINT = "graphrag-enron-agent"
 
 
 def query_endpoint(w: WorkspaceClient, question: str) -> tuple[str, float]:
@@ -49,12 +49,12 @@ def main():
 
     print("=" * 80)
     print(f"  INFERENCE QUALITY TEST — endpoint: {ENDPOINT}")
-    print(f"  {len(TEST_CASES)} questions across diverse categories")
+    print(f"  {len(ENRON_TEST_CASES)} questions across investigative categories")
     print("=" * 80)
 
     results = []
 
-    for i, test in enumerate(TEST_CASES, 1):
+    for i, test in enumerate(ENRON_TEST_CASES, 1):
         q = test["question"]
         print(f"\n{'─' * 80}")
         print(f"  Q{i} [{test['category']}]")
@@ -68,7 +68,7 @@ def main():
             results.append({"question": q, "status": "ERROR", "latency": latency})
             continue
 
-        scores = score_response(response, test["expected_entities"])
+        scores = score_enron_response(response, [], test)
         scores["question"] = q[:60]
         scores["category"] = test["category"]
         scores["latency"] = round(latency, 1)
@@ -76,10 +76,11 @@ def main():
 
         print(f"  Latency:               {latency:.1f}s")
         print(f"  Response length:       {scores['response_length']} chars")
-        print(f"  Verse citations:       {scores['citations']}")
-        print(f"  Citation completeness: {scores['citation_completeness']:.0%}")
-        print(f"  Provenance score:      {scores['provenance_score']:.0%}  {scores['provenance_components']}")
+        print(f"  Expected tool hit:     {scores['expected_tool_hit']:.0%} ({scores['expected_tool']})")
+        if scores["forbidden_tool"]:
+            print(f"  Forbidden tool avoided:{scores['forbidden_tool_avoided']:.0%} ({scores['forbidden_tool']})")
         print(f"  Entity recall:         {scores['entity_recall']:.0%}  hits={scores['entity_hits']}")
+        print(f"  Provenance score:      {scores['provenance_score']:.0%}")
         if scores["entity_misses"]:
             print(f"                         misses={scores['entity_misses']}")
 
@@ -92,7 +93,7 @@ def main():
     print("  SUMMARY")
     print(f"{'=' * 80}")
 
-    valid = [r for r in results if "citations" in r]
+    valid = [r for r in results if "expected_tool_hit" in r]
     errors = [r for r in results if "status" in r and r["status"] == "ERROR"]
 
     if not valid:
@@ -102,21 +103,21 @@ def main():
         sys.exit(1)
 
     avg_latency = sum(r["latency"] for r in valid) / len(valid)
-    avg_citations = sum(r["citations"] for r in valid) / len(valid)
-    avg_cite_comp = sum(r["citation_completeness"] for r in valid) / len(valid)
+    avg_expected_tool_hit = sum(r["expected_tool_hit"] for r in valid) / len(valid)
     avg_prov = sum(r["provenance_score"] for r in valid) / len(valid)
     avg_entity = sum(r["entity_recall"] for r in valid) / len(valid)
+    avg_response_length = sum(r["response_length"] for r in valid) / len(valid)
 
     print(f"  Questions:             {len(valid)}/{len(results)} succeeded")
     if errors:
         print(f"  Errors:                {len(errors)}")
     print(f"  Avg latency:           {avg_latency:.1f}s")
-    print(f"  Avg verse citations:   {avg_citations:.1f}")
-    print(f"  Avg citation complete: {avg_cite_comp:.0%}")
-    print(f"  Avg provenance score:  {avg_prov:.0%}")
+    print(f"  Avg expected-tool hit: {avg_expected_tool_hit:.0%}")
     print(f"  Avg entity recall:     {avg_entity:.0%}")
+    print(f"  Avg provenance score:  {avg_prov:.0%}")
+    print(f"  Avg response length:   {avg_response_length:.0f} chars")
 
-    all_passed, gates = check_quality_gates(results)
+    all_passed, gates = check_enron_quality_gates(results)
 
     print(f"\n  QUALITY GATES:")
     for g in gates:

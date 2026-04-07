@@ -27,7 +27,6 @@ from databricks.sdk import WorkspaceClient
 APP_NAME = os.getenv("DATABRICKS_APP_NAME", "graphrag-demo-v2-dev")
 
 ENDPOINTS = [
-    {"env": "GRAPHRAG_ENDPOINT_NAME", "default": "graphrag-bible-agent"},
     {"env": "GRAPHRAG_ENRON_ENDPOINT_NAME", "default": "graphrag-enron-agent"},
 ]
 
@@ -88,23 +87,6 @@ def _live_query(w: WorkspaceClient, endpoint_name: str) -> dict:
 
 
 # ── pytest-compatible test functions ────────────────────────────────
-
-
-def test_bible_endpoint_ready():
-    w = _get_workspace_client()
-    result = _check_endpoint_ready(w, "graphrag-bible-agent")
-    assert result["ready"], f"Endpoint not ready: {result['state']}"
-
-
-def test_bible_endpoint_permission():
-    w = _get_workspace_client()
-    sp_id = _get_app_sp_application_id(w, APP_NAME)
-    ep_info = _check_endpoint_ready(w, "graphrag-bible-agent")
-    perm = _check_sp_permission(w, ep_info["id"], sp_id)
-    assert perm["has_permission"], (
-        f"App SP {sp_id} lacks CAN_QUERY on graphrag-bible-agent. "
-        f"Current permissions: {perm['permissions']}"
-    )
 
 
 def test_enron_endpoint_ready():

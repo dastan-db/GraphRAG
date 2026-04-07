@@ -102,18 +102,18 @@ display(
 # MAGIC ---
 # MAGIC ## Demo Queries
 # MAGIC
-# MAGIC ### Query 1: Multi-hop Lineage (The Flagship Audit Test)
-# MAGIC *"How is Ruth connected to Jesus?"*
+# MAGIC ### Query 1: Multi-hop Relationship Path (The Flagship Audit Test)
+# MAGIC *"How are Kenneth Lay and Andrew Fastow connected?"*
 # MAGIC
-# MAGIC This requires tracing: Ruth → Boaz → Obed → Jesse → David → ... → Jesus.
+# MAGIC This requires tracing an explicit relationship path across the graph rather than answering from a single document.
 # MAGIC The agent should use `trace_path` and `find_connections` to build the chain.
 # MAGIC
 # MAGIC **What to look for:** The **Provenance** section at the end of the response. This is what an enterprise auditor sees — the explicit path, every citation, and the grounding indicator. This is the difference between "the AI said so" and "here's the proof."
 
 # COMMAND ----------
 
-# DBTITLE 1,Q1: How is Ruth connected to Jesus?
-result_1 = ask("How is Ruth connected to Jesus? Trace the lineage step by step.")
+# DBTITLE 1,Q1: How are Kenneth Lay and Andrew Fastow connected?
+result_1 = ask("How are Kenneth Lay and Andrew Fastow connected? Trace the relationship path step by step.")
 
 # COMMAND ----------
 

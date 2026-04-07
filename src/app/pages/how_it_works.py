@@ -7,30 +7,29 @@ STEPS = [
         "color": "#dc3545",
         "desc": (
             "Point the pipeline at a document collection. The data is ingested and stored as "
-            "Delta tables in Unity Catalog. In our demo, we load all 66 books of the King James "
-            "Bible (39 Old Testament + 27 New Testament)."
+            "Delta tables in Unity Catalog. In this demo, we load the Enron email corpus "
+            "with messages, participants, threads, and supporting metadata."
         ),
-        "notebook": "01_Data_Prep.py",
+        "notebook": "06_Enron_Data_Prep.py",
     },
     {
         "num": "02", "icon": "fa-search", "title": "Extract Entities & Relationships",
         "color": "#4682B4",
         "desc": (
-            "An LLM reads every chapter and extracts structured entities (Person, Place, Event, "
-            "Group, Concept) and relationships (FAMILY_OF, TRAVELED_TO, SPOKE_TO). Each "
-            "relationship is traced back to its source chapter."
+            "An LLM reads emails and thread context to extract structured entities and "
+            "relationships, then grounds them back to source emails and supporting evidence."
         ),
-        "notebook": "02_Build_Knowledge_Graph.py",
+        "notebook": "07_Enron_Build_Knowledge_Graph.py",
     },
     {
         "num": "03", "icon": "fa-project-diagram", "title": "Build Knowledge Graph in Delta",
         "color": "#28a745",
         "desc": (
             "Entities become nodes, relationships become edges — all in Unity Catalog. "
-            "No external graph database needed. Four Delta tables: entities, relationships, "
-            "entity_mentions, and verses."
+            "No external graph database needed. Core Delta tables include entities, "
+            "relationships, entity_mentions, emails, participants, and threads."
         ),
-        "notebook": "02_Build_Knowledge_Graph.py",
+        "notebook": "07_Enron_Build_Knowledge_Graph.py",
     },
     {
         "num": "04", "icon": "fa-robot", "title": "Create Agent with Graph Tools",
@@ -38,9 +37,9 @@ STEPS = [
         "desc": (
             "A LangGraph agent is equipped with five graph traversal tools: find_entity, "
             "find_connections, trace_path, get_source_evidence, and get_entity_summary. "
-            "Each tool issues SQL queries against the Delta tables."
+            "Each tool issues SQL queries against the graph and evidence tables."
         ),
-        "notebook": "03_Build_Agent.py",
+        "notebook": "09_Enron_Build_Agent.py",
     },
     {
         "num": "05", "icon": "fa-comments", "title": "Ask Questions, Get Auditable Answers",
@@ -50,7 +49,7 @@ STEPS = [
             "retrieves connected evidence with full provenance, and returns a structured answer "
             "with path, source citations, and a grounding indicator."
         ),
-        "notebook": "04_Query_Demo.py",
+        "notebook": "09_Enron_Build_Agent.py / app",
     },
 ]
 

@@ -5,10 +5,6 @@ resources:
       description: "GraphRAG Interactive Demo — Auditable AI powered by Knowledge Graphs on Databricks"
       source_code_path: ../src/app
       resources:
-        - name: serving-endpoint
-          serving_endpoint:
-            name: graphrag-bible-agent
-            permission: CAN_QUERY
         - name: enron-serving-endpoint
           serving_endpoint:
             name: graphrag-enron-agent

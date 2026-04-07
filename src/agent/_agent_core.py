@@ -63,21 +63,14 @@ log = logging.getLogger(__name__)
 # Config
 # ---------------------------------------------------------------------------
 CATALOG = os.environ.get("GRAPHRAG_CATALOG", "serverless_8e8gyh_catalog")
-CORPUS = os.environ.get("GRAPHRAG_CORPUS", "bible").strip().lower()
-BIBLE_SCHEMA = (
-    os.environ.get("GRAPHRAG_BIBLE_SCHEMA")
-    or "graphrag_bible"
-)
+CORPUS = "enron"
 ENRON_SCHEMA = (
     os.environ.get("GRAPHRAG_ENRON_SCHEMA")
-    or (
-        os.environ.get("GRAPHRAG_SCHEMA")
-        if CORPUS == "enron"
-        else None
-    )
+    or os.environ.get("GRAPHRAG_SCHEMA")
     or "graphrag_enron"
 )
-SCHEMA = ENRON_SCHEMA if CORPUS == "enron" else BIBLE_SCHEMA
+BIBLE_SCHEMA = ENRON_SCHEMA
+SCHEMA = ENRON_SCHEMA
 LLM_ENDPOINT = os.environ.get("GRAPHRAG_LLM_ENDPOINT", "databricks-llama-4-maverick")
 SMALL_LLM_ENDPOINT = os.environ.get("GRAPHRAG_SMALL_LLM_ENDPOINT", "databricks-meta-llama-3-1-8b-instruct")
 SYNTHESIS_ENDPOINT = os.environ.get("GRAPHRAG_SYNTHESIS_ENDPOINT", "databricks-gpt-5-4-nano")
@@ -91,7 +84,7 @@ RELATIONSHIPS_TABLE = f"{CATALOG}.{SCHEMA}.relationships"
 VERSES_TABLE = f"{CATALOG}.{SCHEMA}.verses"
 AGENT_PROMPTS_TABLE = f"{CATALOG}.{SCHEMA}.agent_prompts"
 ENTITY_ANALYTICS_TABLE = f"{CATALOG}.{SCHEMA}.entity_analytics"
-AGENT_ID = "bible-agent"
+AGENT_ID = "enron-agent"
 PROMPT_CACHE_TTL = 300  # seconds; set to 0 for instant iteration
 _PARALLEL_TOOLS = os.environ.get("GRAPHRAG_PARALLEL_TOOLS", "true").lower() == "true"
 _CLASSIFY_PIPELINE = os.environ.get("GRAPHRAG_CLASSIFY_PIPELINE", "true").lower() == "true"
@@ -182,14 +175,7 @@ def _resolve_local_db_path(explicit_path: str | None = None) -> str:
         return default_path
 
     generic_name = os.path.basename(generic_path).lower()
-    if CORPUS == "bible" and "enron" in generic_name:
-        log.info(
-            "Ignoring GRAPHRAG_LOCAL_DB=%s for bible corpus; use %s to override the Bible DuckDB path.",
-            generic_path,
-            env_key,
-        )
-        return default_path
-    if CORPUS == "enron" and generic_name in {"graphrag.duckdb", "graphrag_bible.duckdb"}:
+    if CORPUS == "enron" and generic_name in {"graphrag.duckdb", "graphrag_legacy.duckdb"}:
         log.info(
             "Ignoring GRAPHRAG_LOCAL_DB=%s for enron corpus; use %s to override the Enron DuckDB path.",
             generic_path,
@@ -428,7 +414,7 @@ class LakebaseBackend:
     Connects via psycopg with Databricks OAuth tokens.  Uses a connection pool
     to avoid per-query TCP/TLS handshake and credential generation overhead.
     Supports session-level RLS context: call
-    ``set_rls_context({"permitted_books": "Genesis,Exodus"})``
+    ``set_rls_context({"permitted_books": "executive_team,analyst_team"})``
     to scope all subsequent queries via Postgres RLS policies.
 
     Tool SQL is authored for Spark (Databricks warehouse).  Before execution we
@@ -791,7 +777,7 @@ def _prompt_uses_supported_tools(prompt_text: str) -> bool:
 def _get_system_prompt(agent_id: str = AGENT_ID) -> str:
     """Load the system prompt from the agent_prompts Delta table with TTL caching.
 
-    Falls back to the hardcoded SYSTEM_PROMPT if the table is missing or unreadable.
+    Falls back to the hardcoded Enron prompt if the table is missing or unreadable.
     """
     import time
     now = time.time()
@@ -802,20 +788,13 @@ def _get_system_prompt(agent_id: str = AGENT_ID) -> str:
                 "WHERE agent_id = :agent_id LIMIT 1",
                 params={"agent_id": agent_id},
             )
-            prompt_text = rows[0]["prompt_text"] if rows else SYSTEM_PROMPT
-            if (
-                prompt_text
-                and CORPUS == "bible"
-                and "five books of the king james bible" in prompt_text.lower()
-            ):
-                log.warning("Loaded Bible prompt is stale; using hardcoded fallback")
-                prompt_text = SYSTEM_PROMPT
+            prompt_text = rows[0]["prompt_text"] if rows else ENRON_SYSTEM_PROMPT
             if prompt_text and not _prompt_uses_supported_tools(prompt_text):
-                prompt_text = SYSTEM_PROMPT
-            _prompt_cache["text"] = prompt_text or SYSTEM_PROMPT
+                prompt_text = ENRON_SYSTEM_PROMPT
+            _prompt_cache["text"] = prompt_text or ENRON_SYSTEM_PROMPT
         except Exception:
             log.warning("Failed to load prompt from Delta; using hardcoded fallback")
-            _prompt_cache["text"] = SYSTEM_PROMPT
+            _prompt_cache["text"] = ENRON_SYSTEM_PROMPT
         _prompt_cache["ts"] = now
     return _prompt_cache["text"]
 
@@ -871,23 +850,6 @@ def _log_agent_query(
 # Query entity pre-linking
 # ---------------------------------------------------------------------------
 # Same canonical-name conventions as ENTITY_PROMPT_PREFIX used during corpus build.
-_BIBLE_QUERY_ENTITY_PROMPT = """You are an expert biblical scholar. Extract all significant entities and concepts from the following user question.
-
-For each entity, provide:
-- name: The canonical name (e.g., Abraham not Abram unless before the name change)
-- entity_type: One of: Person, Place, Event, Group, Concept (treat God/Lord as Person)
-
-Rules:
-- Use canonical biblical names consistently
-- Include divine figures (God, Lord, Holy Spirit) as Person type
-- Include non-biblical terms exactly as the user stated them (e.g., "Arabs" stays "Arabs")
-- Extract ALL nouns that could refer to entities, even if uncertain whether they appear in the Bible
-
-Return a JSON array of objects, each with "name" and "entity_type" keys. Return ONLY the JSON array, no other text.
-
-Question:
-"""
-
 _CORPORATE_QUERY_ENTITY_PROMPT = """You are a corporate communications analyst. Extract all significant entities and concepts from the following user question about the Enron email corpus.
 
 For each entity, provide:
@@ -936,7 +898,7 @@ Return ONLY the JSON object, no other text.
 Question:
 """
 
-QUERY_ENTITY_PROMPT = _CORPORATE_QUERY_ENTITY_PROMPT if CORPUS == "enron" else _BIBLE_QUERY_ENTITY_PROMPT
+QUERY_ENTITY_PROMPT = _CORPORATE_QUERY_ENTITY_PROMPT
 CLASSIFY_AND_EXTRACT_PROMPT = _CORPORATE_CLASSIFY_AND_EXTRACT_PROMPT
 
 
@@ -1133,7 +1095,6 @@ _EMAIL_TOOL_NAMES = frozenset({
 })
 _METADATA_TOOL_NAMES = frozenset({
     "find_top_contacts", "find_connections", "get_communication_stats",
-    "get_topic_distribution",
 })
 
 
@@ -1966,46 +1927,24 @@ def build_prelookup_context(question: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# KJV name alias resolution
+# Alias compatibility
 # ---------------------------------------------------------------------------
-KJV_ALIASES: dict[str, list[str]] = {
-    "Elijah": ["Elias"],
-    "Elisha": ["Eliseus"],
-    "Isaiah": ["Esaias"],
-    "Jeremiah": ["Jeremias", "Jeremy"],
-    "Joshua": ["Jesus (Nave)", "Josue"],
-    "Hosea": ["Osee"],
-    "Noah": ["Noe"],
-    "Jonah": ["Jonas"],
-    "Hezekiah": ["Ezekias"],
-    "Judas Iscariot": ["Judas"],
-    "Paul": ["Saul"],
-    "Saul": ["Paul"],
-    "Abraham": ["Abram"],
-    "Abram": ["Abraham"],
-    "Sarah": ["Sarai", "Sara"],
-    "Sarai": ["Sarah", "Sara"],
-    "Jacob": ["Israel"],
-    "Israel": ["Jacob"],
-    "Rebekah": ["Rebecca"],
-    "Timothy": ["Timotheus"],
-    "Zephaniah": ["Sophonias"],
-}
+_ENTITY_ALIASES: dict[str, list[str]] = {}
 
-_KJV_REVERSE: dict[str, str] = {}
-for _modern, _variants in KJV_ALIASES.items():
-    for _v in _variants:
-        _KJV_REVERSE.setdefault(_v.lower(), _modern)
-        _KJV_REVERSE.setdefault(_modern.lower(), _v)
+_ALIAS_REVERSE: dict[str, str] = {}
+for _canonical, _variants in _ENTITY_ALIASES.items():
+    for _variant in _variants:
+        _ALIAS_REVERSE.setdefault(_variant.lower(), _canonical)
+        _ALIAS_REVERSE.setdefault(_canonical.lower(), _variant)
 
 
 def _get_alias_names(name: str) -> list[str]:
     """Return alternative spellings/names for a given name."""
-    aliases = KJV_ALIASES.get(name, [])
+    aliases = list(_ENTITY_ALIASES.get(name, []))
     lower = name.lower()
-    for _v, _modern in _KJV_REVERSE.items():
-        if _v == lower and _modern not in aliases:
-            aliases.append(_modern)
+    for _variant, _canonical in _ALIAS_REVERSE.items():
+        if _variant == lower and _canonical not in aliases:
+            aliases.append(_canonical)
     return aliases
 
 
@@ -2143,7 +2082,7 @@ def _score_evidence(
 # ---------------------------------------------------------------------------
 # Structured output helpers
 # ---------------------------------------------------------------------------
-def _group_connections(entity_name: str, results: list[dict], corpus: str = "bible") -> dict:
+def _group_connections(entity_name: str, results: list[dict], corpus: str = "enron") -> dict:
     """Group raw connection rows by relationship_type for structured JSON output."""
     from collections import defaultdict
     humanize = _maybe_humanize if corpus == "enron" else lambda x: x
@@ -2221,7 +2160,7 @@ def find_entity(name: str) -> str:
     Use this when the user asks about a specific person, place, event, or concept.
 
     Args:
-        name: The name to search for (e.g., "Moses", "Kenneth Lay", "Enron")
+        name: The name to search for (e.g., "Kenneth Lay", "Enron", "Arthur Andersen")
     """
     if CORPUS == "enron":
         cols = "name, entity_type, description, first_mention_thread, first_mention_subject"
@@ -2250,7 +2189,7 @@ def find_entity(name: str) -> str:
         alias_note = ""
         aliases = _get_alias_names(name)
         if aliases:
-            alias_note = f" (also tried KJV variants: {', '.join(aliases)})"
+            alias_note = f" (also tried alternate variants: {', '.join(aliases)})"
         return f"No entity found matching '{name}'{alias_note}."
 
     entities = []
@@ -2612,8 +2551,8 @@ def find_connections(entity_name: str, book: str = "", relationship_type: str = 
     Use this to understand how a person, place, or concept is connected to others.
 
     Args:
-        entity_name: The entity name to find connections for (e.g., "Abraham", "Kenneth Lay")
-        book: Optional — filter to a specific book (Bible) or leave empty.
+        entity_name: The entity name to find connections for (e.g., "Kenneth Lay", "Andrew Fastow")
+        book: Optional — secondary filter for legacy corpora; leave empty for Enron.
         relationship_type: Optional — filter to a specific type (e.g., "REPORTS_TO", "MANAGES", "SENT_TO"). Leave empty for all types.
     """
     entity_id = "_".join(entity_name.lower().split())
@@ -2699,7 +2638,7 @@ def find_connections(entity_name: str, book: str = "", relationship_type: str = 
         return f"No connections found for '{entity_name}'{suffix}."
 
     return json.dumps(
-        _group_connections(entity_name, results, corpus="bible"),
+        _group_connections(entity_name, results, corpus="enron"),
         ensure_ascii=False,
     )
 
@@ -3422,44 +3361,6 @@ def _select_gated_analytics_route(
             "params": {
                 "entity_a": primary_entity,
                 "entity_b": secondary_entity,
-                "limit": requested_limit,
-            },
-            "migration_wave": "wave2",
-        }
-
-    if _should_enable_wave2_hybrid_tool("browse_topics") and any(
-        token in q_lower
-        for token in (
-            "browse topics",
-            "topic taxonomy",
-            "topic categories",
-            "sub-topics",
-            "subtopics",
-        )
-    ):
-        return {
-            "tool_name": "browse_topics",
-            "params": {
-                "category": topic_category,
-                "entity_name": primary_entity if not topic_category else "",
-            },
-            "migration_wave": "wave2",
-        }
-
-    if _should_enable_wave2_hybrid_tool("get_topic_distribution") and any(
-        token in q_lower
-        for token in (
-            "topic distribution",
-            "most common topics",
-            "top topics",
-            "popular topics",
-            "topics for",
-        )
-    ):
-        return {
-            "tool_name": "get_topic_distribution",
-            "params": {
-                "entity_name": primary_entity,
                 "limit": requested_limit,
             },
             "migration_wave": "wave2",
@@ -5940,13 +5841,12 @@ def get_relationship_evidence(
 
 @tool
 def get_source_evidence(entity_name: str, book: str = "") -> str:
-    """Get source text that mentions a specific entity. For Bible: returns verses. For Enron: returns emails.
+    """Get source text that mentions a specific entity.
 
     Args:
         entity_name: The entity name to find source text for. Supports 'A AND B' syntax
             to find emails mentioning both entities (e.g., "Kathy Dodgen AND Kenneth Lay").
-        book: For Bible: filter to a specific book (e.g., "Genesis").
-            For Enron: filter to a second entity name — returns emails mentioning BOTH
+        book: For Enron, filter to a second entity name — returns emails mentioning BOTH
             entity_name and book (e.g., entity_name="Kathy Dodgen", book="Kenneth Lay").
     """
     if CORPUS == "enron":
@@ -6042,7 +5942,7 @@ def get_entity_summary(entity_name: str) -> str:
     Use this for broad questions about who someone is or what role they play.
 
     Args:
-        entity_name: The entity to summarize (e.g., "Abraham", "Kenneth Lay")
+        entity_name: The entity to summarize (e.g., "Kenneth Lay", "Jeff Skilling")
     """
     if CORPUS == "enron":
         resolved = resolve_entity_cached(entity_name)
@@ -6176,10 +6076,10 @@ def get_entity_summary(entity_name: str) -> str:
 @tool
 def list_entities_by_book(book: str, entity_type: str = "") -> str:
     """List all named entities that appear in a specific book or by type.
-    For Bible: filter by book name. For Enron: use entity_type to filter.
+    For Enron, use `entity_type` to filter and leave `book` empty.
 
     Args:
-        book: The book name (Bible: "Ruth", "Genesis"). For Enron, leave empty.
+        book: Legacy corpus filter; for Enron leave empty.
         entity_type: Optional — filter by type (e.g., "Person", "Place", "Group", "Organization").
     """
     if CORPUS == "enron":
@@ -6227,7 +6127,7 @@ def list_entities_by_book(book: str, entity_type: str = "") -> str:
 @tool
 def find_cross_book_entities(min_books: int = 2, entity_type: str = "") -> str:
     """Find entities that appear across multiple books/threads — useful for cross-context analysis.
-    For Bible: entities appearing in multiple books. For Enron: entities in multiple threads.
+    For Enron this returns entities that appear in multiple threads.
 
     Args:
         min_books: Minimum number of distinct books/threads (default: 2)
@@ -6412,11 +6312,11 @@ def _trace_path_via_org_hierarchy(entity_a: str, entity_b: str) -> str | None:
 @tool
 def trace_path(entity_a: str, entity_b: str, max_hops: int = 5) -> str:
     """Find the shortest path between two entities by traversing relationships.
-    Use this for multi-hop questions like 'How is Ruth connected to Jesus?' or genealogy chains.
+    Use this for multi-hop questions like 'How is Kenneth Lay connected to Andrew Fastow?' or other relationship chains.
 
     Args:
-        entity_a: Starting entity name (e.g., "Ruth")
-        entity_b: Ending entity name (e.g., "Jesus")
+        entity_a: Starting entity name (e.g., "Kenneth Lay")
+        entity_b: Ending entity name (e.g., "Andrew Fastow")
         max_hops: Maximum number of hops to search (default: 5)
     """
     if CORPUS == "enron":
@@ -6605,383 +6505,6 @@ def trace_path(entity_a: str, entity_b: str, max_hops: int = 5) -> str:
     return json.dumps(result, ensure_ascii=False)
 
 
-_BIBLE_LINEAGE_STOP_WORDS = {
-    "How", "What", "Who", "Trace", "Explain", "Show", "Step", "Bible",
-    "Lineage", "Genealogy", "Connection",
-}
-
-_BIBLE_BOOK_PAIR_PATTERNS = (
-    re.compile(
-        r"\bboth\s+((?:[1-3]\s+)?[A-Z][a-z]+(?:\s+(?:of|[A-Z][a-z]+))*)\s+and\s+((?:[1-3]\s+)?[A-Z][a-z]+(?:\s+(?:of|[A-Z][a-z]+))*)\b"
-    ),
-    re.compile(
-        r"\bin\s+((?:[1-3]\s+)?[A-Z][a-z]+(?:\s+(?:of|[A-Z][a-z]+))*)\s+and\s+((?:[1-3]\s+)?[A-Z][a-z]+(?:\s+(?:of|[A-Z][a-z]+))*)\b"
-    ),
-)
-
-
-def _extract_bible_lineage_entities(question: str) -> list[dict]:
-    candidates = re.findall(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b", question or "")
-    resolved: list[dict] = []
-    seen: set[str] = set()
-    for candidate in candidates:
-        candidate = candidate.strip()
-        if not candidate or candidate in _BIBLE_LINEAGE_STOP_WORDS:
-            continue
-        rows = _backend.execute_sql(
-            f"SELECT entity_id, name FROM {ENTITIES_TABLE}"
-            " WHERE LOWER(name) = LOWER(:name)"
-            " ORDER BY name LIMIT 1",
-            params={"name": candidate},
-        )
-        if not rows:
-            continue
-        row = rows[0]
-        name_key = (row.get("name") or "").lower()
-        if not name_key or name_key in seen:
-            continue
-        seen.add(name_key)
-        resolved.append(row)
-        if len(resolved) >= 2:
-            break
-    return resolved
-
-
-def _extract_bible_book_pair(question: str) -> tuple[str, str] | None:
-    for pattern in _BIBLE_BOOK_PAIR_PATTERNS:
-        match = pattern.search(question or "")
-        if match:
-            return match.group(1).strip(), match.group(2).strip()
-    return None
-
-
-def _maybe_expand_lineage_with_spouse(
-    path_ids: list[str], path_names: list[str], path_rels: list[str]
-) -> tuple[list[str], list[str], list[str]]:
-    if len(path_ids) < 2 or not path_rels:
-        return path_ids, path_names, path_rels
-
-    parent_relations = {
-        "PARENT_OF",
-        "CHILD_OF",
-        "ANCESTOR_OF",
-        "DESCENDANT_OF",
-        "FATHER_OF",
-        "MOTHER_OF",
-    }
-    spouse_relations = {"SPOUSE_OF", "MARRIED_TO", "HUSBAND_OF", "WIFE_OF"}
-    if path_rels[0] not in parent_relations:
-        return path_ids, path_names, path_rels
-
-    start_id = path_ids[0]
-    child_id = path_ids[1]
-    spouse_rel_csv = ", ".join(f"'{rel}'" for rel in spouse_relations)
-    parent_rel_csv = ", ".join(f"'{rel}'" for rel in parent_relations)
-
-    spouse_rows = _backend.execute_sql(
-        f"SELECT"
-        f" CASE WHEN r.source_entity = :entity_id THEN r.target_entity ELSE r.source_entity END AS spouse_id,"
-        f" COALESCE("
-        f"  CASE WHEN r.source_entity = :entity_id THEN e2.name ELSE e1.name END,"
-        f"  CASE WHEN r.source_entity = :entity_id THEN r.target_entity ELSE r.source_entity END"
-        f" ) AS spouse_name,"
-        f" r.relationship_type"
-        f" FROM {RELATIONSHIPS_TABLE} r"
-        f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
-        f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
-        f" WHERE (r.source_entity = :entity_id OR r.target_entity = :entity_id)"
-        f"   AND r.relationship_type IN ({spouse_rel_csv})"
-        f" ORDER BY r.book, r.chapter"
-        f" LIMIT 5",
-        params={"entity_id": start_id},
-    )
-    for spouse in spouse_rows or []:
-        spouse_id = spouse.get("spouse_id")
-        spouse_name = spouse.get("spouse_name")
-        spouse_rel = spouse.get("relationship_type")
-        if not spouse_id or not spouse_name or not spouse_rel or spouse_id in path_ids:
-            continue
-
-        parent_rows = _backend.execute_sql(
-            f"SELECT relationship_type"
-            f" FROM {RELATIONSHIPS_TABLE}"
-            f" WHERE ((source_entity = :src AND target_entity = :tgt)"
-            f"    OR (source_entity = :tgt AND target_entity = :src))"
-            f"   AND relationship_type IN ({parent_rel_csv})"
-            f" ORDER BY book, chapter"
-            f" LIMIT 1",
-            params={"src": spouse_id, "tgt": child_id},
-        )
-        if parent_rows:
-            return (
-                [path_ids[0], spouse_id, *path_ids[1:]],
-                [path_names[0], spouse_name, *path_names[1:]],
-                [spouse_rel, parent_rows[0]["relationship_type"], *path_rels[1:]],
-            )
-
-    return path_ids, path_names, path_rels
-
-
-def _build_bible_lineage_answer(question: str) -> str | None:
-    q_lower = (question or "").lower()
-    if CORPUS != "bible":
-        return None
-    if not any(
-        phrase in q_lower
-        for phrase in ("lineage", "genealogy", "ancestor", "descendant", "connected to")
-    ):
-        return None
-
-    entities = _extract_bible_lineage_entities(question)
-    if len(entities) < 2:
-        return None
-
-    entity_a, entity_b = entities[:2]
-    family_relations = (
-        "PARENT_OF",
-        "CHILD_OF",
-        "ANCESTOR_OF",
-        "DESCENDANT_OF",
-        "FATHER_OF",
-        "MOTHER_OF",
-        "SPOUSE_OF",
-        "MARRIED_TO",
-        "HUSBAND_OF",
-        "WIFE_OF",
-    )
-    rel_csv = ", ".join(f"'{rel}'" for rel in family_relations)
-    cte_query = (
-        "WITH RECURSIVE bfs(current_id, depth, visited, path_ids, path_names, path_rels) AS ("
-        f" SELECT e.entity_id, 0,"
-        "  CAST('|' || e.entity_id || '|' AS VARCHAR(4000)),"
-        "  CAST(e.entity_id AS VARCHAR(4000)),"
-        "  CAST(e.name AS VARCHAR(4000)),"
-        "  CAST('' AS VARCHAR(4000))"
-        f" FROM {ENTITIES_TABLE} e"
-        " WHERE e.entity_id = :start_id"
-        " UNION ALL"
-        " SELECT"
-        "  CASE WHEN r.source_entity = b.current_id"
-        "   THEN r.target_entity ELSE r.source_entity END,"
-        "  b.depth + 1,"
-        "  b.visited"
-        "   || CASE WHEN r.source_entity = b.current_id"
-        "       THEN r.target_entity ELSE r.source_entity END || '|',"
-        "  b.path_ids || '|' || CASE WHEN r.source_entity = b.current_id"
-        "       THEN r.target_entity ELSE r.source_entity END,"
-        "  b.path_names || '|' || COALESCE("
-        "   CASE WHEN r.source_entity = b.current_id THEN e2.name ELSE e1.name END,"
-        "   CASE WHEN r.source_entity = b.current_id"
-        "    THEN r.target_entity ELSE r.source_entity END),"
-        "  CASE WHEN b.path_rels = '' THEN r.relationship_type"
-        "   ELSE b.path_rels || '|' || r.relationship_type END"
-        " FROM bfs b"
-        f" JOIN {RELATIONSHIPS_TABLE} r"
-        "  ON (r.source_entity = b.current_id OR r.target_entity = b.current_id)"
-        f"  AND r.relationship_type IN ({rel_csv})"
-        f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
-        f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
-        " WHERE b.depth < 6"
-        "  AND b.visited NOT LIKE"
-        "   '%|' || CASE WHEN r.source_entity = b.current_id"
-        "    THEN r.target_entity ELSE r.source_entity END || '|%'"
-        ")"
-        " SELECT path_ids, path_names, path_rels, depth"
-        " FROM bfs WHERE current_id = :end_id"
-        " ORDER BY depth LIMIT 1"
-    )
-    rows = _backend.execute_sql(
-        cte_query,
-        params={"start_id": entity_a["entity_id"], "end_id": entity_b["entity_id"]},
-    )
-    if not rows:
-        return None
-
-    row = rows[0]
-    path_ids = [part for part in (row.get("path_ids") or "").split("|") if part]
-    path_names = [part for part in (row.get("path_names") or "").split("|") if part]
-    path_rels = [part for part in (row.get("path_rels") or "").split("|") if part]
-    path_ids, path_names, path_rels = _maybe_expand_lineage_with_spouse(
-        path_ids, path_names, path_rels
-    )
-    if len(path_ids) < 2 or len(path_rels) != len(path_ids) - 1:
-        return None
-
-    steps: list[dict] = []
-    source_refs: list[str] = []
-    for idx, rel in enumerate(path_rels):
-        src_id = path_ids[idx]
-        tgt_id = path_ids[idx + 1]
-        src_name = path_names[idx]
-        tgt_name = path_names[idx + 1]
-        edge_rows = _backend.execute_sql(
-            f"SELECT relationship_type, book, chapter, description"
-            f" FROM {RELATIONSHIPS_TABLE}"
-            " WHERE ((source_entity = :src AND target_entity = :tgt)"
-            "    OR (source_entity = :tgt AND target_entity = :src))"
-            "   AND relationship_type = :rel"
-            " ORDER BY book, chapter LIMIT 1",
-            params={"src": src_id, "tgt": tgt_id, "rel": rel},
-        )
-        edge = edge_rows[0] if edge_rows else {}
-        reference = ""
-        if edge.get("book") and edge.get("chapter") is not None:
-            reference = f"{edge['book']} {edge['chapter']}"
-            source_refs.append(reference)
-        steps.append({
-            "source": src_name,
-            "relationship": rel,
-            "target": tgt_name,
-            "reference": reference,
-        })
-
-    path_render = " -> ".join(path_names)
-    step_lines = []
-    for index, step in enumerate(steps, start=1):
-        ref_suffix = f", {step['reference']}" if step["reference"] else ""
-        step_lines.append(
-            f"{index}. {step['source']} -> {step['target']} ({step['relationship']}{ref_suffix})"
-        )
-
-    unique_sources = list(dict.fromkeys(source_refs))
-    sources_line = ", ".join(unique_sources) if unique_sources else "None retrieved"
-    return "\n".join([
-        "### Answer",
-        f"{entity_a['name']} is connected to {entity_b['name']} through this family line:",
-        *step_lines,
-        "",
-        "### Provenance",
-        f"- **Path**: {path_render}",
-        f"- **Sources**: {sources_line}",
-        "- **Grounding**: All claims grounded in knowledge graph.",
-    ])
-
-
-def _build_bible_cross_book_answer(question: str) -> str | None:
-    q_lower = (question or "").lower()
-    if CORPUS != "bible":
-        return None
-    if "both" not in q_lower or "appear" not in q_lower:
-        return None
-
-    book_pair = _extract_bible_book_pair(question)
-    if not book_pair:
-        return None
-    book_a, book_b = book_pair
-
-    sql_params: dict[str, str] = {"book_a": book_a, "book_b": book_b}
-    type_filter = ""
-    label = "Entities"
-    if re.search(r"\bpeople\b|\bpersons?\b", q_lower):
-        sql_params["entity_type"] = "Person"
-        type_filter = " AND e.entity_type = :entity_type"
-        label = "People"
-
-    rows = _backend.execute_sql(
-        f"SELECT DISTINCT e.name, e.entity_type"
-        f" FROM {ENTITIES_TABLE} e"
-        f" WHERE e.entity_id IN ("
-        f"   SELECT source_entity FROM {RELATIONSHIPS_TABLE} WHERE book = :book_a"
-        f"   UNION"
-        f"   SELECT target_entity FROM {RELATIONSHIPS_TABLE} WHERE book = :book_a"
-        f" )"
-        f"   AND e.entity_id IN ("
-        f"   SELECT source_entity FROM {RELATIONSHIPS_TABLE} WHERE book = :book_b"
-        f"   UNION"
-        f"   SELECT target_entity FROM {RELATIONSHIPS_TABLE} WHERE book = :book_b"
-        f" )"
-        f"{type_filter}"
-        f" ORDER BY e.name"
-        f" LIMIT 25",
-        params=sql_params,
-    )
-    if not rows:
-        return None
-
-    names = [r["name"] for r in rows if r.get("name")]
-    if not names:
-        return None
-
-    shown = names[:12]
-    count_suffix = "" if len(shown) == len(names) else f" (showing {len(shown)} of {len(names)})"
-    return "\n".join([
-        "### Answer",
-        f"{label} appearing in both {book_a} and {book_b} according to the knowledge graph{count_suffix}:",
-        *[f"- {name}" for name in shown],
-        "",
-        "### Provenance",
-        f"- **Path**: entity intersection across {book_a} and {book_b}",
-        f"- **Sources**: {book_a}, {book_b}",
-        "- **Grounding**: All claims grounded in knowledge graph.",
-    ])
-
-
-def _build_bible_comparison_answer(question: str) -> str | None:
-    q_lower = (question or "").lower()
-    if CORPUS != "bible" or "compare" not in q_lower:
-        return None
-
-    entities = _extract_bible_lineage_entities(question)
-    if len(entities) < 2:
-        return None
-
-    profiles: list[dict] = []
-    sources: list[str] = []
-    for entity in entities[:2]:
-        rel_rows = _backend.execute_sql(
-            f"SELECT relationship_type, COUNT(*) AS frequency,"
-            f" MIN(book) AS book, MIN(chapter) AS chapter,"
-            f" MAX(description) AS description"
-            f" FROM {RELATIONSHIPS_TABLE}"
-            " WHERE source_entity = :entity_id OR target_entity = :entity_id"
-            " GROUP BY relationship_type"
-            " ORDER BY frequency DESC, relationship_type"
-            " LIMIT 3",
-            params={"entity_id": entity["entity_id"]},
-        )
-        if not rel_rows:
-            return None
-
-        top_relationships = []
-        for row in rel_rows:
-            reference = ""
-            if row.get("book") and row.get("chapter") is not None:
-                reference = f"{row['book']} {row['chapter']}"
-                sources.append(reference)
-            top_relationships.append({
-                "relationship_type": row["relationship_type"],
-                "frequency": row.get("frequency", 0),
-                "reference": reference,
-                "description": row.get("description", ""),
-            })
-        profiles.append({"name": entity["name"], "relationships": top_relationships})
-
-    comparison_lines = []
-    for profile in profiles:
-        rel_parts = []
-        for rel in profile["relationships"]:
-            ref_suffix = f" ({rel['reference']})" if rel["reference"] else ""
-            rel_parts.append(
-                f"{rel['relationship_type']} x{rel['frequency']}{ref_suffix}"
-            )
-        comparison_lines.append(
-            f"- {profile['name']}: strongest graph signals are "
-            + ", ".join(rel_parts)
-            + "."
-        )
-
-    unique_sources = list(dict.fromkeys(sources))
-    sources_line = ", ".join(unique_sources) if unique_sources else "None retrieved"
-    return "\n".join([
-        "### Answer",
-        f"{profiles[0]['name']} and {profiles[1]['name']} both appear as major leadership figures in the graph, but they are emphasized through different relationship patterns.",
-        *comparison_lines,
-        "",
-        "### Provenance",
-        f"- **Path**: {profiles[0]['name']} -> leadership pattern; {profiles[1]['name']} -> leadership pattern",
-        f"- **Sources**: {sources_line}",
-        "- **Grounding**: All claims grounded in knowledge graph.",
-    ])
 
 
 @tool
@@ -6994,17 +6517,17 @@ def compare_entity_sets(
     operation: str = "difference",
 ) -> str:
     """Compare two sets of entities using set operations (difference, intersection, union).
-    Use this for constraint questions like 'who did Moses COMMAND but not SPOKE_TO'
-    or 'entities in Exodus but not Genesis'.
+    Use this for constraint questions like 'who did Kenneth Lay email but not meet with'
+    or 'entities in legal threads but not finance threads'.
 
     Set A is defined by (entity_name + rel_type_a + book_a).
     Set B is defined by (entity_name + rel_type_b + book_b).
     If entity_name is empty, sets are all entities in that book (optionally filtered by rel_type).
 
     Args:
-        entity_name: Optional central entity (e.g., "Moses"). If empty, compares all entities in the two books.
-        book_a: Optional book filter for set A (e.g., "Exodus").
-        book_b: Optional book filter for set B (e.g., "Genesis").
+        entity_name: Optional central entity (e.g., "Kenneth Lay"). If empty, compares all entities in the two filtered sets.
+        book_a: Optional legacy filter for set A.
+        book_b: Optional legacy filter for set B.
         rel_type_a: Optional relationship type filter for set A (e.g., "COMMANDED").
         rel_type_b: Optional relationship type filter for set B (e.g., "SPOKE_TO").
         operation: One of "difference" (A-B), "intersection" (A&B), or "union" (A|B). Default: "difference".
@@ -9709,305 +9232,18 @@ def get_hierarchy_evidence(
 LOCAL_TOOLS = [find_entity, find_connections, find_top_contacts, get_top_email_pairs,
                get_top_individuals, get_emails_between, get_email_full_body, get_dyad_topics,
                get_relationship_evidence, get_source_evidence, get_entity_summary,
-               list_entities_by_book, find_cross_book_entities, trace_path, compare_entity_sets,
+               trace_path,
                query_timeline, query_org_hierarchy, get_hierarchy_evidence,
                detect_self_emails, get_external_contacts, get_communication_timeline,
                get_activity_anomalies, search_emails, semantic_search_emails,
                find_emails, query_and_enrich,
-               get_extraction_provenance, trace_data_lineage, browse_topics,
-               get_topic_distribution, get_communication_stats,
-               get_entity_context, get_corpus_coverage]
+               get_communication_stats]
 
 
 def build_scoped_tools_local(permitted_books: list):
-    """Create graph tools scoped to a specific document set using the local backend.
-
-    Unlike build_scoped_tools in tools.py (Spark-dependent), this version works
-    with the agent_serving backend abstraction (DuckDB locally, Statement Execution
-    API on Databricks).
-    """
-    books_csv = ", ".join(f"'{b}'" for b in permitted_books)
-    book_filter_rel = f" AND r.book IN ({books_csv})"
-    book_filter_v = f" AND v.book IN ({books_csv})"
-
-    @tool
-    def find_entity(name: str) -> str:
-        """Search for a biblical entity by name. Returns matching entities with their type, description, and first mention.
-
-        Args:
-            name: The name to search for (e.g., "Moses", "Jerusalem", "covenant")
-        """
-        search_names = [name] + _get_alias_names(name)
-        results = []
-        for search_name in search_names:
-            results = _backend.execute_sql(
-                f"SELECT DISTINCT e.name, e.entity_type, e.description, e.first_mention_book, e.first_mention_chapter"
-                f" FROM {ENTITIES_TABLE} e"
-                f" JOIN {RELATIONSHIPS_TABLE} r ON (e.entity_id = r.source_entity OR e.entity_id = r.target_entity)"
-                f" WHERE LOWER(e.name) LIKE LOWER(:name_pattern){book_filter_rel}"
-                " ORDER BY e.name LIMIT 10",
-                params={"name_pattern": f"%{search_name}%"},
-            )
-            if results:
-                break
-
-        if not results:
-            for search_name in search_names:
-                verse_hits = _backend.execute_sql(
-                    f"SELECT DISTINCT e.name, e.entity_type, e.description,"
-                    f" e.first_mention_book, e.first_mention_chapter"
-                    f" FROM {ENTITIES_TABLE} e"
-                    f" WHERE EXISTS ("
-                    f"   SELECT 1 FROM {VERSES_TABLE} v"
-                    f"   WHERE v.text LIKE :name_pattern{book_filter_v}"
-                    f"   AND LOWER(e.name) LIKE LOWER(:entity_pattern)"
-                    f" )"
-                    " ORDER BY e.name LIMIT 10",
-                    params={"name_pattern": f"%{search_name}%", "entity_pattern": f"%{search_name}%"},
-                )
-                if verse_hits:
-                    results = verse_hits
-                    break
-
-        if not results:
-            return f"No entity found matching '{name}' in permitted books."
-        entities = [{
-            "name": r["name"], "type": r["entity_type"],
-            "description": r["description"],
-            "first_mention": f"{r['first_mention_book']} ch.{r['first_mention_chapter']}",
-        } for r in results]
-        return json.dumps(entities, ensure_ascii=False)
-
-    @tool
-    def find_connections(entity_name: str, book: str = "") -> str:
-        """Find all relationships involving a given entity — both as source and target.
-
-        Args:
-            entity_name: The entity name to find connections for (e.g., "Abraham", "Egypt")
-            book: Optional — filter to a specific book (e.g., "Exodus"). Leave empty for all permitted books.
-        """
-        entity_id = "_".join(entity_name.lower().split())
-        eid_pattern = f"%{entity_id}%"
-        sql_params = {"eid_pattern": eid_pattern}
-        extra_filter = book_filter_rel
-        if book:
-            if book not in permitted_books:
-                return f"Book '{book}' is not in your permitted document set."
-            extra_filter = f" AND r.book = :book"
-            sql_params["book"] = book
-        results = _backend.execute_sql(
-            f"SELECT COALESCE(e1.name, r.source_entity) as source_name,"
-            f" r.relationship_type, COALESCE(e2.name, r.target_entity) as target_name,"
-            f" r.description, r.book, r.chapter"
-            f" FROM {RELATIONSHIPS_TABLE} r"
-            f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
-            f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
-            f" WHERE (r.source_entity LIKE :eid_pattern OR r.target_entity LIKE :eid_pattern){extra_filter}"
-            " ORDER BY r.book, r.chapter LIMIT 100",
-            params=sql_params,
-        )
-        if not results:
-            suffix = f" in {book}" if book else ""
-            return f"No connections found for '{entity_name}'{suffix}."
-        return json.dumps(
-            _group_connections(entity_name, results, corpus="bible"),
-            ensure_ascii=False,
-        )
-
-    @tool
-    def get_source_evidence(entity_name: str, book: str = "") -> str:
-        """Get actual Bible verses that mention a specific entity.
-
-        Args:
-            entity_name: The entity name to find verses for (e.g., "Moses")
-            book: Optional — filter to a specific book. Leave empty for all permitted books.
-        """
-        sql_params = {"name_pattern": f"%{entity_name}%"}
-        extra_filter = book_filter_v
-        if book:
-            if book not in permitted_books:
-                return f"Book '{book}' is not in your permitted document set."
-            extra_filter = f" AND v.book = :book"
-            sql_params["book"] = book
-        results = _backend.execute_sql(
-            f"SELECT v.book, v.chapter, v.verse_number, v.text FROM {VERSES_TABLE} v"
-            f" WHERE v.text LIKE :name_pattern{extra_filter}"
-            " ORDER BY v.book, v.chapter, v.verse_number LIMIT 30",
-            params=sql_params,
-        )
-        if not results:
-            return f"No verses found mentioning '{entity_name}' in permitted books."
-        verses = [{
-            "reference": f"{r['book']} {r['chapter']}:{r['verse_number']}",
-            "text": r["text"],
-        } for r in results]
-        return json.dumps({"entity": entity_name, "total": len(verses), "verses": verses}, ensure_ascii=False)
-
-    @tool
-    def get_entity_summary(entity_name: str) -> str:
-        """Get a comprehensive profile of a biblical entity within the permitted document set.
-
-        Args:
-            entity_name: The entity to summarize (e.g., "Abraham", "Jerusalem")
-        """
-        entity_id = "_".join(entity_name.lower().split())
-        eid_params = {"eid_pattern": f"%{entity_id}%"}
-        entity_rows = _backend.execute_sql(
-            f"SELECT DISTINCT e.name, e.entity_type, e.description, e.first_mention_book, e.first_mention_chapter"
-            f" FROM {ENTITIES_TABLE} e"
-            f" JOIN {RELATIONSHIPS_TABLE} r ON (e.entity_id = r.source_entity OR e.entity_id = r.target_entity)"
-            f" WHERE e.entity_id LIKE :eid_pattern{book_filter_rel}"
-            " LIMIT 1",
-            params=eid_params,
-        )
-        if not entity_rows:
-            entity_rows = _backend.execute_sql(
-                f"SELECT DISTINCT e.name, e.entity_type, e.description,"
-                f" e.first_mention_book, e.first_mention_chapter"
-                f" FROM {ENTITIES_TABLE} e"
-                f" WHERE e.entity_id LIKE :eid_pattern"
-                f" AND EXISTS (SELECT 1 FROM {VERSES_TABLE} v"
-                f"   WHERE v.text LIKE :name_pattern{book_filter_v})"
-                " LIMIT 1",
-                params={"eid_pattern": f"%{entity_id}%", "name_pattern": f"%{entity_name}%"},
-            )
-        if not entity_rows:
-            return f"Entity '{entity_name}' not found in the permitted document set."
-        ent = entity_rows[0]
-        summary = {
-            "name": ent["name"], "type": ent["entity_type"],
-            "description": ent["description"],
-            "first_mention": f"{ent['first_mention_book']} ch.{ent['first_mention_chapter']}",
-        }
-        rels = _backend.execute_sql(
-            f"SELECT COALESCE(e1.name, r.source_entity) as src,"
-            f" r.relationship_type, COALESCE(e2.name, r.target_entity) as tgt,"
-            f" r.description, r.book"
-            f" FROM {RELATIONSHIPS_TABLE} r"
-            f" LEFT JOIN {ENTITIES_TABLE} e1 ON r.source_entity = e1.entity_id"
-            f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
-            f" WHERE (r.source_entity LIKE :eid_pattern OR r.target_entity LIKE :eid_pattern){book_filter_rel}"
-            " LIMIT 50",
-            params=eid_params,
-        )
-        if rels:
-            from collections import defaultdict
-            books_seen = set(r["book"] for r in rels)
-            summary["appears_in"] = sorted(books_seen)
-            groups: dict[str, list[dict]] = defaultdict(list)
-            for r in rels:
-                groups[r["relationship_type"]].append({
-                    "source": r["src"], "target": r["tgt"], "description": r["description"],
-                })
-            summary["relationships"] = {"total": len(rels), "by_type": dict(groups)}
-        return json.dumps(summary, ensure_ascii=False)
-
-    @tool
-    def list_entities_by_book(book: str, entity_type: str = "") -> str:
-        """List all named entities in a specific book.
-
-        Args:
-            book: The book name (must be in permitted set)
-            entity_type: Optional — filter by type
-        """
-        if book not in permitted_books:
-            return f"Book '{book}' is not in your permitted document set."
-        sql_params = {"book": book}
-        type_filter = ""
-        if entity_type:
-            type_filter = " AND e.entity_type = :entity_type"
-            sql_params["entity_type"] = entity_type
-        results = _backend.execute_sql(
-            f"SELECT DISTINCT e.name, e.entity_type, e.description"
-            f" FROM {ENTITIES_TABLE} e"
-            f" JOIN {RELATIONSHIPS_TABLE} r ON (e.entity_id = r.source_entity OR e.entity_id = r.target_entity)"
-            f" WHERE r.book = :book{type_filter}"
-            " ORDER BY e.entity_type, e.name",
-            params=sql_params,
-        )
-        if not results:
-            return f"No entities found in '{book}'."
-        return json.dumps(
-            _group_entities_by_type(results, book=book), ensure_ascii=False,
-        )
-
-    @tool
-    def compare_entity_sets(
-        entity_name: str = "",
-        book_a: str = "",
-        book_b: str = "",
-        rel_type_a: str = "",
-        rel_type_b: str = "",
-        operation: str = "difference",
-    ) -> str:
-        """Compare two sets of entities using set operations (difference, intersection, union).
-
-        Args:
-            entity_name: Optional central entity (e.g., "Moses").
-            book_a: Book filter for set A (must be in permitted set).
-            book_b: Book filter for set B (must be in permitted set).
-            rel_type_a: Relationship type filter for set A.
-            rel_type_b: Relationship type filter for set B.
-            operation: "difference" (A-B), "intersection" (A&B), or "union" (A|B).
-        """
-        for bk in [book_a, book_b]:
-            if bk and bk not in permitted_books:
-                return f"Book '{bk}' is not in your permitted document set."
-
-        def _query_set(book, rel_type, tag):
-            conditions = [f"r.book IN ({books_csv})"]
-            params = {}
-            if entity_name:
-                eid = "_".join(entity_name.lower().split())
-                conditions.append(f"(r.source_entity LIKE :eid_{tag} OR r.target_entity LIKE :eid_{tag})")
-                params[f"eid_{tag}"] = f"%{eid}%"
-            if book:
-                conditions = [f"r.book = :book_{tag}"]
-                params[f"book_{tag}"] = book
-            if rel_type:
-                conditions.append(f"r.relationship_type = :rt_{tag}")
-                params[f"rt_{tag}"] = rel_type
-            where = " AND ".join(conditions)
-            rows = _backend.execute_sql(
-                f"SELECT DISTINCT COALESCE(e2.name, r.target_entity) AS neighbor"
-                f" FROM {RELATIONSHIPS_TABLE} r"
-                f" LEFT JOIN {ENTITIES_TABLE} e2 ON r.target_entity = e2.entity_id"
-                f" WHERE {where}",
-                params=params,
-            )
-            return {r["neighbor"] for r in rows if r["neighbor"]}
-
-        names_a = _query_set(book_a, rel_type_a, "a")
-        names_b = _query_set(book_b, rel_type_b, "b")
-        if entity_name:
-            names_a.discard(entity_name)
-            names_b.discard(entity_name)
-
-        op = operation.lower()
-        if op == "difference":
-            result_set = sorted(names_a - names_b)
-            op_label = "A \\ B"
-        elif op == "intersection":
-            result_set = sorted(names_a & names_b)
-            op_label = "A ∩ B"
-        elif op == "union":
-            result_set = sorted(names_a | names_b)
-            op_label = "A ∪ B"
-        else:
-            return f"Unknown operation '{operation}'."
-
-        desc_a = " + ".join(filter(None, [entity_name, rel_type_a, book_a])) or "(all permitted)"
-        desc_b = " + ".join(filter(None, [entity_name, rel_type_b, book_b])) or "(all permitted)"
-        return json.dumps({
-            "set_a": {"description": desc_a, "count": len(names_a)},
-            "set_b": {"description": desc_b, "count": len(names_b)},
-            "operation": op_label,
-            "result_count": len(result_set),
-            "result": result_set,
-        }, ensure_ascii=False)
-
-    return [find_entity, find_connections, get_source_evidence, get_entity_summary,
-            list_entities_by_book, compare_entity_sets]
+    raise NotImplementedError(
+        "Document-scoped Bible retrieval has been removed from the Enron-only architecture."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -10088,46 +9324,7 @@ GRAPH_TOOLS = _merge_tool_catalogs(LOCAL_TOOLS, _get_mcp_tools())
 # ---------------------------------------------------------------------------
 # System prompt
 # ---------------------------------------------------------------------------
-SYSTEM_PROMPT = """You are a biblical scholar with access to a knowledge graph built from the complete King James Bible (all 66 books — 39 Old Testament, 27 New Testament).
-
-You have tools that let you search the knowledge graph for entities, relationships, source verses, and structural analysis. Use them to provide well-grounded, comprehensive answers.
-
-## Available Tools
-- **find_entity(name)** — search for an entity by name (automatically checks KJV spelling variants)
-- **find_connections(entity_name, book="", relationship_type="")** — find relationships for an entity, optionally filtered by book and/or relationship type
-- **get_source_evidence(entity_name, book="")** — retrieve actual Bible verses mentioning an entity
-- **get_entity_summary(entity_name)** — get a comprehensive entity profile with all relationships
-- **list_entities_by_book(book, entity_type="")** — list all entities in a specific book, optionally by type
-- **find_cross_book_entities(min_books=2)** — find entities appearing across multiple books
-- **trace_path(entity_a, entity_b, max_hops=5)** — find shortest path between two entities via relationship traversal
-- **compare_entity_sets(entity_name, book_a, book_b, rel_type_a, rel_type_b, operation)** — compare two entity sets using difference/intersection/union
-
-## Tool Usage Strategy
-- ALWAYS use tools before answering. Prefer graph data over training knowledge.
-- For enumeration questions ("list all people in Ruth"), use **list_entities_by_book**.
-- For cross-book questions ("who appears in multiple books"), use **find_cross_book_entities**.
-- For entity-specific questions, use **find_connections** with the **book** filter to get targeted results.
-- For broad entity questions, use **get_entity_summary** for a full profile.
-- For multi-entity or multi-book questions, **call tools multiple times** — once per entity or per book — to build a complete picture. Do not rely on a single tool call.
-- After gathering entity/relationship data, call **get_source_evidence** for key claims you want to ground with verse references.
-- For constraint/set-difference questions ("X but not Y", "in book A but not B"), use **compare_entity_sets** with the appropriate operation. Example: "Who did Moses COMMAND but not SPOKE_TO?" → `compare_entity_sets(entity_name="Moses", rel_type_a="COMMANDED", rel_type_b="SPOKE_TO", operation="difference")`.
-- For intersection questions ("entities connected to BOTH X and Y"), use **compare_entity_sets** with `operation="intersection"`.
-- For shortest-path questions ("How is Ruth connected to Jesus?"), use **trace_path** to find the path automatically.
-- For long genealogy chains (e.g., Abraham to Jesus in Matthew ch.1), use **trace_path** first, then call **find_connections** on intermediate entities for detailed relationship data.
-- The KJV uses archaic spellings (Elias for Elijah, Esaias for Isaiah). The find_entity tool checks variants automatically, but if a search returns nothing, try the KJV spelling explicitly.
-
-## Response Guidelines
-- **Be direct and comprehensive.** Answer the question fully. Do not restate the question.
-- **Prioritize completeness.** Include all relevant findings from the tools. If a tool returns many results, summarize the key ones.
-- **Cite sources inline** where natural (e.g., "Ruth 4:17" or "Genesis 12:1"), but do not force citations for every sentence.
-- **State coverage limitations** when relevant: "My knowledge graph covers all 66 books of the King James Bible."
-- If information is not in the knowledge graph, say so honestly rather than guessing.
-
-## Entity Pre-Lookup
-Before you received this message, entities from the user's question were automatically looked up in the knowledge graph. Results appear at the END of this system prompt.
-- If an entity is listed under "NOT IN GRAPH" and it is the primary subject, state that it is not available and answer based on what IS in the graph.
-- Scope terms like "Old Testament", "New Testament", "the Bible" are NOT entity names — ignore if they appear under NOT IN GRAPH.
-- Do NOT bridge graph entities to non-graph concepts using training data (e.g., linking Ishmael to "Arabs" when "Arabs" is not in the graph)."""
+SYSTEM_PROMPT = ""
 
 
 ENRON_SYSTEM_PROMPT = """You are a corporate communications analyst with access to a knowledge graph built from the Enron email corpus (~20,000 emails from key executives and employees, 2000-2002).
@@ -10251,6 +9448,8 @@ Before you received this message, entities from the user's question were automat
 - Scope terms like "Enron", "the company", "executives" are NOT entity names — ignore if they appear under NOT IN GRAPH.
 - Date expressions like "August 2001", "late 2001" are NOT entity names — ignore if they appear under NOT IN GRAPH. Use tools to find time-relevant data instead.
 - Do NOT bridge graph entities to external knowledge (e.g., public news about Enron's collapse) without stating this is outside the graph."""
+
+SYSTEM_PROMPT = ENRON_SYSTEM_PROMPT
 
 
 ANTI_FABRICATION_PREAMBLE = """
@@ -10456,7 +9655,7 @@ def _tool_lineage_hint(tool_name: str) -> str:
         return "communication_dyads/person_activity ← email header aggregations"
     if tool_name in {
         "find_entity", "find_connections", "trace_path", "get_relationship_evidence",
-        "get_entity_summary", "get_dyad_topics", "browse_topics", "get_entity_context",
+        "get_entity_summary", "get_dyad_topics",
     }:
         return "entities/relationships/entity_mentions/threads ← extraction pipeline"
     return ""
@@ -12331,10 +11530,7 @@ def _inline_source_entries(source_lines: list[str]) -> str:
 
 def _build_coverage_summary(meta: dict) -> str:
     parts: list[str] = []
-    if CORPUS == "enron":
-        parts.append("Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.")
-    elif CORPUS == "bible":
-        parts.append("Coverage is limited to the indexed Bible corpus configured for this endpoint.")
+    parts.append("Deployed Enron graph covers a curated subset of 20,000+ emails from 15 key custodians.")
     parts.extend(meta.get("caveats", [])[:2])
     unique_parts = list(dict.fromkeys(part for part in parts if part))
     return " ".join(unique_parts) if unique_parts else "None noted in retrieved data."
@@ -12887,7 +12083,7 @@ def _get_corpus_config(*, tier_override: str = "", permitted_books_override: str
 
     Args:
         tier_override: Per-request tier from custom_inputs; falls back to ACCESS_TIER env var.
-        permitted_books_override: Per-request permitted_books from custom_inputs.
+        permitted_books_override: Legacy parameter retained for compatibility.
     """
     effective_tier = tier_override or ACCESS_TIER
     if permitted_books_override:
@@ -12943,14 +12139,14 @@ def _get_corpus_config(*, tier_override: str = "", permitted_books_override: str
             "source_type": "email",
         }
     return {
-        "entities": ENTITIES_TABLE,
-        "relationships": RELATIONSHIPS_TABLE,
-        "source_table": VERSES_TABLE,
-        "entity_analytics": ENTITY_ANALYTICS_TABLE,
-        "entity_paths": f"{CATALOG}.{SCHEMA}.entity_paths",
-        "entity_mentions": f"{CATALOG}.{SCHEMA}.entity_mentions",
-        "system_prompt": SYSTEM_PROMPT,
-        "source_type": "verse",
+        "entities": ENRON_ENTITIES_TABLE,
+        "relationships": ENRON_RELATIONSHIPS_TABLE,
+        "source_table": ENRON_EMAILS_TABLE,
+        "entity_analytics": ENRON_ENTITY_ANALYTICS_TABLE,
+        "entity_paths": ENRON_ENTITY_PATHS_TABLE,
+        "entity_mentions": ENRON_ENTITY_MENTIONS_TABLE,
+        "system_prompt": ENRON_SYSTEM_PROMPT,
+        "source_type": "email",
     }
 
 
@@ -13828,7 +13024,7 @@ class GraphRAGAgent(ResponsesAgent):
 
     def _build_graph(self, prelookup_context: str = "", *, tier: str = "", permitted_books: str = ""):
         corpus_cfg = _get_corpus_config(tier_override=tier, permitted_books_override=permitted_books)
-        base_prompt = _get_system_prompt() if CORPUS == "bible" else corpus_cfg["system_prompt"]
+        base_prompt = corpus_cfg["system_prompt"]
         system_prompt = base_prompt + prelookup_context
 
         llm_with_tools = self.llm_with_tools
@@ -15101,30 +14297,6 @@ class GraphRAGAgent(ResponsesAgent):
                 (m for m in reversed(messages) if m.get("role") == "user"), None
             )
             question = last_user["content"] if last_user and last_user.get("content") else ""
-
-            bible_comparison_answer = _build_bible_comparison_answer(question)
-            if bible_comparison_answer:
-                execution_path = "fast"
-                yield from output_to_responses_items_stream([
-                    AIMessage(content=bible_comparison_answer)
-                ])
-                return
-
-            bible_cross_book_answer = _build_bible_cross_book_answer(question)
-            if bible_cross_book_answer:
-                execution_path = "fast"
-                yield from output_to_responses_items_stream([
-                    AIMessage(content=bible_cross_book_answer)
-                ])
-                return
-
-            bible_lineage_answer = _build_bible_lineage_answer(question)
-            if bible_lineage_answer:
-                execution_path = "fast"
-                yield from output_to_responses_items_stream([
-                    AIMessage(content=bible_lineage_answer)
-                ])
-                return
 
             # --- PDES: Plan-Decompose-Execute-Synthesize ---
             em_context = self.entity_memory.context_for_classifier()

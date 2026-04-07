@@ -1,6 +1,0 @@
-resources:
-  apps:
-    graphframes_mcp:
-      name: graphframes-mcp-${bundle.target}
-      description: "GraphRAG MCP Server — Graph analytics tools backed by Lakebase (PostgreSQL)"
-      source_code_path: ../src/mcp_server

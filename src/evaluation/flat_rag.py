@@ -1,7 +1,7 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC ### Flat RAG Baseline
-# MAGIC Embedding-based chunk retrieval pipeline for comparison with GraphRAG.
+# MAGIC Legacy embedding-based chunk retrieval baseline retained for notebook comparison with GraphRAG.
 
 # COMMAND ----------
 
@@ -10,9 +10,9 @@ import numpy as np
 
 # COMMAND ----------
 
-# DBTITLE 1,Build Chapter Chunks
+# DBTITLE 1,Build Legacy Chunks
 def build_chapter_chunks():
-    """Concatenate verses into chapter-level chunks for flat RAG retrieval."""
+    """Concatenate legacy reference-corpus rows into retrieval chunks."""
     from pyspark.sql import SparkSession
     spark = SparkSession.builder.getOrCreate()
 
@@ -67,9 +67,9 @@ def cosine_similarity_search(query_embedding, corpus_embeddings, top_k=5):
 # COMMAND ----------
 
 # DBTITLE 1,Flat RAG Pipeline Class
-FLAT_RAG_SYSTEM_PROMPT = """You are a biblical scholar. Answer the question using ONLY the Bible passages provided below.
+FLAT_RAG_SYSTEM_PROMPT = """You are a careful source-grounded analyst. Answer the question using ONLY the retrieved passages provided below.
 If the passages do not contain enough information, say so clearly.
-Always cite specific passages (Book Chapter:Verse) when possible.
+Always cite specific retrieved evidence when possible.
 
 Retrieved Passages:
 {context}"""

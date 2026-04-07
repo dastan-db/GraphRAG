@@ -34,9 +34,9 @@ from databricks.sdk.service.serving import (
 # ---------------------------------------------------------------------------
 # Configuration — edit these to match your environment
 # ---------------------------------------------------------------------------
-ENDPOINT_NAME = "graphrag-bible-agent"
+ENDPOINT_NAME = "graphrag-enron-agent"
 CATALOG = "serverless_8e8gyh_catalog"
-SCHEMA = "graphrag_bible"
+SCHEMA = "graphrag_enron"
 INFERENCE_TABLE_PREFIX = "graphrag_gw"
 
 

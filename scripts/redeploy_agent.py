@@ -1,6 +1,6 @@
 """Re-log and redeploy the GraphRAG agent to Model Serving.
 
-Equivalent to Steps 3 + 4 + 5 of notebooks/03_Build_Agent.py.
+Equivalent to the log / deploy / gateway steps for the active Enron agent.
 Run locally — only makes API calls (no Spark needed).
 
 Step 0: (optional) Run local validation gate before deploying
@@ -24,11 +24,11 @@ import mlflow
 from mlflow.models.resources import DatabricksServingEndpoint
 
 CATALOG = "serverless_8e8gyh_catalog"
-SCHEMA = "graphrag_bible"
-LLM_ENDPOINT = "databricks-meta-llama-3-3-70b-instruct"
+SCHEMA = "graphrag_enron"
+LLM_ENDPOINT = "databricks-llama-4-maverick"
 SMALL_LLM_ENDPOINT = "databricks-meta-llama-3-1-8b-instruct"
-REGISTERED_MODEL = f"{CATALOG}.{SCHEMA}.graphrag_agent"
-ENDPOINT_NAME = "graphrag-bible-agent"
+REGISTERED_MODEL = f"{CATALOG}.{SCHEMA}.graphrag_enron_agent"
+ENDPOINT_NAME = "graphrag-enron-agent"
 INFERENCE_TABLE_PREFIX = "graphrag_gw"
 
 AGENT_SERVING_PATH = os.path.join(
@@ -64,7 +64,7 @@ def step3_log_model():
         DatabricksServingEndpoint(endpoint_name=SMALL_LLM_ENDPOINT),
     ]
 
-    with mlflow.start_run(run_name="graphrag_bible_agent"):
+    with mlflow.start_run(run_name="graphrag_enron_agent"):
         model_info = mlflow.pyfunc.log_model(
             name="agent",
             python_model=AGENT_SERVING_PATH,
@@ -78,7 +78,7 @@ def step3_log_model():
                 "databricks-connect",
             ],
             input_example={
-                "input": [{"role": "user", "content": "Who is Abraham?"}]
+                "input": [{"role": "user", "content": "Who communicated most frequently with Kenneth Lay?"}]
             },
             registered_model_name=REGISTERED_MODEL,
         )
@@ -100,7 +100,7 @@ def step3_5_smoke_test(model_info) -> bool:
     try:
         loaded = mlflow.pyfunc.load_model(model_info.model_uri)
         result = loaded.predict(
-            {"input": [{"role": "user", "content": "Who is Abraham?"}]}
+            {"input": [{"role": "user", "content": "Who communicated most frequently with Kenneth Lay?"}]}
         )
         has_output = bool(result.get("output")) if isinstance(result, dict) else bool(result)
         if has_output:

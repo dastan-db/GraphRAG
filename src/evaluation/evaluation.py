@@ -25,8 +25,8 @@ from mlflow.genai.scorers import scorer
 
 
 def extract_citations(text):
-    """Extract sorted set of verse citations (e.g. 'Genesis 1:1') from a response."""
-    pattern = r'(?:Genesis|Exodus|Ruth|Matthew|Acts)\s+\d+:\d+'
+    """Extract bracketed evidence citations from a response."""
+    pattern = r'\[[^\]\n]*(?:\d{4}-\d{2}-\d{2}|Subject:)[^\]\n]*\]'
     return sorted(set(_re.findall(pattern, text)))
 
 
@@ -295,7 +295,7 @@ def citation_accuracy(inputs, outputs, expectations=None):
     if not response or len(response.strip()) < 20:
         return Feedback(name="citation_accuracy", value=0.0, rationale="Empty or error response")
 
-    cite_pattern = r'((?:Genesis|Exodus|Ruth|Matthew|Acts)\s+\d+:\d+)'
+    cite_pattern = r'(\[[^\]\n]*(?:\d{4}-\d{2}-\d{2}|Subject:)[^\]\n]*\])'
     citations = _re.findall(cite_pattern, response)
     if not citations:
         return Feedback(
@@ -325,9 +325,9 @@ def citation_accuracy(inputs, outputs, expectations=None):
     for pair in claim_citation_pairs[:10]:
         cite_list = ", ".join(pair["citations"])
         prompt = (
-            f"Does the following biblical verse citation support the claim being made?\n\n"
+            f"Does the following cited evidence support the claim being made?\n\n"
             f"Claim: {pair['claim']}\n"
-            f"Cited verses: {cite_list}\n\n"
+            f"Cited evidence: {cite_list}\n\n"
             f"Answer with a JSON object: {{\"supported\": true/false, \"reason\": \"...\"}}"
         )
         try:
@@ -497,16 +497,16 @@ If the response is clean, return {{"violations": [], "clean": true}}."""
 def latency_sla_compliance(inputs, outputs, expectations=None):
     """Checks whether tool invocations stayed within SLA thresholds.
 
-    Reads the in-process latency buffer from tools.py. Returns the fraction
+    Reads the in-process latency buffer from the serving module. Returns the fraction
     of tool calls that met their SLA. Requires the agent to have been
     invoked in the same process (latency buffer is in-memory).
     """
     try:
-        from src.agent.tools import get_latency_report
+        from src.agent.agent_serving import get_latency_report
         report = get_latency_report()
     except ImportError:
         try:
-            from agent.tools import get_latency_report
+            from agent.agent_serving import get_latency_report
             report = get_latency_report()
         except ImportError:
             return Feedback(
@@ -706,7 +706,7 @@ def provenance_content_quality(inputs, outputs, expectations=None):
 
     Evaluates:
     1. Path contains actual entity → entity connections (not placeholder text)
-    2. Sources reference specific evidence (verse numbers, email IDs, dates)
+    2. Sources reference specific evidence (email citations, dated evidence, subject lines)
     3. Grounding declaration is honest (matches actual tool usage in the response)
     """
     response = outputs.get("response", "") if isinstance(outputs, dict) else str(outputs)
@@ -733,9 +733,9 @@ Provenance section:
 
 Evaluate these three dimensions (each 0.0-1.0):
 
-1. **path_quality**: Does the Path contain actual entity connections (e.g. "David → Boaz (MARRIED_TO)") or is it vague/placeholder text? Score 1.0 for specific named entities with relationship types, 0.5 for named entities without types, 0.0 for no path or generic text.
+1. **path_quality**: Does the Path contain actual entity connections (e.g. "Kenneth Lay → Jeffrey Skilling (MANAGES)") or is it vague/placeholder text? Score 1.0 for specific named entities with relationship types, 0.5 for named entities without types, 0.0 for no path or generic text.
 
-2. **source_quality**: Do Sources reference specific evidence (verse numbers like "Genesis 4:1", email dates, subject lines) or just generic claims? Score 1.0 for specific verifiable references, 0.5 for partial references, 0.0 for no sources or unverifiable claims.
+2. **source_quality**: Do Sources reference specific evidence (dated email citations, subject lines, relationship records) or just generic claims? Score 1.0 for specific verifiable references, 0.5 for partial references, 0.0 for no sources or unverifiable claims.
 
 3. **grounding_honesty**: Does the Grounding declaration match reality? If it says "All claims grounded" but the response contains hedging/speculation, score low. If it honestly declares "Partially grounded" where appropriate, score high.
 

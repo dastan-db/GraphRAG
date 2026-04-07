@@ -421,11 +421,11 @@ def find_connections(entity_name: str) -> str:
 @tool
 def trace_path(entity_a: str, entity_b: str) -> str:
     """Find how two entities are connected, tracing up to 3 hops through the knowledge graph.
-    Use this for multi-hop questions like 'How is Ruth connected to Jesus?'
+    Use this for multi-hop questions like 'How are Kenneth Lay and Andrew Fastow connected?'
 
     Args:
-        entity_a: Starting entity name (e.g., "Ruth")
-        entity_b: Ending entity name (e.g., "Jesus")
+        entity_a: Starting entity name (e.g., "Kenneth Lay")
+        entity_b: Ending entity name (e.g., "Andrew Fastow")
     """
     from pyspark.sql import SparkSession
     spark = SparkSession.builder.getOrCreate()
@@ -867,14 +867,11 @@ for label, scorers in scorer_groups:
 # DBTITLE 1,Evaluation Dataset (first 5 rows for quick test)
 EVAL_DATASET_MINI = [
     {
-        "inputs": {"question": "How is Ruth connected to Jesus? Trace the lineage step by step."},
+        "inputs": {"question": "How are Kenneth Lay and Andrew Fastow connected? Trace the relationship path step by step."},
         "expectations": {
             "expected_facts": [
-                "Ruth married Boaz",
-                "Boaz and Ruth had a son named Obed",
-                "Obed was the father of Jesse",
-                "Jesse was the father of David",
-                "Jesus descended from the line of David",
+                "Kenneth Lay and Andrew Fastow were both senior Enron executives",
+                "Their connection should be grounded in graph relationships or communication evidence",
             ],
         },
     },

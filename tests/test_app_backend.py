@@ -48,17 +48,10 @@ def test_pipeline_client_environment_classes():
     assert env.spec is not None
 
 
-def test_graph_client_imports():
-    """graph_client.py must import without errors."""
-    mod = importlib.import_module("backend.graph_client")
-    assert hasattr(mod, "get_book_statuses")
-    assert hasattr(mod, "get_graph_stats")
-
-
 def test_agent_client_imports():
     """agent_client.py must import without errors."""
     mod = importlib.import_module("backend.agent_client")
-    assert hasattr(mod, "query_agent")
+    assert hasattr(mod, "query_agent_enron")
 
 
 def test_all_page_modules_import():
@@ -67,9 +60,8 @@ def test_all_page_modules_import():
         "pages.home",
         "pages.how_it_works",
         "pages.architecture",
-        "pages.live_demo",
+        "pages.corporate_demo",
         "pages.apply",
-        "pages.manage_corpus",
     ]
     for mod_name in page_modules:
         mod = importlib.import_module(mod_name)
@@ -96,29 +88,6 @@ def _render_tree(component) -> dict:
     return result
 
 
-def test_manage_corpus_layout_renders():
-    """manage_corpus layout must build without prop errors."""
-    from pages.manage_corpus import manage_corpus_layout
-    layout = manage_corpus_layout()
-    result = _render_tree(layout)
-    serialized = str(result)
-    assert "Manage Corpus" in serialized
-
-
-def test_manage_corpus_progress_renders():
-    """Progress alert variants must build without prop errors.
-
-    This is the test that catches Spinner(className=...) and similar
-    invalid prop errors before they reach the deployed app.
-    """
-    from pages.manage_corpus import _render_progress_running, _render_progress_mock
-
-    _render_tree(_render_progress_running("add", ["Genesis"], 123, "RUNNING", 10))
-    _render_tree(_render_progress_running("add", ["Genesis"], 123, "TERMINATED", 30, "SUCCESS"))
-    _render_tree(_render_progress_running("remove", ["Ruth"], 456, "TERMINATED", 5, "FAILED"))
-    _render_tree(_render_progress_mock("add", ["Genesis", "Exodus"]))
-
-
 def test_home_layout_renders():
     """Home page layout must build without prop errors."""
     from pages.home import home_layout
@@ -137,22 +106,16 @@ def test_architecture_layout_renders():
     _render_tree(arch_layout())
 
 
-def test_live_demo_layout_renders():
-    """Live Demo layout must build without prop errors."""
-    from pages.live_demo import demo_layout
-    _render_tree(demo_layout())
+def test_corporate_demo_layout_renders():
+    """Corporate demo layout must build without prop errors."""
+    from pages.corporate_demo import corporate_demo_layout
+    _render_tree(corporate_demo_layout())
 
 
 def test_apply_layout_renders():
     """Apply layout must build without prop errors."""
     from pages.apply import apply_layout
     _render_tree(apply_layout())
-
-
-def test_stats_panel_renders():
-    """Stats panel renders for both None and populated data."""
-    from pages.manage_corpus import _stats_panel
-    _render_tree(_stats_panel(None))
 
 
 # ── Runner ──────────────────────────────────────────────────────────

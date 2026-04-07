@@ -6,7 +6,7 @@ def apply_layout():
     return html.Div([
         html.Div([
             html.H1("Apply to Your Business", className="display-5 fw-bold"),
-            html.P("The pattern is universal — map Bible entities to your domain",
+            html.P("The pattern is universal — map Enron-style graph reasoning to your domain",
                    className="lead text-muted"),
         ], className="text-center py-3"),
         html.Hr(),
@@ -14,40 +14,40 @@ def apply_layout():
         # Pattern mapping
         html.H4("Map the Pattern to YOUR Domain", className="mb-3"),
         html.P(
-            "The Bible demo proves the architecture. The same 5-tool pattern works for "
+            "The Enron demo proves the architecture. The same 5-tool pattern works for "
             "any domain where you need auditable, multi-hop reasoning.",
             className="text-muted mb-3",
         ),
         dbc.Table([
             html.Thead(html.Tr([
                 html.Th("GraphRAG Concept"),
-                html.Th("Bible Demo"),
+                html.Th("Enron Demo"),
                 html.Th("Your Domain"),
             ])),
             html.Tbody([
                 html.Tr([
                     html.Td("Entities"),
-                    html.Td("Person, Place, Event, Group, Concept", className="text-muted"),
+                    html.Td("Employee, executive, entity, topic, thread", className="text-muted"),
                     html.Td("Customer, Product, Supplier, Facility"),
                 ]),
                 html.Tr([
                     html.Td("Relationships"),
-                    html.Td("FAMILY_OF, TRAVELED_TO, SPOKE_TO", className="text-muted"),
+                    html.Td("EMAILED, REPORTED_TO, DISCUSSED, MANAGED", className="text-muted"),
                     html.Td("SUPPLIES_TO, MANUFACTURED_AT, DEPENDS_ON"),
                 ]),
                 html.Tr([
                     html.Td("Provenance"),
-                    html.Td("Book + Chapter + Verse citations", className="text-muted"),
+                    html.Td("Email ID + thread + date + participant evidence", className="text-muted"),
                     html.Td("Contract ID + Clause + Date + Approver"),
                 ]),
                 html.Tr([
                     html.Td("Multi-hop Query"),
-                    html.Td('"How is Ruth connected to Jesus?"', className="text-muted"),
+                    html.Td('"Who communicated most frequently with Kenneth Lay?"', className="text-muted"),
                     html.Td('"What suppliers are affected if Facility X shuts down?"'),
                 ]),
                 html.Tr([
                     html.Td("Source Documents"),
-                    html.Td("KJV Bible (66 books)", className="text-muted"),
+                    html.Td("Corporate email, org evidence, communication threads", className="text-muted"),
                     html.Td("ERP data, contracts, audit logs, regulatory filings"),
                 ]),
             ]),
@@ -128,7 +128,7 @@ def get_entity_summary(entity_name: str) -> str:
 
         html.P(
             "Ready to get started? The full source code is in this repository. "
-            "Run the notebooks (00–05) to build the knowledge graph, then deploy this web app.",
+            "Run the Enron notebooks to build the knowledge graph, then deploy this web app.",
             className="text-center text-muted py-3",
         ),
     ])

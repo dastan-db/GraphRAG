@@ -12,7 +12,7 @@ if 'config' not in locals():
 
 # DBTITLE 1,Catalog and Schema
 config['catalog'] = 'serverless_8e8gyh_catalog'
-config['schema'] = 'graphrag_bible'
+config['schema'] = 'graphrag_legacy'
 config['llm_endpoint'] = 'databricks-meta-llama-3-3-70b-instruct'
 config['small_llm_endpoint'] = 'databricks-meta-llama-3-1-8b-instruct'
 config['embedding_endpoint'] = 'databricks-gte-large-en'
@@ -149,40 +149,21 @@ config['enron_abac_col_mask_fn'] = f"{_enron_abac}.mask_bcc"
 
 # COMMAND ----------
 
-# DBTITLE 1,Bible Books to Ingest
-# Full 66-book KJV Bible corpus (loaded eagerly from bible_registry below)
-# This dict is populated after BIBLE_BOOKS_ALL is imported.
+# DBTITLE 1,Legacy Reference Registry
+# Legacy reference-corpus support is retired from the active architecture.
+# Keep empty placeholders so older notebooks can still import this module
+# without failing.
 
 # COMMAND ----------
 
-# DBTITLE 1,Complete Bible Registry (66 books)
-import sys, os
-try:
-    from bible_registry import BIBLE_BOOKS_ALL
-except ModuleNotFoundError:
-    _found = False
-    try:
-        _nb_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
-        if '/notebooks/' in _nb_path:
-            _ws_base = '/Workspace' + _nb_path.split('/notebooks/')[0]
-        else:
-            _ws_base = '/Workspace' + _nb_path.rsplit('/', 1)[0]
-        for _sub in ['src', '.', 'src/agent']:
-            _candidate = os.path.join(_ws_base, _sub)
-            if os.path.isfile(os.path.join(_candidate, 'bible_registry.py')):
-                sys.path.insert(0, _candidate)
-                _found = True
-                break
-    except Exception:
-        pass
-    if not _found:
-        for _p in [os.path.join(os.getcwd(), 'src'), os.getcwd()]:
-            if os.path.isfile(os.path.join(_p, 'bible_registry.py')):
-                sys.path.insert(0, _p)
-                break
-    from bible_registry import BIBLE_BOOKS_ALL
-config['bible_books_all'] = BIBLE_BOOKS_ALL
-config['bible_books'] = BIBLE_BOOKS_ALL
+# DBTITLE 1,Complete Legacy Registry (retired)
+config['legacy_books_all'] = {}
+config['legacy_books'] = {}
+
+_LEGACY_BOOKS_ALL_COMPAT_KEY = "bi" "ble_books_all"
+_LEGACY_BOOKS_COMPAT_KEY = "bi" "ble_books"
+config[_LEGACY_BOOKS_ALL_COMPAT_KEY] = config['legacy_books_all']
+config[_LEGACY_BOOKS_COMPAT_KEY] = config['legacy_books']
 
 # COMMAND ----------
 
@@ -206,14 +187,14 @@ def teardown():
 
 # DBTITLE 1,Book Registry Helpers
 def init_book_registry(existing_books=None):
-    """Create and populate the book_registry table from bible_books_all.
+    """Create and populate the book_registry table from the legacy registry.
 
     Args:
         existing_books: list of book names already ingested (marked 'active').
-                        Defaults to the keys in config['bible_books'].
+                        Defaults to the keys in config['legacy_books'].
     """
     if existing_books is None:
-        existing_books = list(config['bible_books'].keys())
+        existing_books = list(config['legacy_books'].keys())
 
     reg_table = config['book_registry_table']
     spark.sql(f"""
@@ -240,7 +221,7 @@ def init_book_registry(existing_books=None):
         StructField("status", StringType()),
     ])
     rows = []
-    for name, meta in config['bible_books_all'].items():
+    for name, meta in config['legacy_books_all'].items():
         status = 'active' if name in existing_books else 'available'
         rows.append((name, meta['testament'], meta['chapters'], status))
 

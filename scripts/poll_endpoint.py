@@ -1,12 +1,12 @@
-"""Poll the serving endpoint until config_update is done, then deploy v22."""
+"""Poll the Enron serving endpoint until config_update is done, then deploy a version."""
 import sys
 import time
 
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.serving import EndpointStateReady
 
-ENDPOINT = "graphrag-bible-agent"
-MODEL = "serverless_8e8gyh_catalog.graphrag_bible.graphrag_agent"
+ENDPOINT = "graphrag-enron-agent"
+MODEL = "serverless_8e8gyh_catalog.graphrag_enron.graphrag_enron_agent"
 VERSION = sys.argv[1] if len(sys.argv) > 1 else "22"
 MAX_WAIT = 900
 POLL = 30

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Playwright script to test the GraphRAG demo app.
-Captures screenshots and reports on page load, layout, and Live Demo functionality.
+Captures screenshots and reports on page load, layout, and corporate demo functionality.
 """
 import asyncio
 import os
@@ -73,27 +73,27 @@ async def main():
             arch_content = await page.query_selector('text=Architecture')
             report.append(f"Architecture page loaded: {arch_content is not None}")
 
-            # Step 4: Live Demo
-            report.append("\n=== Step 4: Live Demo ===")
-            await page.click('a[href="/live-demo"]')
+            # Step 4: Corporate Demo
+            report.append("\n=== Step 4: Corporate Demo ===")
+            await page.click('a[href="/corporate-demo"]')
             await page.wait_for_load_state("networkidle")
             await asyncio.sleep(1)
-            await page.screenshot(path=SCREENSHOT_DIR / "04-live-demo-initial.png")
-            report.append("Screenshot: 04-live-demo-initial.png")
+            await page.screenshot(path=SCREENSHOT_DIR / "04-corporate-demo-initial.png")
+            report.append("Screenshot: 04-corporate-demo-initial.png")
 
-            live_demo_title = await page.query_selector('text=Live Demo')
-            report.append(f"Live Demo page loaded: {live_demo_title is not None}")
+            corporate_demo_title = await page.query_selector('text=Corporate Demo')
+            report.append(f"Corporate Demo page loaded: {corporate_demo_title is not None}")
 
             # Step 5: Click example question
-            report.append("\n=== Step 5: Example Question (How is Ruth connected to Jesus?) ===")
-            example_btn = await page.query_selector('button:has-text("How is Ruth connected to Jesus?")')
+            report.append("\n=== Step 5: Example Question (Who communicated most frequently with Kenneth Lay?) ===")
+            example_btn = await page.query_selector('button:has-text("Who communicated most frequently with Kenneth Lay?")')
             if example_btn:
                 await example_btn.click()
                 report.append("Clicked example question button")
                 # Wait for response (agent may take a few seconds)
                 await asyncio.sleep(8)
-                await page.screenshot(path=SCREENSHOT_DIR / "05-live-demo-response.png")
-                report.append("Screenshot: 05-live-demo-response.png")
+                await page.screenshot(path=SCREENSHOT_DIR / "05-corporate-demo-response.png")
+                report.append("Screenshot: 05-corporate-demo-response.png")
 
                 # Check for response in chat
                 chat_history = await page.query_selector('#chat-history')

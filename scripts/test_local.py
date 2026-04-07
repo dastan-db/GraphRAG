@@ -30,7 +30,7 @@ _load_env_file(os.path.join(_ROOT_DIR, ".env.local"))
 os.environ.setdefault("GRAPHRAG_RUNTIME_TRANSPORT", "direct")
 os.environ.setdefault("GRAPHRAG_BACKEND", "local")
 os.environ.setdefault("GRAPHRAG_LLM_PROVIDER", "openai")
-os.environ.setdefault("GRAPHRAG_CORPUS", "bible")
+os.environ.setdefault("GRAPHRAG_CORPUS", "enron")
 
 sys.path.insert(0, _SRC_DIR)
 sys.path.insert(0, _ROOT_DIR)
@@ -49,13 +49,13 @@ def _apply_local_tool_cap():
 
 def main():
     parser = argparse.ArgumentParser(description="Test GraphRAG runtime locally")
-    parser.add_argument("question", nargs="?", default="Who is Abraham?")
-    parser.add_argument("--corpus", choices=["bible", "enron"], default="bible")
+    parser.add_argument("question", nargs="?", default="Who communicated most frequently with Kenneth Lay?")
+    parser.add_argument("--corpus", choices=["enron"], default="enron")
     parser.add_argument("--backend", choices=["local", "databricks", "lakebase"], help="Override GRAPHRAG_BACKEND")
     parser.add_argument("--transport", choices=["direct", "endpoint"], help="Override GRAPHRAG_RUNTIME_TRANSPORT")
     parser.add_argument("--llm", choices=["databricks", "openai", "ollama", "gateway"], help="Override GRAPHRAG_LLM_PROVIDER")
     parser.add_argument("--tier", default="", help="Optional Enron access tier")
-    parser.add_argument("--permitted-books", nargs="*", default=None, help="Optional Bible book allowlist")
+    parser.add_argument("--permitted-books", nargs="*", default=None, help="Legacy document allowlist passthrough")
     parser.add_argument("--endpoint-name", default="", help="Optional serving endpoint when transport=endpoint")
     args = parser.parse_args()
 

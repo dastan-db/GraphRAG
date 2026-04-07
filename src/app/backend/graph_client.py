@@ -54,7 +54,7 @@ def _get_connection():
 
 def _fqn(table: str) -> str:
     catalog = os.getenv("DATABRICKS_CATALOG", "serverless_8e8gyh_catalog")
-    schema = os.getenv("DATABRICKS_SCHEMA", "graphrag_bible")
+    schema = os.getenv("DATABRICKS_SCHEMA", "graphrag_enron")
     return f"{catalog}.{schema}.{table}"
 
 
@@ -253,97 +253,6 @@ def _add_node(m: dict[str, GraphNode], name: str, etype: str) -> None:
         m[nid] = GraphNode(id=nid, label=name, entity_type=etype)
 
 
-# ---- Verse lookup ----
-
-def lookup_verses(references: list[str]) -> dict[str, str]:
-    """Resolve verse references like 'Ruth 4:13' or 'Genesis 46:1-7' to actual text.
-
-    Returns {reference_string: verse_text} for each reference that could be resolved.
-    Range references (e.g. 'Exodus 14:21-22') fetch all verses in the range.
-    """
-    import re
-
-    if not references:
-        return {}
-
-    parsed: list[tuple[str, str, int, int, int]] = []
-    for ref in references:
-        m = re.match(
-            r"^(\d?\s*[A-Za-z]+)\s+(\d+):(\d+)(?:\s*[-–]\s*(\d+))?",
-            ref.strip(),
-        )
-        if not m:
-            continue
-        book = m.group(1).strip()
-        chapter = int(m.group(2))
-        v_start = int(m.group(3))
-        v_end = int(m.group(4)) if m.group(4) else v_start
-        parsed.append((ref.strip(), book, chapter, v_start, v_end))
-
-    if not parsed:
-        return {}
-
-    conn = _get_connection()
-    result: dict[str, str] = {}
-
-    for ref_str, book, chapter, v_start, v_end in parsed:
-        try:
-            with conn.cursor() as cur:
-                cur.execute(f"""
-                    SELECT verse_number, text
-                    FROM {_fqn('verses')}
-                    WHERE book = %(book)s
-                      AND chapter = %(chapter)s
-                      AND verse_number BETWEEN %(v_start)s AND %(v_end)s
-                    ORDER BY verse_number
-                """, {"book": book, "chapter": chapter, "v_start": v_start, "v_end": v_end})
-                rows = cur.fetchall()
-
-            if rows:
-                texts = [f"[{chapter}:{r[0]}] {r[1]}" for r in rows]
-                result[ref_str] = " ".join(texts)
-        except Exception:
-            continue
-
-    return result
-
-
-def lookup_verses_mock(references: list[str]) -> dict[str, str]:
-    """Return canned verse text for demo mode."""
-    _MOCK_VERSES = {
-        "Ruth 4:13": "[4:13] So Boaz took Ruth, and she was his wife: and when he went in unto her, the LORD gave her conception, and she bare a son.",
-        "Ruth 4:17": "[4:17] And the women her neighbours gave it a name, saying, There is a son born to Naomi; and they called his name Obed: he is the father of Jesse, the father of David.",
-        "Ruth 4:22": "[4:22] And Obed begat Jesse, and Jesse begat David.",
-        "Matthew 1:6": "[1:6] And Jesse begat David the king; and David the king begat Solomon of her that had been the wife of Urias;",
-        "Matthew 1:16": "[1:16] And Jacob begat Joseph the husband of Mary, of whom was born Jesus, who is called Christ.",
-        "Genesis 46:6": "[46:6] And they took their cattle, and their goods, which they had gotten in the land of Canaan, and came into Egypt, Jacob, and all his seed with him.",
-        "Exodus 1:11": "[1:11] Therefore they did set over them taskmasters to afflict them with their burdens. And they built for Pharaoh treasure cities, Pithom and Raamses.",
-        "Exodus 12:31": "[12:31] And he called for Moses and Aaron by night, and said, Rise up, and get you forth from among my people, both ye and the children of Israel; and go, serve the LORD, as ye have said.",
-        "Exodus 14:21": "[14:21] And Moses stretched out his hand over the sea; and the LORD caused the sea to go back by a strong east wind all that night, and made the sea dry land, and the waters were divided.",
-        "Exodus 19:1": "[19:1] In the third month, when the children of Israel were gone forth out of the land of Egypt, the same day came they into the wilderness of Sinai.",
-        "Exodus 2:10": "[2:10] And the child grew, and she brought him unto Pharaoh's daughter, and he became her son. And she called his name Moses: and she said, Because I drew him out of the water.",
-        "Exodus 3:4": "[3:4] And when the LORD saw that he turned aside to see, God called unto him out of the midst of the bush, and said, Moses, Moses. And he said, Here am I.",
-        "Exodus 20:1": "[20:1] And God spake all these words, saying,",
-        "Acts 7:20": "[7:20] In which time Moses was born, and was exceeding fair, and nourished up in his father's house three months.",
-        "Acts 9:1": "[9:1] And Saul, yet breathing out threatenings and slaughter against the disciples of the Lord, went unto the high priest,",
-        "Acts 9:3": "[9:3] And as he journeyed, he came near Damascus: and suddenly there shined round about him a light from heaven.",
-        "Acts 9:5": "[9:5] And he said, Who art thou, Lord? And the Lord said, I am Jesus whom thou persecutest: it is hard for thee to kick against the pricks.",
-        "Acts 9:17": "[9:17] And Ananias went his way, and entered into the house; and putting his hands on him said, Brother Saul, the Lord, even Jesus, that appeared unto thee in the way as thou camest, hath sent me, that thou mightest receive thy sight, and be filled with the Holy Ghost.",
-        "Acts 13:9": "[13:9] Then Saul, (who also is called Paul,) filled with the Holy Ghost, set his eyes on him.",
-        "Matthew 1:1": "[1:1] The book of the generation of Jesus Christ, the son of David, the son of Abraham.",
-        "Genesis 50:26": "[50:26] So Joseph died, being an hundred and ten years old: and they embalmed him, and he was put in a coffin in Egypt.",
-        "Exodus 1:6": "[1:6] And Joseph died, and all his brethren, and all that generation.",
-        "Exodus 1:7": "[1:7] And the children of Israel were fruitful, and increased abundantly, and multiplied, and waxed exceeding mighty; and the land was filled with them.",
-        "Exodus 1:8": "[1:8] Now there arose up a new king over Egypt, which knew not Joseph.",
-    }
-    result = {}
-    for ref in references:
-        ref = ref.strip()
-        if ref in _MOCK_VERSES:
-            result[ref] = _MOCK_VERSES[ref]
-    return result
-
-
 # ---- Mock mode ----
 
 # ---- Book registry and graph stats ----
@@ -454,17 +363,12 @@ def get_graph_stats() -> GraphStats:
 def get_book_statuses_mock() -> list[BookStatus]:
     """Return mock book statuses for demo mode."""
     _BOOKS = [
-        ("Genesis", "OT", 50, "active", 85, 210, 1533),
-        ("Exodus", "OT", 40, "active", 72, 180, 1213),
-        ("Ruth", "OT", 4, "active", 18, 32, 85),
-        ("Matthew", "NT", 28, "active", 95, 250, 1071),
-        ("Acts", "NT", 28, "active", 88, 220, 1007),
-        ("Leviticus", "OT", 27, "available", 0, 0, 0),
-        ("Numbers", "OT", 36, "available", 0, 0, 0),
-        ("Deuteronomy", "OT", 34, "available", 0, 0, 0),
-        ("John", "NT", 21, "available", 0, 0, 0),
-        ("Romans", "NT", 16, "available", 0, 0, 0),
-        ("Revelation", "NT", 22, "available", 0, 0, 0),
+        ("Email Corpus", "core", 15, "active", 242, 611, 20000),
+        ("Investigation Timeline", "curated", 1, "active", 28, 27, 28),
+        ("Org Hierarchy", "curated", 1, "active", 24, 23, 24),
+        ("Topic Taxonomy", "derived", 1, "active", 41, 64, 41),
+        ("ABAC Views", "governance", 6, "active", 0, 0, 0),
+        ("Materialized Views", "derived", 2, "available", 0, 0, 0),
     ]
     return [
         BookStatus(book_name=b[0], testament=b[1], total_chapters=b[2],
@@ -477,33 +381,30 @@ def get_book_statuses_mock() -> list[BookStatus]:
 def get_graph_stats_mock() -> GraphStats:
     """Return mock graph stats for demo mode."""
     return GraphStats(
-        total_entities=358,
-        total_relationships=892,
-        total_verses=4909,
+        total_entities=1242,
+        total_relationships=3611,
+        total_verses=20000,
         active_books=5,
-        cross_book_entities=47,
-        entity_type_counts={"Person": 180, "Place": 85, "Group": 42, "Event": 30, "Concept": 21},
-        relationship_type_counts={"FAMILY_OF": 120, "SPOKE_TO": 95, "TRAVELED_TO": 78, "PARENT_OF": 65},
+        cross_book_entities=173,
+        entity_type_counts={"Person": 421, "Organization": 163, "Group": 97, "Project": 56, "Location": 42},
+        relationship_type_counts={"SENT_TO": 1260, "CC_TO": 702, "MENTIONS": 488, "REPORTS_TO": 73},
     )
 
 
 def get_entity_neighborhood_mock(entity_name: str) -> GraphData:
     """Return sample graph data for demo without a live warehouse."""
     nodes = [
-        GraphNode(id="ruth", label="Ruth", entity_type="Person"),
-        GraphNode(id="boaz", label="Boaz", entity_type="Person"),
-        GraphNode(id="obed", label="Obed", entity_type="Person"),
-        GraphNode(id="jesse", label="Jesse", entity_type="Person"),
-        GraphNode(id="david", label="David", entity_type="Person"),
-        GraphNode(id="jesus", label="Jesus", entity_type="Person"),
+        GraphNode(id="kenneth_lay", label="Kenneth Lay", entity_type="Person"),
+        GraphNode(id="jeff_skilling", label="Jeff Skilling", entity_type="Person"),
+        GraphNode(id="andrew_fastow", label="Andrew Fastow", entity_type="Person"),
+        GraphNode(id="david_delainey", label="David Delainey", entity_type="Person"),
+        GraphNode(id="arthur_andersen", label="Arthur Andersen", entity_type="Organization"),
     ]
     edges = [
-        GraphEdge(source="ruth", target="boaz", label="MARRIED_TO", book="Ruth"),
-        GraphEdge(source="ruth", target="obed", label="PARENT_OF", book="Ruth"),
-        GraphEdge(source="boaz", target="obed", label="PARENT_OF", book="Ruth"),
-        GraphEdge(source="obed", target="jesse", label="PARENT_OF", book="Ruth"),
-        GraphEdge(source="jesse", target="david", label="PARENT_OF", book="Ruth"),
-        GraphEdge(source="david", target="jesus", label="ANCESTOR_OF", book="Matthew"),
+        GraphEdge(source="kenneth_lay", target="jeff_skilling", label="MANAGES", book="Org Hierarchy"),
+        GraphEdge(source="jeff_skilling", target="andrew_fastow", label="WORKED_WITH", book="Email Corpus"),
+        GraphEdge(source="jeff_skilling", target="david_delainey", label="MANAGES", book="Org Hierarchy"),
+        GraphEdge(source="andrew_fastow", target="arthur_andersen", label="MENTIONS", book="Investigation Timeline"),
     ]
     return GraphData(nodes=nodes, edges=edges)
 
@@ -522,10 +423,6 @@ if _USE_LAKEBASE:
         edges = [GraphEdge(source=e.source, target=e.target, label=e.label,
                            description=e.description, book=e.book) for e in lb_data.edges]
         return GraphData(nodes=nodes, edges=edges)
-
-    def lookup_verses(references: list[str],  # noqa: F811
-                      context: dict | None = None) -> dict[str, str]:
-        return _lb.lookup_verses(references, context=context)
 
     def get_book_statuses() -> list[BookStatus]:  # noqa: F811
         lb_list = _lb.get_book_statuses()

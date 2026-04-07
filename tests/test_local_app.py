@@ -83,18 +83,18 @@ async def main():
             diagram = await page.query_selector("text=Application Layer")
             check("Architecture diagram renders (not raw Mermaid)", diagram is not None)
 
-        # ── Step 4: Live Demo ──
-        print("\n=== Step 4: Live Demo ===")
-        link = await page.query_selector('a[href="/live-demo"]')
-        check("Live Demo nav link exists", link is not None)
+        # ── Step 4: Corporate Demo ──
+        print("\n=== Step 4: Corporate Demo ===")
+        link = await page.query_selector('a[href="/corporate-demo"]')
+        check("Corporate Demo nav link exists", link is not None)
         if link:
             await link.click()
             await page.wait_for_load_state("networkidle")
             await asyncio.sleep(0.5)
-            await page.screenshot(path=SCREENSHOT_DIR / "local-04-live-demo.png")
+            await page.screenshot(path=SCREENSHOT_DIR / "local-04-corporate-demo.png")
 
-            title = await page.query_selector("text=Live Demo")
-            check("Live Demo title rendered", title is not None)
+            title = await page.query_selector("text=Corporate Demo")
+            check("Corporate Demo title rendered", title is not None)
 
             mock_banner = await page.query_selector("text=Running in demo mode")
             check("Mock mode banner visible", mock_banner is not None)
@@ -112,12 +112,12 @@ async def main():
             check("Send button present", send_btn is not None)
 
             # Example question buttons
-            example_btns = await page.query_selector_all('button:has-text("Ruth")')
+            example_btns = await page.query_selector_all('button:has-text("Kenneth Lay")')
             check("At least one example question button exists", len(example_btns) > 0)
 
         # ── Step 5: Send an example question (mock mode) ──
         print("\n=== Step 5: Example Question (mock) ===")
-        example_btn = await page.query_selector('button:has-text("How is Ruth connected to Jesus?")')
+        example_btn = await page.query_selector('button:has-text("Who communicated most frequently with Kenneth Lay?")')
         if example_btn:
             await example_btn.click()
             await asyncio.sleep(2)
@@ -125,8 +125,11 @@ async def main():
 
             chat_el = await page.query_selector("#chat-history")
             chat_text = await chat_el.inner_text() if chat_el else ""
-            check("User question appears in chat", "Ruth" in chat_text)
-            check("Agent response appears in chat", "Boaz" in chat_text or "GraphRAG Agent" in chat_text)
+            check("User question appears in chat", "Kenneth Lay" in chat_text)
+            check(
+                "Agent response appears in chat",
+                "Rosalee Fleming" in chat_text or "Jeffrey Skilling" in chat_text or "GraphRAG Agent" in chat_text,
+            )
 
             prov_el = await page.query_selector("#provenance-panel")
             prov_text = await prov_el.inner_text() if prov_el else ""
@@ -134,114 +137,46 @@ async def main():
             check("Provenance shows Source Citations", "Source" in prov_text or "Citation" in prov_text)
             check("Provenance shows Grounding", "Grounding" in prov_text)
         else:
-            check("Example button 'How is Ruth connected to Jesus?' found", False)
+            check("Example button 'Who communicated most frequently with Kenneth Lay?' found", False)
 
         # ── Step 6: Type a custom question via Enter key ──
         print("\n=== Step 6: Custom Question (Enter key) ===")
         chat_input = await page.query_selector("#chat-input")
         if chat_input:
-            await chat_input.fill("What role does Moses play across the books?")
+            await chat_input.fill("Who was involved in the California energy trading decisions?")
             await chat_input.press("Enter")
             await asyncio.sleep(2)
             await page.screenshot(path=SCREENSHOT_DIR / "local-06-custom-question.png")
 
             chat_el = await page.query_selector("#chat-history")
             chat_text = await chat_el.inner_text() if chat_el else ""
-            check("Enter-to-send works: Moses question in chat", "Moses" in chat_text)
-            check("Moses mock response differs from Ruth response", "burning bush" in chat_text.lower() or "exodus" in chat_text.lower())
+            check("Enter-to-send works: California question in chat", "California" in chat_text)
+            check(
+                "California mock response differs from Kenneth Lay response",
+                "Tim Belden" in chat_text or "David Delainey" in chat_text or "energy trading" in chat_text.lower(),
+            )
             check("Multiple messages in chat history", chat_text.count("You") >= 2)
 
-        # ── Step 7: Manage Corpus ──
-        print("\n=== Step 7: Manage Corpus ===")
-        link = await page.query_selector('a[href="/manage-corpus"]')
-        check("Manage Corpus nav link exists", link is not None)
-        if link:
-            await link.click()
-            await page.wait_for_load_state("networkidle")
-            await asyncio.sleep(1)
-            await page.screenshot(path=SCREENSHOT_DIR / "local-07-manage-corpus.png")
-
-            title = await page.query_selector("text=Manage Corpus")
-            check("Manage Corpus title rendered", title is not None)
-
-            add_btn = await page.query_selector("#add-books-btn")
-            check("Add Selected button present", add_btn is not None)
-
-            remove_btn = await page.query_selector("#remove-books-btn")
-            check("Remove Selected button present", remove_btn is not None)
-
-            refresh_btn = await page.query_selector("#refresh-btn")
-            check("Refresh button present", refresh_btn is not None)
-
-            tabs = await page.query_selector("#testament-tabs")
-            check("Testament tabs present", tabs is not None)
-
-            book_grid = await page.query_selector("#book-grid")
-            check("Book grid present", book_grid is not None)
-
-            stats_panel = await page.query_selector("#stats-panel")
-            check("Stats panel present", stats_panel is not None)
-
-            enterprise_alert = await page.query_selector("text=Enterprise Pattern")
-            check("Enterprise callout visible", enterprise_alert is not None)
-
-            # Check a book checkbox and verify selection summary updates
-            genesis_checkbox = await page.query_selector('[id*="book-check"][id*="Genesis"] input')
-            if genesis_checkbox:
-                await genesis_checkbox.click()
-                await asyncio.sleep(0.5)
-                summary = await page.query_selector("#selection-summary")
-                summary_text = await summary.inner_text() if summary else ""
-                check("Selection summary updates on checkbox", "1 selected" in summary_text)
-                await genesis_checkbox.click()  # uncheck
-
-            # Try clicking Add Selected while nothing is selected — should be disabled
-            if add_btn:
-                is_disabled = await add_btn.get_attribute("disabled")
-                check("Add button disabled when nothing selected",
-                      is_disabled is not None or is_disabled == "true")
-
-            await page.screenshot(path=SCREENSHOT_DIR / "local-07b-manage-corpus-checked.png")
-
-            # If in mock mode, try adding a book and check for mock message
-            if USE_MOCK:
-                genesis_cb = await page.query_selector('[id*="book-check"][id*="Genesis"] input')
-                if genesis_cb:
-                    await genesis_cb.click()
-                    await asyncio.sleep(0.3)
-                    if add_btn:
-                        await add_btn.click()
-                        await asyncio.sleep(1)
-                        progress = await page.query_selector("#pipeline-progress")
-                        progress_text = await progress.inner_text() if progress else ""
-                        check("Mock pipeline progress shown",
-                              "Mock mode" in progress_text or "pipeline" in progress_text.lower())
-                    await page.screenshot(path=SCREENSHOT_DIR / "local-07c-manage-corpus-add.png")
-
-            # Verify no error banners appeared
-            error_alerts = await page.query_selector_all('.alert-danger')
-            check("No error banners on manage corpus page", len(error_alerts) == 0)
-
-        # ── Step 8: Apply to Business ──
-        print("\n=== Step 8: Apply to Business ===")
+        # ── Step 7: Apply to Business ──
+        print("\n=== Step 7: Apply to Business ===")
         link = await page.query_selector('a[href="/apply"]')
         check("Apply nav link exists", link is not None)
         if link:
             await link.click()
             await page.wait_for_load_state("networkidle")
             await asyncio.sleep(0.5)
-            await page.screenshot(path=SCREENSHOT_DIR / "local-08-apply.png")
+            await page.screenshot(path=SCREENSHOT_DIR / "local-07-apply.png")
             content = await page.query_selector("text=Apply")
             check("Apply page rendered", content is not None)
 
-        # ── Step 9: Navigate back to Home ──
-        print("\n=== Step 9: Back to Home ===")
+        # ── Step 8: Navigate back to Home ──
+        print("\n=== Step 8: Back to Home ===")
         link = await page.query_selector('a[href="/"]')
         if link:
             await link.click()
             await page.wait_for_load_state("networkidle")
             await asyncio.sleep(0.5)
-            await page.screenshot(path=SCREENSHOT_DIR / "local-09-home-return.png")
+            await page.screenshot(path=SCREENSHOT_DIR / "local-08-home-return.png")
             check("Returned to home page", True)
 
         # Console errors

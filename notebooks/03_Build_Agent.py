@@ -47,7 +47,7 @@ for item in result.output:
 
 # DBTITLE 1,Test: Multi-hop Question
 test_request = ResponsesAgentRequest(
-    input=[{"role": "user", "content": "How is Ruth connected to Jesus?"}]
+    input=[{"role": "user", "content": "Trace the relationship path between two key entities in the graph."}]
 )
 result = AGENT.predict(test_request)
 for item in result.output:
@@ -58,7 +58,7 @@ for item in result.output:
 
 # DBTITLE 1,Test: Cross-book Question
 test_request = ResponsesAgentRequest(
-    input=[{"role": "user", "content": "Which people appear in both Genesis and the New Testament?"}]
+    input=[{"role": "user", "content": "Which entities appear across multiple document groups in the graph?"}]
 )
 result = AGENT.predict(test_request)
 for item in result.output:
@@ -100,11 +100,11 @@ spark.sql(f"""
 
 spark.sql(f"""
     MERGE INTO {AGENT_PROMPTS_TABLE} AS target
-    USING (SELECT 'bible-agent' AS agent_id) AS source
+    USING (SELECT 'legacy-agent' AS agent_id) AS source
     ON target.agent_id = source.agent_id
     WHEN NOT MATCHED THEN
         INSERT (agent_id, prompt_text, updated_at)
-        VALUES ('bible-agent', '{SYSTEM_PROMPT.replace("'", "''")}', current_timestamp())
+        VALUES ('legacy-agent', '{SYSTEM_PROMPT.replace("'", "''")}', current_timestamp())
 """)
 
 print(f"Agent prompts table ready: {AGENT_PROMPTS_TABLE}")
@@ -126,7 +126,7 @@ from mlflow.models.resources import DatabricksServingEndpoint, DatabricksTable, 
 
 mlflow.set_registry_uri("databricks-uc")
 
-os.environ["GRAPHRAG_CORPUS"] = "bible"
+os.environ["GRAPHRAG_CORPUS"] = "enron"
 os.environ["GRAPHRAG_LLM_ENDPOINT"] = config["llm_endpoint"]
 os.environ["GRAPHRAG_SYNTHESIS_ENDPOINT"] = config["llm_endpoint"]
 os.environ["GRAPHRAG_REACT_ENDPOINT"] = config["llm_endpoint"]
@@ -144,7 +144,7 @@ resources = [
     DatabricksSQLWarehouse(warehouse_id="399215661843ad19"),
 ]
 
-with mlflow.start_run(run_name="graphrag_bible_agent"):
+with mlflow.start_run(run_name="graphrag_legacy_agent"):
     model_info = mlflow.pyfunc.log_model(
         name="agent",
         python_model="../src/agent/agent_serving.py",
@@ -163,7 +163,7 @@ with mlflow.start_run(run_name="graphrag_bible_agent"):
             "databricks-connect",
         ],
         input_example={
-            "input": [{"role": "user", "content": "Who is Abraham?"}]
+            "input": [{"role": "user", "content": "Who communicated most frequently with Kenneth Lay?"}]
         },
         registered_model_name=f"{config['catalog']}.{config['schema']}.graphrag_agent",
     )
@@ -186,7 +186,7 @@ from databricks import agents
 from databricks.sdk import WorkspaceClient
 import time
 
-ENDPOINT_NAME = "graphrag-bible-agent"
+ENDPOINT_NAME = "graphrag-legacy-agent"
 
 try:
     deployment = agents.deploy(
@@ -194,7 +194,7 @@ try:
         model_info.registered_model_version,
         endpoint_name=ENDPOINT_NAME,
         environment_vars={
-            "GRAPHRAG_CORPUS": "bible",
+            "GRAPHRAG_CORPUS": "enron",
             "GRAPHRAG_LLM_ENDPOINT": config["llm_endpoint"],
             "GRAPHRAG_SYNTHESIS_ENDPOINT": config["llm_endpoint"],
             "GRAPHRAG_REACT_ENDPOINT": config["llm_endpoint"],

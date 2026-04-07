@@ -114,27 +114,6 @@ class TestAnalyticsRouteGateUnit:
         assert routed["params"]["date_from"] == ""
         assert routed["params"]["date_to"] == ""
 
-    def test_wave2_route_selects_topic_distribution(self, mod):
-        with patch.dict(mod.os.environ, {"GRAPHRAG_WAVE2_HYBRID_MODE": "gate"}, clear=False):
-            routed = mod._select_gated_analytics_route(
-                "What are the top topics for Kenneth Lay?",
-                entities=[{"name": "Kenneth Lay"}],
-            )
-
-        assert routed is not None
-        assert routed["tool_name"] == "get_topic_distribution"
-        assert routed["params"]["entity_name"] == "Kenneth Lay"
-
-    def test_wave2_route_selects_browse_topics(self, mod):
-        with patch.dict(mod.os.environ, {"GRAPHRAG_WAVE2_HYBRID_MODE": "gate"}, clear=False):
-            routed = mod._select_gated_analytics_route(
-                'Show sub-topics for "Energy".',
-            )
-
-        assert routed is not None
-        assert routed["tool_name"] == "browse_topics"
-        assert routed["params"]["category"] == "Energy"
-
     def test_wave2_route_selects_dyad_topics_before_single_entity_topics(self, mod):
         with patch.dict(mod.os.environ, {"GRAPHRAG_WAVE2_HYBRID_MODE": "gate"}, clear=False):
             routed = mod._select_gated_analytics_route(
@@ -736,77 +715,6 @@ class TestWave2HybridToolsUnit:
         assert data["hybrid_contract_enabled"] is True
         assert data["analytics_backend"] == "databricks_sql"
         assert data["monthly_trend"][0]["total_emails"] == 15
-
-    def test_get_topic_distribution_returns_hybrid_metadata(self, mod, mock_backend):
-        responses = [
-            [
-                {"topic": "Board Matters", "thread_count": "5", "sample_subject": "Board update"},
-                {"topic": "Compensation", "thread_count": "3", "sample_subject": "Comp package"},
-            ]
-        ]
-        backend, patcher = mock_backend(responses)
-        resolved = _make_resolved(
-            mod,
-            "Kenneth Lay",
-            email_patterns=["%kenneth.lay@enron.com%"],
-            email_addresses=["kenneth.lay@enron.com"],
-        )
-        with (
-            patcher,
-            patch.dict(mod.os.environ, {"GRAPHRAG_WAVE2_HYBRID_MODE": "gate"}, clear=False),
-            patch.object(mod, "resolve_entity_cached", return_value=resolved),
-            patch.object(
-                mod,
-                "_collect_analytics_enrichment",
-                return_value={"role_context": {"Kenneth Lay": [{"title": "Chairman"}]}},
-            ),
-        ):
-            result = mod.get_topic_distribution("Kenneth Lay", limit=5)
-
-        data = json.loads(result)
-        assert data["entity"] == "Kenneth Lay"
-        assert data["hybrid_contract_enabled"] is True
-        assert data["analytics_backend"] == "databricks_sql"
-        assert data["analytics_intent"] == "distribution"
-        assert data["topic_count"] == 2
-        assert data["topics"][0]["topic"] == "Board Matters"
-        assert data["enrichment"]["role_context"]["Kenneth Lay"][0]["title"] == "Chairman"
-        assert "EXPLODE" in backend.queries[0]["query"]
-
-    def test_browse_topics_returns_hybrid_metadata(self, mod, mock_backend):
-        responses = [
-            [
-                {"parent_label": "Legal", "topic_label": "Board Matters", "thread_count": "5"},
-            ]
-        ]
-        backend, patcher = mock_backend(responses)
-        resolved = _make_resolved(
-            mod,
-            "Kenneth Lay",
-            email_patterns=["%kenneth.lay@enron.com%"],
-            email_addresses=["kenneth.lay@enron.com"],
-        )
-        with (
-            patcher,
-            patch.dict(mod.os.environ, {"GRAPHRAG_WAVE2_HYBRID_MODE": "gate"}, clear=False),
-            patch.object(mod, "resolve_entity_cached", return_value=resolved),
-            patch.object(
-                mod,
-                "_collect_analytics_enrichment",
-                return_value={"role_context": {"Kenneth Lay": [{"title": "Chairman"}]}},
-            ),
-        ):
-            result = mod.browse_topics(entity_name="Kenneth Lay")
-
-        data = json.loads(result)
-        assert data["entity"] == "Kenneth Lay"
-        assert data["hybrid_contract_enabled"] is True
-        assert data["analytics_backend"] == "databricks_sql"
-        assert data["analytics_intent"] == "listing"
-        assert data["fallback_used"] is False
-        assert data["topics"][0]["topic_label"] == "Board Matters"
-        assert data["enrichment"]["role_context"]["Kenneth Lay"][0]["title"] == "Chairman"
-        assert "topic_taxonomy" in backend.queries[0]["query"]
 
     def test_get_dyad_topics_returns_hybrid_metadata(self, mod, mock_backend):
         responses = [

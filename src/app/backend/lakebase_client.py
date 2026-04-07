@@ -200,7 +200,7 @@ def get_entity_neighborhood(entity_name: str, limit: int = 30,
 
 def lookup_verses(references: list[str],
                   context: dict[str, str] | None = None) -> dict[str, str]:
-    """Resolve verse references like 'Ruth 4:13' to actual text."""
+    """Resolve legacy source references to their stored text."""
     import re
 
     if not references:

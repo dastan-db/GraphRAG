@@ -310,9 +310,6 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
                 "entity_name": "$ENTITY",
                 "relationship_type": "DISCUSSES",
             }),
-            ExecutionStep("get_topic_distribution", {
-                "entity_name": "$ENTITY",
-            }),
             ExecutionStep("get_communication_stats", {
                 "entity_name": "$ENTITY",
                 "group_by": "contact",
@@ -404,7 +401,6 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
             ExecutionStep("semantic_search_emails", {
                 "query": "$QUESTION",
             }),
-            ExecutionStep("browse_topics", {}),
             ExecutionStep("query_timeline", {
                 "person_name": "",
                 "date_from": "$DATE_FROM",
@@ -413,12 +409,6 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
             ExecutionStep("find_connections", {
                 "entity_name": "$ENTITY",
                 "relationship_type": "DISCUSSES",
-            }),
-            ExecutionStep("browse_topics", {
-                "entity_name": "$ENTITY",
-            }),
-            ExecutionStep("get_entity_context", {
-                "entity_name": "$ENTITY",
             }),
             ExecutionStep("get_source_evidence", {
                 "entity_name": "$ENTITY",
@@ -440,7 +430,6 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
             ExecutionStep("semantic_search_emails", {
                 "query": "$QUESTION",
             }),
-            ExecutionStep("browse_topics", {}),
             ExecutionStep("query_timeline", {
                 "person_name": "",
                 "date_from": "",
@@ -448,13 +437,6 @@ PATTERN_REGISTRY: dict[str, Pattern] = {
             }),
             ExecutionStep("get_top_individuals", {}),
             ExecutionStep("get_top_email_pairs", {}),
-            ExecutionStep("get_corpus_coverage", {}),
-            ExecutionStep("get_topic_distribution", {
-                "entity_name": "$ENTITY",
-            }),
-            ExecutionStep("get_entity_context", {
-                "entity_name": "$ENTITY",
-            }),
             ExecutionStep("query_org_hierarchy", {
                 "entity_name": "$ENTITY",
             }),

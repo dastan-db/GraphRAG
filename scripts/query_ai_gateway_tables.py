@@ -16,9 +16,9 @@ import sys
 
 from databricks.sdk import WorkspaceClient
 
-ENDPOINT_NAME = "graphrag-bible-agent"
+ENDPOINT_NAME = "graphrag-enron-agent"
 CATALOG = "serverless_8e8gyh_catalog"
-SCHEMA = "graphrag_bible"
+SCHEMA = "graphrag_enron"
 INFERENCE_TABLE_PREFIX = "graphrag_gw"
 INFERENCE_TABLE = f"{CATALOG}.{SCHEMA}.{INFERENCE_TABLE_PREFIX}_payload"
 LEGACY_INFERENCE_TABLE = f"{CATALOG}.{SCHEMA}.graphrag_agent_payload"

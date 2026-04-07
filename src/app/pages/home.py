@@ -78,7 +78,7 @@ def home_layout():
         html.Hr(),
         html.P(
             "Navigate to How It Works to see the 5-step pipeline, "
-            "or jump straight to the Live Demo to see it in action.",
+            "or jump straight to the Corporate Demo to see it in action.",
             className="text-center text-muted py-2",
         ),
     ])

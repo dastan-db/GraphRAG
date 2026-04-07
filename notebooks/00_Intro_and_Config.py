@@ -10,11 +10,11 @@
 # MAGIC
 # MAGIC ### This Demo
 # MAGIC
-# MAGIC We demonstrate GraphRAG using the **complete King James Bible** (all 66 books — 39 Old Testament, 27 New Testament) — the densest, most cross-referencing corpus of people, places, and events available, with independently verifiable ground truth.
+# MAGIC This legacy notebook demonstrates the original GraphRAG walkthrough on a historical reference corpus. The active product architecture has since narrowed to the Enron use case, but the same graph-retrieval ideas still apply.
 # MAGIC
 # MAGIC ### Pipeline Overview
 # MAGIC
-# MAGIC 1. **Data Prep** (Notebook 01): Load Bible text into Delta tables
+# MAGIC 1. **Data Prep** (Notebook 01): Load source documents into Delta tables
 # MAGIC 2. **Knowledge Graph** (Notebook 02): LLM extracts entities and relationships
 # MAGIC 3. **Agent** (Notebook 03): Build a LangGraph agent with graph traversal tools
 # MAGIC 4. **Demo** (Notebook 04): Ask multi-hop questions, see the agent reason over the graph
@@ -22,13 +22,13 @@
 # MAGIC
 # MAGIC ### Applying This Pattern to Your Domain
 # MAGIC
-# MAGIC The Bible is a proxy corpus. This same architecture applies wherever entities have dense relationships:
+# MAGIC This historical corpus is only a stand-in. The same architecture applies wherever entities have dense relationships:
 # MAGIC
-# MAGIC | Bible | Code / Architecture | Supply Chain |
-# MAGIC |-------|---------------------|--------------|
-# MAGIC | Person → Person (FAMILY_OF) | Service → Service (CALLS) | Supplier → Warehouse (SHIPS_TO) |
-# MAGIC | Person → Place (TRAVELED_TO) | Module → Repo (DEPLOYED_TO) | Product → Region (DISTRIBUTED_IN) |
-# MAGIC | *"How is Ruth connected to Jesus?"* | *"What breaks if we change this schema?"* | *"Which customers are affected by this delay?"* |
+# MAGIC | Reference Corpus | Code / Architecture | Supply Chain |
+# MAGIC |------------------|---------------------|--------------|
+# MAGIC | Person → Person | Service → Service (CALLS) | Supplier → Warehouse (SHIPS_TO) |
+# MAGIC | Person → Place | Module → Repo (DEPLOYED_TO) | Product → Region (DISTRIBUTED_IN) |
+# MAGIC | *"Who communicated most frequently with Kenneth Lay?"* | *"What breaks if we change this schema?"* | *"Which customers are affected by this delay?"* |
 # MAGIC
 # MAGIC The insight: **structure (graph) matters more than model size** for multi-hop reasoning tasks. A small model with graph retrieval can match a large model without it — at a fraction of the cost.
 
@@ -49,7 +49,7 @@
 print(f"Catalog:        {config['catalog']}")
 print(f"Schema:         {config['schema']}")
 print(f"LLM Endpoint:   {config['llm_endpoint']}")
-print(f"Bible Books:    {', '.join(config['bible_books'].keys())}")
+print(f"Legacy corpus tags: {', '.join(config['bible_books'].keys())}")
 
 # COMMAND ----------
 

@@ -1,90 +1,70 @@
-"""Shared test cases and scoring utilities for GraphRAG agent validation.
+"""Shared Enron test cases and scoring utilities for GraphRAG validation.
 
 Used by:
-    - scripts/validate_local.py  (local quality gate)
-    - scripts/validate_parity.py (local-vs-Databricks parity)
-    - scripts/test_endpoint.py   (deployed endpoint test)
+    - scripts/validate_local.py
+    - scripts/validate_parity.py
+    - scripts/test_endpoint.py
 """
 import re
 
-TEST_CASES = [
-    {
-        "question": "How is Ruth connected to Jesus? Trace the lineage step by step.",
-        "expected_entities": ["Ruth", "Boaz", "Obed", "Jesse", "David", "Jesus"],
-        "category": "multi-hop lineage",
-    },
-    {
-        "question": "What happened on the road to Damascus in Acts?",
-        "expected_entities": ["Saul", "Paul", "Damascus"],
-        "category": "single-book event",
-    },
-    {
-        "question": "What significant events happened in Egypt across all the books in our knowledge graph?",
-        "expected_entities": ["Egypt", "Joseph", "Moses"],
-        "category": "cross-book synthesis",
-    },
-    {
-        "question": "Who was Abraham and what covenant did God make with him?",
-        "expected_entities": ["Abraham", "God"],
-        "category": "entity profile",
-    },
-    {
-        "question": "Compare the leadership styles of Moses and Paul based on their actions and relationships.",
-        "expected_entities": ["Moses", "Paul"],
-        "category": "comparative analysis",
-    },
-]
-
 ENRON_TEST_CASES = [
     {
+        "question": "Who communicated most frequently with Kenneth Lay?",
+        "expected_entities": ["Kenneth Lay"],
+        "expected_tools": ["find_top_contacts", "query_and_enrich"],
+        "category": "communication_summary",
+    },
+    {
+        "question": "How are Kenneth Lay and Andrew Fastow connected?",
+        "expected_entities": ["Kenneth Lay", "Andrew Fastow"],
+        "expected_tools": ["trace_path", "get_relationship_evidence"],
+        "category": "path",
+    },
+    {
+        "question": "Find emails mentioning California energy trading decisions.",
+        "expected_entities": ["California"],
+        "expected_tools": ["search_emails"],
+        "category": "investigation",
+    },
+    {
+        "question": "Who did Jeff Skilling report to?",
+        "expected_entities": ["Jeff Skilling"],
+        "expected_tool": "find_connections",
+        "category": "org_hierarchy",
+    },
+    {
+        "question": "What did Kenneth Lay and Jeff Skilling discuss?",
+        "expected_entities": ["Kenneth Lay", "Jeff Skilling"],
+        "expected_tool": "get_dyad_topics",
+        "category": "topic_pair",
+    },
+    {
         "question": "Who sent the most emails in the Enron corpus?",
+        "expected_entities": [],
         "expected_tools": ["get_top_individuals", "query_and_enrich"],
         "forbidden_tool": "get_top_email_pairs",
         "category": "individual_ranking",
     },
     {
         "question": "Which two people exchanged the most emails?",
+        "expected_entities": [],
         "expected_tools": ["get_top_email_pairs", "query_and_enrich"],
         "forbidden_tool": "get_top_individuals",
         "category": "corpus_ranking_pairs",
     },
     {
-        "question": "Who did Jeff Skilling report to?",
-        "expected_tool": "find_connections",
-        "category": "org_hierarchy",
-    },
-    {
-        "question": "What did Kenneth Lay and Jeff Skilling discuss?",
-        "expected_tool": "get_dyad_topics",
-        "category": "topic_pair",
-    },
-    {
-        "question": "Find emails mentioning 'shred' or 'destroy'",
-        "expected_tool": "search_emails",
-        "category": "investigation",
-    },
-    {
-        "question": "How are Andrew Fastow and Kenneth Lay connected?",
-        "expected_tool": "trace_path",
-        "category": "path",
-    },
-    {
         "question": "Who were Jeff Skilling's top email contacts?",
+        "expected_entities": ["Jeff Skilling"],
         "expected_tools": ["find_top_contacts", "query_and_enrich"],
         "category": "communication",
     },
     {
         "question": "What percentage of emails were internal?",
+        "expected_entities": [],
         "expected_tool": "query_and_enrich",
         "category": "genie_analytics",
     },
 ]
-
-QUALITY_THRESHOLDS = {
-    "entity_recall": 0.60,
-    "citations": 1.0,
-    "success_rate": 0.80,
-}
 
 ENRON_QUALITY_THRESHOLDS = {
     "expected_tool_rate": 0.75,
@@ -92,47 +72,11 @@ ENRON_QUALITY_THRESHOLDS = {
     "success_rate": 0.80,
 }
 
-VERSE_PATTERN = re.compile(r"(Genesis|Exodus|Ruth|Matthew|Acts)\s+\d+:\d+")
 PROVENANCE_HEADING = re.compile(r"#{1,3}\s*Provenance", re.IGNORECASE)
 PATH_INDICATOR = re.compile(r"(→|-->|—\[)")
 SOURCES_LINE = re.compile(r"\*?\*?Sources\*?\*?\s*:", re.IGNORECASE)
 GROUNDING_LINE = re.compile(r"\*?\*?Grounding\*?\*?\s*:", re.IGNORECASE)
 TOOL_CALL_PATTERN = re.compile(r"\b([a-z]+(?:_[a-z0-9]+)+)\s*\(")
-
-
-def score_response(response: str, expected_entities: list[str]) -> dict:
-    """Score an agent response against expected entities and structural quality."""
-    citations = VERSE_PATTERN.findall(response)
-    has_provenance = bool(PROVENANCE_HEADING.search(response))
-    has_path = bool(PATH_INDICATOR.search(response))
-    has_sources = bool(SOURCES_LINE.search(response))
-    has_grounding = bool(GROUNDING_LINE.search(response))
-    provenance_score = sum([has_provenance, has_path, has_sources, has_grounding]) / 4
-
-    response_lower = response.lower()
-    entity_hits = [e for e in expected_entities if e.lower() in response_lower]
-    entity_recall = len(entity_hits) / len(expected_entities) if expected_entities else 1.0
-
-    answer_section = response.split("### Provenance")[0] if "### Provenance" in response else response
-    sentences = [s.strip() for s in re.split(r"[.!?\n]", answer_section) if len(s.strip()) > 20]
-    cited_sentences = sum(1 for s in sentences if VERSE_PATTERN.search(s))
-    citation_completeness = cited_sentences / len(sentences) if sentences else 0
-
-    return {
-        "citations": len(citations),
-        "citation_completeness": round(citation_completeness, 2),
-        "provenance_score": provenance_score,
-        "provenance_components": {
-            "heading": has_provenance,
-            "path": has_path,
-            "sources": has_sources,
-            "grounding": has_grounding,
-        },
-        "entity_recall": round(entity_recall, 2),
-        "entity_hits": entity_hits,
-        "entity_misses": [e for e in expected_entities if e not in entity_hits],
-        "response_length": len(response),
-    }
 
 
 def extract_answer_text(response) -> str:
@@ -174,40 +118,6 @@ def infer_tool_calls_from_text(response: str) -> list[str]:
     return tool_calls
 
 
-def check_quality_gates(results: list[dict], thresholds: dict | None = None) -> tuple[bool, list[dict]]:
-    """Evaluate quality gates against aggregated results.
-
-    Returns (all_passed, gate_details) where gate_details is a list of
-    {name, value, threshold, label, passed} dicts.
-    """
-    thresholds = thresholds or QUALITY_THRESHOLDS
-
-    valid = [r for r in results if "entity_recall" in r]
-    if not valid:
-        return False, [{"name": "success_rate", "value": 0, "threshold": thresholds.get("success_rate", 0.80),
-                        "label": "Success rate", "passed": False}]
-
-    avg_entity = sum(r["entity_recall"] for r in valid) / len(valid)
-    avg_citations = sum(r["citations"] for r in valid) / len(valid)
-    success_rate = len(valid) / len(results) if results else 0
-
-    gates = [
-        {"name": "entity_recall", "value": avg_entity,
-         "threshold": thresholds.get("entity_recall", 0.60),
-         "label": "Avg entity recall"},
-        {"name": "citations", "value": avg_citations,
-         "threshold": thresholds.get("citations", 1.0),
-         "label": "Avg citations"},
-        {"name": "success_rate", "value": success_rate,
-         "threshold": thresholds.get("success_rate", 0.80),
-         "label": "Success rate"},
-    ]
-    for g in gates:
-        g["passed"] = g["value"] >= g["threshold"]
-
-    return all(g["passed"] for g in gates), gates
-
-
 def score_enron_response(response: str, tool_calls: list[str], case: dict) -> dict:
     expected_tools = list(case.get("expected_tools", []) or [])
     if not expected_tools and case.get("expected_tool"):
@@ -215,11 +125,19 @@ def score_enron_response(response: str, tool_calls: list[str], case: dict) -> di
     expected_tool = " / ".join(expected_tools)
     forbidden_tool = case.get("forbidden_tool", "")
     tool_set = set(tool_calls) | set(infer_tool_calls_from_text(response))
+    response_lower = (response or "").lower()
+    expected_entities = case.get("expected_entities", []) or []
+    entity_hits = [entity for entity in expected_entities if entity.lower() in response_lower]
     expected_tool_hit = (
         1.0 if not expected_tools else float(any(tool in tool_set for tool in expected_tools))
     )
     forbidden_tool_avoided = 1.0 if not forbidden_tool else float(forbidden_tool not in tool_set)
     response_ok = float(len((response or "").strip()) >= 20 and not response.startswith("ERROR:"))
+    has_provenance = bool(PROVENANCE_HEADING.search(response or ""))
+    has_path = bool(PATH_INDICATOR.search(response or ""))
+    has_sources = bool(SOURCES_LINE.search(response or ""))
+    has_grounding = bool(GROUNDING_LINE.search(response or ""))
+    provenance_score = sum([has_provenance, has_path, has_sources, has_grounding]) / 4
     return {
         "question": case["question"][:60],
         "category": case["category"],
@@ -229,6 +147,14 @@ def score_enron_response(response: str, tool_calls: list[str], case: dict) -> di
         "forbidden_tool": forbidden_tool,
         "forbidden_tool_avoided": forbidden_tool_avoided,
         "non_empty_response": response_ok,
+        "expected_entities": expected_entities,
+        "entity_hits": entity_hits,
+        "entity_recall": (
+            round(len(entity_hits) / len(expected_entities), 2)
+            if expected_entities
+            else 1.0
+        ),
+        "provenance_score": provenance_score,
         "tool_calls": list(tool_calls),
         "response_length": len(response or ""),
     }

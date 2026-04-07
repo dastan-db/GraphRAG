@@ -25,29 +25,26 @@ GraphRAG/
 │
 ├── src/                       ALL PRODUCT SOURCE CODE
 │   ├── config.py              Shared config (catalog, schema, endpoints)
-│   ├── extraction/            LLM extraction: prompts, pipeline, dedup
-│   ├── agent/                 Thin serving shim + focused agent modules
+│   ├── agent/                 Thin serving shim + core Enron agent modules
 │   ├── evaluation/            Shipped governance scorers, question bank, active baselines
-│   ├── runtime/               Shared orchestrator, contracts, module adapters
-│   ├── app/                   Dash web application (7 pages, backend, assets)
-│   └── _internal/             Internal hardening loops and experimental evaluators
+│   ├── runtime/               Thin orchestrator, contracts, response parsing
+│   └── app/                   Dash web application (5 pages, backend, assets)
 │
 ├── notebooks/                 DATABRICKS NOTEBOOKS
 │   ├── 06–12                  Enron pipeline (data prep → graph → enrichment → agent → eval)
-│   ├── 00–05                  Bible pipeline (config → data → graph → agent → demo → eval)
+│   ├── 00–05                  Legacy notebooks retained for historical reference only
 │   └── spikes/                Exploratory/debug notebooks
 │
 ├── scripts/                   CLI utilities (deploy, eval, local test, preflight)
-│   └── _internal/             Dev-only loops and benchmarking helpers
 ├── tests/                     ALL TESTS
-├── deploy/                    DABs resource definitions (pipeline, enron, webapp, MCP)
+├── deploy/                    DABs resource definitions (pipeline and webapp)
 ├── docs/                      Blog posts and standalone documentation
 │
 ├── .execution/                SDE + Drucker discipline (phases, decisions)
 └── .cursor/                   Cursor tooling (rules, agents, skills)
 ```
 
-Customer-facing product code lives in `src/`. Internal hardening loops, experimental evaluators, and archived benchmarking machinery live under `src/_internal/` and `scripts/_internal/`, with thin compatibility wrappers left at historical import paths where needed.
+Customer-facing product code lives in `src/`. The active architecture is Enron-first and intentionally narrow: core graph/evidence tools, a thin runtime wrapper, governed evaluation flows, and the Dash app.
 
 ## The Problem
 
@@ -99,15 +96,15 @@ Enron Emails (20,000+)
 ┌─────────────────────┐
 │  07: Knowledge Graph │  ai_query() extracts entities and relationships;
 │  07b–07m: Enrichment │  entity resolution, org hierarchy, communication
-│                      │  analytics, person identity, topic taxonomy
+│                      │  analytics, and supporting pipeline tables
 └─────────┬───────────┘
           ▼
 ┌─────────────────────┐
-│  09: Agent           │  LangGraph agent with 20+ tools:
+│  09: Agent           │  LangGraph agent with focused tools:
 │                      │  find_entity, find_connections, trace_path,
 │                      │  find_top_contacts, get_emails_between,
 │                      │  search_emails, get_communication_timeline,
-│                      │  get_relationship_evidence, and more
+│                      │  get_relationship_evidence, and quantitative analytics
 └─────────┬───────────┘
           ▼
 ┌─────────────────────┐
@@ -137,19 +134,9 @@ Enron Emails (20,000+)
 | `11_Enron_ABAC_Demo` | Demonstrate scoped retrieval under ABAC policies |
 | `12_Enron_Pattern_Analysis` | Communication pattern and anomaly detection |
 
-### Bible Corpus (notebooks 00–05) — Additional
+### Legacy Notebooks (00–05)
 
-The KJV Bible (all 66 books) serves as a secondary corpus with independently verifiable ground truth — useful for validating multi-hop graph traversal where the correct answer is objectively known (e.g., "How is Ruth connected to Jesus?" has a provably correct genealogical path).
-
-| Notebook | Purpose |
-|----------|---------|
-| `00_Intro_and_Config` | Configuration and setup |
-| `01_Data_Prep` | Load Bible text into Delta tables |
-| `02_Build_Knowledge_Graph` | `ai_query()` extracts entities and relationships in parallel via `responseFormat` |
-| `03_Build_Agent` | Build LangGraph agent, log to MLflow, deploy to Model Serving |
-| `04_Query_Demo` | Interactive demo with auditable, multi-hop answers |
-| `05_Evaluation` | Governance + quality + cost comparison: GraphRAG vs flat RAG vs direct LLM |
-| `RUNME` | Creates a Databricks Workflow for the Bible pipeline |
+The earlier Bible workflow is no longer part of the active architecture, demo surface, or governed evaluation loop. Those notebooks remain in the repo only as historical reference while the core product stays focused on the Enron use case.
 
 ### Debug Notebook Workflow
 
@@ -174,15 +161,11 @@ The primary evaluation uses 13 custom scorers across 51 questions in 5 categorie
 
 The agent uses a **Plan-Decompose-Execute-Synthesize (PDES)** architecture with 6 MECE question primitives: `entity_explore`, `entity_pair`, `timeline`, `keyword_search`, `genie_analytics`, and `general`.
 
-### Bible Governance Scorers (secondary benchmark)
-
-The Bible corpus provides a complementary evaluation with five configurations (GraphRAG + 70B, GraphRAG + 8B, Flat RAG + 70B, Direct LLM + 70B, Direct External GPT-5.2) measuring hallucination check, citation completeness, provenance chain integrity, and reproducibility (Jaccard similarity).
-
 ## Key Capabilities
 
 - **Unified entity resolution** — `ResolvedEntity` dataclass with 4-stage cascade (exact → alias → fuzzy/Levenshtein → stem) shared across all tools
-- **20+ agent tools** — `find_entity`, `find_connections`, `trace_path`, `find_top_contacts`, `get_emails_between`, `search_emails`, `get_communication_timeline`, `get_activity_anomalies`, `get_relationship_evidence`, `get_source_evidence`, and more
-- **Communication analytics** — dyad analysis, org hierarchy, person activity, topic taxonomy
+- **Focused investigative toolset** — `find_entity`, `find_connections`, `trace_path`, `find_top_contacts`, `get_emails_between`, `search_emails`, `get_communication_timeline`, `get_relationship_evidence`, `get_source_evidence`, and related quantitative analytics
+- **Communication analytics** — dyad analysis, org hierarchy, person activity, and Genie-backed tabular analytics
 - **Genie Spaces** — SQL-powered analytics for tabular questions (counts, rankings, percentages)
 - **Attribute-based access control (ABAC)** — row/column-level security with sensitivity tiers (analyst, executive, legal)
 - **Tool latency instrumentation** — MLflow span tracing with per-tool SLA thresholds
@@ -242,19 +225,19 @@ If DuckDB counts are **low** (e.g. stuck at ~64k) while Delta/Lakebase match, re
 **`enron.threads`** is created and loaded with **manifest DDL** (same columns as Delta, including optional `summary` / `key_topics`). If **`threads`** load failed under an older fixed schema, run once in Lakebase: `DROP TABLE IF EXISTS enron.threads;` then **`python scripts/setup_lakebase.py --enron --refresh`**.
 
 **Shared runtime modes:**
-- `local-fast`: `GRAPHRAG_BACKEND=local`, direct runtime, local adapters, fastest edit/test loop
-- `local-integration`: `GRAPHRAG_BACKEND=lakebase` (default for remote data) or `databricks` (SQL warehouse / Statement Execution API), direct runtime, same orchestrator surface without a serving deploy
-- `databricks-prod`: app/backend defaults to shared runtime with env-controlled module transports (`GRAPHRAG_ROUTER_TRANSPORT`, `GRAPHRAG_PLANNER_TRANSPORT`, `GRAPHRAG_GRAPH_TRANSPORT`, `GRAPHRAG_EVIDENCE_TRANSPORT`, `GRAPHRAG_ANALYTICS_TRANSPORT`)
+- `local-fast`: `GRAPHRAG_BACKEND=local`, direct runtime, fastest edit/test loop
+- `local-integration`: `GRAPHRAG_BACKEND=lakebase` (default for remote data) or `databricks` (SQL warehouse / Statement Execution API), same orchestrator surface without a serving deploy
+- `deployed`: endpoint transport against `graphrag-enron-agent`
 
 **Local validation:**
 ```bash
-python scripts/test_local.py "Who is Abraham?"
-python scripts/validate_local.py --corpus both
+python scripts/test_local.py "Who communicated most frequently with Kenneth Lay?"
+python scripts/validate_local.py --corpus enron
 python scripts/validate_parity.py --llm databricks
 python scripts/preflight.py --parity
 ```
 
-The public serving entrypoint remains `src/agent/agent_serving.py`, but it now acts as a thin compatibility loader over `src/agent/_agent_core.py`. For day-to-day navigation, prefer the focused modules in `src/agent/` such as `config.py`, `backends.py`, `entity_resolution.py`, `planner.py`, and the tool-family modules.
+The public serving entrypoint remains `src/agent/agent_serving.py`, but it now acts as a thin compatibility loader over `src/agent/_agent_core.py`. For day-to-day navigation, prefer `src/agent/_agent_core.py`, `src/agent/enron_tools.py`, `src/agent/enron_analytics_tools.py`, `src/agent/pattern_registry.py`, and `src/runtime/`.
 
 **Deployment:**
 ```bash
@@ -267,7 +250,7 @@ databricks bundle deploy --target dev
 
 - **Databricks** — Unity Catalog, Delta Lake, Model Serving, MLflow, Genie Spaces
 - **LangGraph** — Agent orchestration with tool-calling
-- **Foundation Model API** — `databricks-meta-llama-3-3-70b-instruct` (70B) and `databricks-meta-llama-3-1-8b-instruct` (8B)
+- **Foundation Model API** — `databricks-gpt-5-4-nano` for synthesis and `databricks-llama-4-maverick` for tool-calling / general reasoning
 - **MLflow 3** — Tracing, model logging, and GenAI evaluation with governance scorers via `ResponsesAgent`
 - **Dash** (Plotly) — Interactive demo web app with `dash_bootstrap_components` (DARKLY theme)
 - **Databricks Asset Bundles** — One-command deployment (`databricks bundle deploy`) for both the web app and pipeline job

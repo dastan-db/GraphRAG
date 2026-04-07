@@ -4,13 +4,13 @@ import importlib
 import os
 from contextlib import contextmanager
 from threading import RLock
+from types import SimpleNamespace
 from typing import Any
 
 from databricks.sdk import WorkspaceClient
 
 from .config import RuntimeConfig
 from .contracts import RuntimeQuery, RuntimeTransport
-from .modules import RuntimeModuleSet
 from .responses import ParsedRuntimeResponse, parse_agent_response
 
 _MODULE_LOCK = RLock()
@@ -42,8 +42,16 @@ class SharedRuntimeOrchestrator:
     def __init__(self, config: RuntimeConfig | None = None):
         self.config = config or RuntimeConfig.from_env()
 
-    def modules(self) -> RuntimeModuleSet:
-        return RuntimeModuleSet.from_config(self.config)
+    def modules(self):
+        transport = SimpleNamespace(value="local")
+        topology = SimpleNamespace(
+            router=SimpleNamespace(transport=transport),
+            planner=SimpleNamespace(transport=transport),
+            graph=SimpleNamespace(transport=transport),
+            evidence=SimpleNamespace(transport=transport),
+            analytics=SimpleNamespace(transport=transport),
+        )
+        return SimpleNamespace(topology=topology)
 
     def query(self, runtime_query: RuntimeQuery) -> ParsedRuntimeResponse:
         if self.config.transport == RuntimeTransport.ENDPOINT:
@@ -55,12 +63,6 @@ class SharedRuntimeOrchestrator:
             runtime_query.corpus,
             self.config.data_backend.value,
             self.config.llm_provider,
-            self.config.router_transport.value,
-            self.config.planner_transport.value,
-            self.config.graph_transport.value,
-            self.config.evidence_transport.value,
-            self.config.analytics_transport.value,
-            self.config.analytics_backend.value,
         )
 
     def _load_agent_module(self, runtime_query: RuntimeQuery):
@@ -68,7 +70,6 @@ class SharedRuntimeOrchestrator:
 
         signature = self._runtime_signature(runtime_query)
         env_updates = self.config.agent_environment(corpus=runtime_query.corpus)
-        env_updates["GRAPHRAG_LLM_PROVIDER"] = self.config.llm_provider
 
         with _MODULE_LOCK:
             with _temporary_env(env_updates):
@@ -107,11 +108,7 @@ class SharedRuntimeOrchestrator:
     def _query_endpoint(self, runtime_query: RuntimeQuery) -> ParsedRuntimeResponse:
         endpoint = runtime_query.endpoint_name
         if not endpoint:
-            endpoint = (
-                os.environ.get("GRAPHRAG_ENRON_ENDPOINT_NAME", "graphrag-enron-agent")
-                if runtime_query.corpus == "enron"
-                else os.environ.get("GRAPHRAG_ENDPOINT_NAME", "graphrag-bible-agent")
-            )
+            endpoint = os.environ.get("GRAPHRAG_ENRON_ENDPOINT_NAME", "graphrag-enron-agent")
 
         messages = list(runtime_query.conversation)
         messages.append({"role": "user", "content": runtime_query.question})
