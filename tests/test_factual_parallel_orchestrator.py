@@ -571,10 +571,13 @@ class TestExternalImplementerAdapter:
     def test_build_implementation_log_apply_mode_mutates_agent_file(self, tmp_path):
         from src.agent.factual_external_implementer import build_implementation_log
 
-        agent_path = tmp_path / "src" / "agent" / "agent_serving.py"
+        agent_path = tmp_path / "src" / "agent" / "_agent_core.py"
         agent_path.parent.mkdir(parents=True, exist_ok=True)
         agent_path.write_text(_minimal_agent_serving_fixture())
-        orchestrator_path = tmp_path / "src" / "agent" / "factual_parallel_orchestrator.py"
+        orchestrator_path = (
+            tmp_path / "src" / "_internal" / "agent" / "factual_parallel_orchestrator.py"
+        )
+        orchestrator_path.parent.mkdir(parents=True, exist_ok=True)
         orchestrator_path.write_text(_minimal_orchestrator_fixture())
 
         payload = build_implementation_log(

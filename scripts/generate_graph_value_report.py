@@ -536,9 +536,9 @@ def generate():
     w("")
     w("| File | Description |")
     w("|---|---|")
-    w("| `src/evaluation/graph_value_test_suite.json` | Test suite (35 core + 12 scoped cases) |")
-    w("| `src/evaluation/graph_value_runner.py` | Scoring engine with source_grounding, audit_trail, scope_compliance |")
-    w("| `src/evaluation/generate_graph_value_suite.py` | Test case generator |")
+    w("| `src/_internal/evaluation/graph_value_test_suite.json` | Test suite (35 core + 12 scoped cases) |")
+    w("| `src/_internal/evaluation/graph_value_runner.py` | Scoring engine with source_grounding, audit_trail, scope_compliance |")
+    w("| `src/_internal/evaluation/generate_graph_value_suite.py` | Test case generator |")
     w("| `scripts/run_graph_value_eval.py` | CLI runner for all variants |")
     w("| `scripts/generate_graph_value_report.py` | Report generator (this report) |")
 

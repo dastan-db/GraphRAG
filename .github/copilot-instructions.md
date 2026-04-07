@@ -111,26 +111,28 @@ Agent and ML model code MUST be validated locally before deploying to Databricks
 
 ## Architecture
 
-`src/agent/agent_serving.py` uses three abstractions that enable environment-agnostic agent code:
+The public serving entrypoint is `src/agent/agent_serving.py`, which now loads the private implementation in `src/agent/_agent_core.py`. The environment-agnostic architecture is surfaced through focused modules in `src/agent/`:
 
 1. **`DataBackend` protocol** — pluggable data access layer
    - `DatabricksBackend` — Statement Execution API (production, Model Serving)
    - `LocalBackend` — DuckDB with exported data (local development)
+   - `LakebaseBackend` — psycopg direct to Lakebase PostgreSQL (app/local integration)
 
 2. **`_get_llm()` factory** — pluggable LLM provider
    - `ChatDatabricks` (default, production)
    - `ChatOpenAI` or `ChatOllama` (local development)
 
 3. **Environment variables** control the backend:
-   - `GRAPHRAG_SOLUTION_ACCELERATOR_BACKEND` = `local` | `databricks` (default: `databricks`)
-   - `GRAPHRAG_SOLUTION_ACCELERATOR_LLM_PROVIDER` = `databricks` | `openai` | `ollama` (default: `databricks`)
+   - `GRAPHRAG_BACKEND` = `local` | `lakebase` | `databricks`
+   - `GRAPHRAG_DATA_BACKEND` = `local` | `lakebase` | `databricks` (app/runtime compatibility alias)
+   - `GRAPHRAG_LLM_PROVIDER` = `databricks` | `openai` | `ollama` | `gateway` (default: `databricks`)
 
 ## Rules
 
 - **NEVER deploy to Model Serving as the first test of a code change.** Always validate locally first.
 - **Tool functions must not import backend-specific modules at the top level.** All data access goes through `_backend.execute_sql()`.
 - **LLM instantiation must go through `_get_llm()`.** Never hardcode `ChatDatabricks(...)` directly.
-- **Keep `data/local.duckdb` fresh.** Run `scripts/export_local_data.py` when the schema or data changes.
+- **Keep local DuckDB exports fresh.** Run `scripts/export_local_data.py` when the schema or data changes; the defaults are `data/graphrag_enron.duckdb` for Enron and `data/graphrag.duckdb` for Bible.
 - **MCP tools gracefully degrade.** `_get_mcp_tools()` returns `[]` when the MCP server is unavailable.
 
 

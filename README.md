@@ -26,10 +26,11 @@ GraphRAG/
 ├── src/                       ALL PRODUCT SOURCE CODE
 │   ├── config.py              Shared config (catalog, schema, endpoints)
 │   ├── extraction/            LLM extraction: prompts, pipeline, dedup
-│   ├── agent/                 LangGraph agent: tools, serving, pattern registry
-│   ├── evaluation/            Governance scorers, MLflow evaluation, baselines
+│   ├── agent/                 Thin serving shim + focused agent modules
+│   ├── evaluation/            Shipped governance scorers, question bank, active baselines
 │   ├── runtime/               Shared orchestrator, contracts, module adapters
-│   └── app/                   Dash web application (7 pages, backend, assets)
+│   ├── app/                   Dash web application (7 pages, backend, assets)
+│   └── _internal/             Internal hardening loops and experimental evaluators
 │
 ├── notebooks/                 DATABRICKS NOTEBOOKS
 │   ├── 06–12                  Enron pipeline (data prep → graph → enrichment → agent → eval)
@@ -37,6 +38,7 @@ GraphRAG/
 │   └── spikes/                Exploratory/debug notebooks
 │
 ├── scripts/                   CLI utilities (deploy, eval, local test, preflight)
+│   └── _internal/             Dev-only loops and benchmarking helpers
 ├── tests/                     ALL TESTS
 ├── deploy/                    DABs resource definitions (pipeline, enron, webapp, MCP)
 ├── docs/                      Blog posts and standalone documentation
@@ -44,6 +46,8 @@ GraphRAG/
 ├── .execution/                SDE + Drucker discipline (phases, decisions)
 └── .cursor/                   Cursor tooling (rules, agents, skills)
 ```
+
+Customer-facing product code lives in `src/`. Internal hardening loops, experimental evaluators, and archived benchmarking machinery live under `src/_internal/` and `scripts/_internal/`, with thin compatibility wrappers left at historical import paths where needed.
 
 ## The Problem
 
@@ -249,6 +253,8 @@ python scripts/validate_local.py --corpus both
 python scripts/validate_parity.py --llm databricks
 python scripts/preflight.py --parity
 ```
+
+The public serving entrypoint remains `src/agent/agent_serving.py`, but it now acts as a thin compatibility loader over `src/agent/_agent_core.py`. For day-to-day navigation, prefer the focused modules in `src/agent/` such as `config.py`, `backends.py`, `entity_resolution.py`, `planner.py`, and the tool-family modules.
 
 **Deployment:**
 ```bash

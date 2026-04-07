@@ -21,7 +21,7 @@ ENRON_REGISTERED_MODEL = f"{ENRON_CATALOG}.{ENRON_SCHEMA}.graphrag_enron_agent"
 
 DEFAULT_LLM_ENDPOINT = os.environ.get(
     "GRAPHRAG_LLM_ENDPOINT",
-    "databricks-meta-llama-3-3-70b-instruct",
+    "databricks-llama-4-maverick",
 )
 DEFAULT_SMALL_LLM_ENDPOINT = os.environ.get(
     "GRAPHRAG_SMALL_LLM_ENDPOINT",
@@ -29,7 +29,7 @@ DEFAULT_SMALL_LLM_ENDPOINT = os.environ.get(
 )
 DEFAULT_SYNTHESIS_ENDPOINT = os.environ.get(
     "GRAPHRAG_SYNTHESIS_ENDPOINT",
-    DEFAULT_LLM_ENDPOINT,
+    "databricks-gpt-5-4-nano",
 )
 DEFAULT_REACT_ENDPOINT = os.environ.get(
     "GRAPHRAG_REACT_ENDPOINT",

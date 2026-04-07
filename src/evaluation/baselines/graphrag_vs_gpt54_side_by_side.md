@@ -1,7 +1,7 @@
 # GraphRAG vs GPT-5.4 Side-by-Side
 
-- Accepted GraphRAG run: `factual_baseline_quality_crosscut_v3.json`
-- GPT baseline run: `gpt54_side_by_side_full_v1.json`
+- Accepted GraphRAG run label: `factual_baseline_quality_crosscut_v3.json` (historical JSON artifact pruned during repo simplification)
+- GPT baseline run label: `gpt54_side_by_side_full_v1.json` (historical JSON artifact pruned during repo simplification)
 - Overall delta: `+0.3096`
 - Question record: `wins=89`, `losses=0`, `near_ties=4`
 

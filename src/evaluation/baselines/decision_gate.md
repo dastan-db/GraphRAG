@@ -13,7 +13,7 @@ Decision: `Continue`
 - Holdout floor met: `True`
 - GraphRAG vs GPT overall delta: `+0.3096`
 - GraphRAG question record: `wins=89`, `losses=0`, `near_ties=4`
-- Candidate run: `factual_baseline_quality_crosscut_v4.json`
+- Candidate run label: `factual_baseline_quality_crosscut_v4.json` (historical JSON artifact pruned during repo simplification)
 - Candidate promoted: `False`
 - Candidate overall: `0.7622`
 - Candidate holdout: `0.8450`

@@ -89,6 +89,7 @@ def stage_src_tree(repo_root: Path) -> Path:
     staged_src = staging_root / "src"
     copy_plan = [
         ("agent/agent_serving.py", "agent/agent_serving.py"),
+        ("agent/_agent_core.py", "agent/_agent_core.py"),
         ("agent/enron_promotion.py", "agent/enron_promotion.py"),
         ("agent/pattern_registry.py", "agent/pattern_registry.py"),
         (
@@ -117,6 +118,7 @@ def stage_src_tree(repo_root: Path) -> Path:
 
     required_paths = [
         staged_src / "agent" / "agent_serving.py",
+        staged_src / "agent" / "_agent_core.py",
         staged_src / "agent" / "enron_promotion.py",
         staged_src / "agent" / "pattern_registry.py",
         staged_src / "evaluation" / "baselines" / "genie_iteration0_baseline.json",

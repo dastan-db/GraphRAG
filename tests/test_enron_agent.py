@@ -1005,11 +1005,27 @@ class TestEntityMemory:
         assert "Kenneth Lay" in ctx
         assert "Jeff Skilling" in ctx
 
+    def test_context_for_classifier_includes_last_tool_context(self, mod):
+        em = mod.EntityMemory()
+        em.record_user_entity("Kenneth Lay")
+        em.extract(
+            '{"entity": "Kenneth Lay", "top_contacts": [{"name": "Leonardo Pacheco", "email": "leonardo.pacheco@enron.com"}]}',
+            tool_name="find_top_contacts",
+        )
+        ctx = em.context_for_classifier()
+        assert "Recent tool context:" in ctx
+        assert "Leonardo Pacheco" in ctx
+
     def test_clear(self, mod):
         em = mod.EntityMemory()
         em.extract('{"name": "Kenneth Lay"}')
+        em.extract(
+            '{"entity": "Kenneth Lay", "top_contacts": [{"name": "Leonardo Pacheco"}]}',
+            tool_name="find_top_contacts",
+        )
         em.clear()
         assert len(em.recent) == 0
+        assert em.last_tool_context == ""
 
 
 # ===================================================================
@@ -1217,9 +1233,9 @@ class TestQueryAndEnrichEnhanced:
 class TestCoreference:
     """Tests for coreference resolution and user-entity tracking."""
 
-    def test_planner_does_not_regex_resolve(self, mod):
-        """_plan_query should pass the original question to the planner,
-        not the regex-rewritten version."""
+    def test_planner_receives_history_aware_resolution(self, mod):
+        """_plan_query should pass the conversationally resolved question
+        to the planner when prior turns clearly identify the subject."""
         question = "Who is his assistant?"
         history = [
             {"role": "user", "content": "Who reported to Jeff Skilling?"},
@@ -1227,8 +1243,9 @@ class TestCoreference:
         ]
         em_context = "\nRecent entities from prior conversation: Gina Corteselli, Jeff Skilling\n"
 
-        # _plan_query builds user_block with the question — verify the question
-        # is not mangled by regex before reaching the planner.
+        # _plan_query builds user_block with the current question — verify it
+        # resolves against the recent user-facing subject rather than an
+        # incidental tool entity.
         # We mock the LLM to capture what it receives.
         captured = {}
         class _FakeLLM:
@@ -1251,10 +1268,10 @@ class TestCoreference:
         with patch.object(mod, "_get_llm", return_value=_FakeLLM()):
             plan = mod._plan_query(question, history, em_context)
 
-        assert "## Current Question\nWho is his assistant?" in captured["user_block"], \
-            "Planner should receive the original question with pronouns intact"
+        assert "## Current Question\nWho is Jeff Skilling assistant?" in captured["user_block"], \
+            "Planner should receive the conversation-aware resolved question"
         assert "Gina Corteselli" not in captured["user_block"].split("## Current Question")[1], \
-            "Pronouns should NOT be regex-replaced before the planner sees them"
+            "Resolution should target the user-facing subject, not incidental entities"
 
     def test_user_entity_prioritized_in_context(self, mod):
         """context_for_classifier() must list user-mentioned entities before
@@ -1288,6 +1305,27 @@ class TestCoreference:
         assert "Jeff Skilling" in resolved
         assert "Gina Corteselli" not in resolved
 
+    def test_resolve_coreference_handles_demonstratives(self, mod):
+        em = mod.EntityMemory()
+        em.record_user_entity("Kenneth Lay")
+        em.extract(
+            '{"entity": "Kenneth Lay", "top_contacts": [{"name": "Leonardo Pacheco", "email": "leonardo.pacheco@enron.com"}]}',
+            tool_name="find_top_contacts",
+        )
+        ctx = em.context_for_classifier()
+
+        resolved = mod._resolve_coreference("What topics were those emails about?", [], ctx)
+        assert resolved == "What topics were emails involving Kenneth Lay about?"
+
+    def test_resolve_coreference_uses_recent_user_turn_when_entity_memory_empty(self, mod):
+        history = [{"role": "user", "content": "Who communicated most frequently with Kenneth Lay?"}]
+        resolved = mod._resolve_coreference(
+            "What topics were those emails about?",
+            history,
+            "",
+        )
+        assert resolved == "What topics were emails involving Kenneth Lay about?"
+
     def test_resolve_coreference_skips_long_questions(self, mod):
         """Questions longer than 15 words should not be rewritten — they
         likely name their own subjects."""
@@ -1301,9 +1339,143 @@ class TestCoreference:
         em = mod.EntityMemory()
         em.extract('{"name": "Kenneth Lay"}')
         em.record_user_entity("Jeff Skilling")
+        em.extract(
+            '{"entity": "Kenneth Lay", "top_contacts": [{"name": "Leonardo Pacheco"}]}',
+            tool_name="find_top_contacts",
+        )
         em.clear()
         assert len(em.recent) == 0
         assert len(em.user_mentioned) == 0
+        assert em.last_tool_context == ""
+
+
+class TestResolveEntityStemFallback:
+
+    def test_resolve_entity_short_last_name_filters_fallback_candidates(self, mod):
+        backend = MockBackend([
+            [],
+            [],
+            [],
+            [
+                {
+                    "email_address": "kenneth_lay@enron.com",
+                    "name_normalized": "kenneth_lay@enron.com",
+                    "display_name": None,
+                },
+                {
+                    "email_address": "kenneth.shulklapper@enron.com",
+                    "name_normalized": "kenneth.shulklapper@enron.com",
+                    "display_name": None,
+                },
+                {
+                    "email_address": "kenneth_lackey@edisonmission.com",
+                    "name_normalized": "kenneth_lackey@edisonmission.com",
+                    "display_name": None,
+                },
+                {
+                    "email_address": "kenneth.l.lay@enron.com",
+                    "name_normalized": "kenneth.l.lay@enron.com",
+                    "display_name": None,
+                },
+                {
+                    "email_address": "kenneth.lay@enron.com",
+                    "name_normalized": "Lay, Kenneth </O=ENRON/OU=NA/CN=RECIPIENTS/CN=KLAY>",
+                    "display_name": "Lay, Kenneth </O=ENRON/OU=NA/CN=RECIPIENTS/CN=KLAY>",
+                },
+            ],
+        ])
+        with patch.object(mod, "_backend", backend), patch.object(mod, "_fuzzy_match_entity", return_value=[]):
+            resolved = mod.resolve_entity("Kenneth Lay")
+
+        assert backend.queries[-1]["params"]["stem_pat"] == "%lay%"
+        assert resolved.email_addresses == [
+            "kenneth_lay@enron.com",
+            "kenneth.l.lay@enron.com",
+            "kenneth.lay@enron.com",
+        ]
+        assert "kenneth.shulklapper@enron.com" not in resolved.email_addresses
+        assert "kenneth_lackey@edisonmission.com" not in resolved.email_addresses
+
+
+class TestTopContactsPayload:
+
+    def test_build_top_contacts_payload_flags_directional_asymmetry(self, mod):
+        rows = [
+            {"contact_email": "leonardo.pacheco@enron.com", "sent": 0, "received": 28, "total": 28},
+            {"contact_email": "karen.denne@enron.com", "sent": 0, "received": 12, "total": 12},
+        ]
+        display_map = {
+            "leonardo.pacheco@enron.com": "Leonardo Pacheco",
+            "karen.denne@enron.com": "Karen Denne",
+        }
+        with patch.object(mod, "_wave1_lookup_display_names", return_value=display_map):
+            payload = json.loads(
+                mod._build_top_contacts_payload(
+                    _make_resolved(mod, "Kenneth Lay"),
+                    direction="both",
+                    results=rows,
+                )
+            )
+
+        assert payload["top_contacts"][0]["name"] == "Leonardo Pacheco"
+        assert "data_quality_warning" in payload
+        assert "sent=0" in payload["data_quality_warning"]
+
+
+class TestTopContactsQuery:
+
+    def test_query_top_contacts_aggregates_exact_email_addresses_before_wildcards(self, mod, mock_backend):
+        responses = [
+            [{"contact_email": "robert@kovair.com", "sent": "0", "received": "1", "total": "1"}],
+            [{"contact_email": "leonardo.pacheco@enron.com", "sent": "0", "received": "28", "total": "28"}],
+        ]
+        backend, patcher = mock_backend(responses)
+        resolved = _make_resolved(
+            mod,
+            "Kenneth Lay",
+            email_patterns=["%kenneth.lay%"],
+            email_addresses=["kenneth.l.lay@enron.com", "kenneth.lay@enron.com"],
+        )
+
+        with patcher:
+            rows, _sql = mod._query_top_contacts_rows(resolved, direction="both", limit=10)
+
+        assert len(backend.queries) == 2
+        assert " = :email_pat" in backend.queries[0]["query"]
+        assert rows[0]["contact_email"] == "leonardo.pacheco@enron.com"
+        assert rows[0]["total"] == 28
+
+
+class TestTopicDistributionQuery:
+
+    def test_query_topic_distribution_inlines_limit_and_continues_after_empty_attempt(self, mod, mock_backend):
+        responses = [
+            [],
+            [{"topic": "Enron", "thread_count": "19", "sample_subject": "(no subject)"}],
+        ]
+        backend, patcher = mock_backend(responses)
+        resolved = _make_resolved(mod, "Kenneth Lay", entity_id_patterns=["%kenneth_lay%"])
+
+        with (
+            patcher,
+            patch.object(mod, "BACKEND_TYPE", "databricks"),
+            patch.object(mod, "_entity_mention_patterns", return_value=["%kenneth_lay%", "%kenneth_l_lay%"]),
+        ):
+            rows, _sql, _resolved_entities, resolved_name = mod._query_topic_distribution_rows(
+                "Kenneth Lay",
+                limit=20,
+                resolved=resolved,
+            )
+
+        assert len(backend.queries) == 2
+        assert "LIMIT 20" in backend.queries[0]["query"]
+        assert ":lim" not in backend.queries[0]["query"]
+        assert backend.queries[1]["params"] == {
+            "pattern_0": "%kenneth_lay%",
+            "pattern_1": "%kenneth_l_lay%",
+        }
+        assert resolved_name == "Kenneth Lay"
+        assert rows[0]["topic"] == "Enron"
 
 
 # ===================================================================

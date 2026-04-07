@@ -1,8 +1,8 @@
 # Trust Before/After Metrics
 
-- Phase-2 floor run: `factual_baseline_quality.json`
-- Accepted run: `factual_baseline_quality_crosscut_v3.json`
-- Candidate run: `factual_baseline_quality_crosscut_v4.json`
+- Phase-2 floor run label: `factual_baseline_quality.json` (historical JSON artifact pruned during repo simplification)
+- Accepted run label: `factual_baseline_quality_crosscut_v3.json` (historical JSON artifact pruned during repo simplification)
+- Candidate run label: `factual_baseline_quality_crosscut_v4.json` (historical JSON artifact pruned during repo simplification)
 - Candidate promoted: `False`
 
 ## Headline

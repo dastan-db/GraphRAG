@@ -81,7 +81,14 @@ def main():
 
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-    suite_path = os.path.join(os.path.dirname(__file__), "..", "src", "evaluation", "graph_value_test_suite.json")
+    suite_path = os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "src",
+        "_internal",
+        "evaluation",
+        "graph_value_test_suite.json",
+    )
     with open(suite_path) as f:
         suite = json.load(f)
 
